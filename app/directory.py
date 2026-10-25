@@ -136,6 +136,11 @@ class _Cache:
 _cache = _Cache()
 
 
+def forget_scans() -> None:
+    """Drop every remembered scan: the next scan of each directory reads Telegram."""
+    _cache.scans = {}
+
+
 def _gate_check(now: float) -> None:
     closed_until = downloader.flood_gate.closed_until
     if closed_until > now:

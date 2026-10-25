@@ -25,7 +25,7 @@ def _isolated_directory_scans(monkeypatch):
     from app.safety import FloodGate
 
     monkeypatch.setattr(directory, "RESOLVE_INTERVAL_S", 0)
-    monkeypatch.setattr(directory, "_cache", directory._Cache())
+    directory.forget_scans()
     monkeypatch.setattr(downloader, "flood_gate", FloodGate())
 
 
