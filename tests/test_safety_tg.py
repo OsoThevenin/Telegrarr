@@ -98,5 +98,5 @@ async def test_invite_link_for_non_member_asks_user_to_join(monkeypatch):
     fake = FakeAuthedClient(invite=SimpleNamespace(title="Private"))   # a ChatInvite: not a member
     monkeypatch.setattr(tg, "_client", fake)
     res = await tg.resolve("https://t.me/+AbCdEfGhIjKlMn")
-    assert "join" in res["error"].lower()
+    assert res["error"]["key"] == "err.tg.not_a_member"
     assert not any(isinstance(r, ImportChatInviteRequest) for r in fake.requests)

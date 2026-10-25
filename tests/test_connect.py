@@ -37,7 +37,7 @@ async def test_non_http_arr_url_is_rejected(arr_app):
     r = await arr_app.http.patch("/api/settings", json={"sonarr_url": "javascript:alert(1)"})
 
     assert r.status_code == 400
-    assert "http" in r.json()["detail"]
+    assert r.json()["detail"]["key"] == "err.settings.url_scheme"
     s = (await arr_app.http.get("/api/settings")).json()["settings"]
     assert s["sonarr_url"] == ""
 
@@ -62,7 +62,7 @@ async def test_connection_test_reports_wrong_key_without_echoing_it(arr_app, arr
 
     body = r.json()
     assert body["ok"] is False
-    assert "API key" in body["error"]
+    assert body["error"] == {"key": "err.arr.bad_key", "params": {"app": "Sonarr"}}
     assert "wrong-key-123" not in r.text
 
 
@@ -73,14 +73,15 @@ async def test_connection_test_reports_unreachable_host(arr_app, arrs):
     body = (await arr_app.http.post("/api/connect/test", json={"app": "radarr"})).json()
 
     assert body["ok"] is False
-    assert "http://nowhere.test:7878" in body["error"]
+    assert body["error"]["key"] == "err.arr.unreachable"
+    assert body["error"]["params"]["url"] == "http://nowhere.test:7878"
 
 
 @pytest.mark.asyncio
 async def test_connection_test_reports_missing_settings(arr_app, arrs):
     body = (await arr_app.http.post("/api/connect/test", json={"app": "prowlarr"})).json()
 
-    assert body == {"app": "prowlarr", "ok": False, "error": "Prowlarr URL and API key are not set"}
+    assert body == {"app": "prowlarr", "ok": False, "error": {"key": "err.arr.not_set", "params": {"app": "Prowlarr"}}}
 
 
 @pytest.mark.asyncio
@@ -186,7 +187,8 @@ async def test_register_skips_unconfigured_apps_and_reports_failures(arr_app, ar
 
     assert _statuses(body) == {"prowlarr": "created", "sonarr": "error", "radarr": "skipped"}
     sonarr = next(res for res in body["results"] if res["app"] == "sonarr")
-    assert "Unable to connect to SABnzbd" in sonarr["error"]
+    assert sonarr["error"]["key"] == "err.arr.http"
+    assert "Unable to connect to SABnzbd" in sonarr["error"]["params"]["detail"]
 
 
 @pytest.mark.asyncio
@@ -249,5 +251,6 @@ async def test_sonarr_episodes_is_empty_when_series_not_in_sonarr(arr_app, arrs)
 async def test_sonarr_episodes_raises_when_sonarr_not_configured(arr_app, arrs):
     from app import connect
 
-    with pytest.raises(connect.ArrError, match="Sonarr URL and API key are not set"):
+    with pytest.raises(connect.ArrError) as exc:
         await connect.sonarr_episodes(TVDB_ID, 1)
+    assert (exc.value.key, exc.value.params) == ("err.arr.not_set", {"app": "Sonarr"})

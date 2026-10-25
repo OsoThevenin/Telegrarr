@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, movies, __version__
+from . import i18n
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
@@ -22,6 +23,20 @@ log = logging.getLogger("main")
 
 HERE = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
+
+
+def _bad(status: int, key: str, **params) -> HTTPException:
+    """An HTTP error whose detail is an i18n message the UI translates."""
+    return HTTPException(status, i18n.message(key, **params))
+
+
+def _keyed(status: int, e: i18n.KeyedError) -> HTTPException:
+    return HTTPException(status, e.message())
+
+
+def _page_ctx(lang: str, **extra) -> dict:
+    """Template context: the page language and a translator bound to it."""
+    return {"lang": lang, "t": lambda key, **params: i18n.translate(key, lang, **params), **extra}
 
 
 @contextlib.asynccontextmanager
@@ -82,12 +97,18 @@ async def security_headers(request: Request, call_next):
 async def index(request: Request):
     if not auth.cookie_user(request):
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "index.html")
+    return templates.TemplateResponse(request, "index.html", _page_ctx(i18n.ui_lang()))
+
+
+_LOGIN_ERRORS = {"invalid": "login.err.invalid", "throttled": "login.err.throttled"}
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse(request, "login.html", {"error": error})
+async def login_page(request: Request, error: str = "", wait: int = 0):
+    lang = i18n.ui_lang()
+    key = _LOGIN_ERRORS.get(error)
+    text = i18n.translate(key, lang, wait=wait) if key else ""
+    return templates.TemplateResponse(request, "login.html", _page_ctx(lang, error=text))
 
 
 def _is_secure(request: Request) -> bool:
@@ -105,13 +126,13 @@ async def do_login(request: Request, username: str = Form(...), password: str = 
     if wait:
         db.log("WARN", f"Login attempt from {key} rejected — locked out for {wait}s")
         return RedirectResponse(
-            f"/login?error=Too+many+attempts.+Try+again+in+{wait}+seconds.",
+            f"/login?error=throttled&wait={wait}",
             status_code=303)
 
     if not auth.verify(username, password):
         auth.record_failure(key)
         db.log("WARN", f"Failed login for '{username}' from {key}")
-        return RedirectResponse("/login?error=Invalid+credentials", status_code=303)
+        return RedirectResponse("/login?error=invalid", status_code=303)
 
     auth.record_success(key)
     r = RedirectResponse("/", status_code=303)
@@ -250,7 +271,7 @@ async def api_system_scan_all(user=Depends(auth.require_user)):
         chans = c.execute("SELECT * FROM channels WHERE enabled=1").fetchall()
     for ch in chans:
         scanner._spawn(scanner.scan_channel(client, ch))
-    return {"ok": True, "message": f"Scanning {len(chans)} channel(s)"}
+    return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
 
 
 @app.get("/api/system/backups")
@@ -295,7 +316,7 @@ def _normalize_chat_id(raw) -> int:
     try:
         cid = int(raw)
     except (TypeError, ValueError):
-        raise HTTPException(400, "chat_id must be numeric")
+        raise _bad(400, "err.channel.chat_id_numeric")
     if cid > 0 and not str(cid).startswith("100"):
         return int(f"-100{cid}")
     if cid > 0:
@@ -311,14 +332,14 @@ def _release_fields(payload: dict) -> dict:
     fields = {k: payload[k] for k in _CHANNEL_CHOICES if payload.get(k) is not None}
     for key, value in fields.items():
         if value not in _CHANNEL_CHOICES[key]:
-            raise HTTPException(400, f"{key} must be one of: {', '.join(_CHANNEL_CHOICES[key])}")
+            raise _bad(400, "err.channel.choice", field=key, choices=", ".join(_CHANNEL_CHOICES[key]))
     return fields
 
 
 @app.post("/api/channels")
 async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
-        raise HTTPException(400, "chat_id is required")
+        raise _bad(400, "err.channel.chat_id_required")
     release = _release_fields(payload)
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
@@ -327,7 +348,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     try:
         poll = settings.poll_minutes(payload.get("poll_minutes", channels.default_poll_minutes()))
     except settings.SettingRejected as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
     try:
         client = get_client()
         if not client.is_connected():
@@ -348,7 +369,7 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
         try:
             payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
         except settings.SettingRejected as e:
-            raise HTTPException(400, str(e))
+            raise _keyed(400, e)
     sets = [f"{k}=?" for k in payload if k in allowed]
     vals = [payload[k] for k in payload if k in allowed]
     if not sets:
@@ -372,7 +393,7 @@ async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user
         return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
                                          title=payload.get("title") or "")
     except tmdb.TMDBError as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
 
 
 @app.delete("/api/channels/{cid}")
@@ -392,7 +413,7 @@ async def api_scan(cid: int, user=Depends(auth.require_user)):
     if not client.is_connected():
         await client.connect()
     scanner._spawn(scanner.scan_channel(client, ch))
-    return {"ok": True, "message": "scan started"}
+    return {"ok": True, "message": i18n.message("scan.started")}
 
 
 @app.post("/api/channels/{cid}/backfill")
@@ -405,7 +426,7 @@ async def api_backfill(cid: int, user=Depends(auth.require_user)):
     if not client.is_connected():
         await client.connect()
     scanner._spawn(scanner.backfill_channel(client, ch))
-    return {"ok": True, "message": "backfill walking full history — watch Logs."}
+    return {"ok": True, "message": i18n.message("scan.backfill_started")}
 
 
 # ── downloads ─────────────────────────────────────────────────────────
@@ -433,7 +454,7 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     action = payload.get("action")
     ids = payload.get("ids", [])
     if action not in ("cancel", "retry", "delete"):
-        raise HTTPException(400, "bad action")
+        raise _bad(400, "err.downloads.bad_action")
     for i in ids:
         await _single_action(action, int(i))
     return {"ok": True, "count": len(ids)}
@@ -533,14 +554,14 @@ async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
     try:
         return {"ok": True, "settings": settings.apply(payload)}
     except settings.SettingRejected as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
 
 
 # ── Connect page: Prowlarr / Sonarr / Radarr ──────────────────────────
 def _arr_app_name(payload: dict) -> str:
     app_name = str(payload.get("app", ""))
     if app_name not in connect.APP_TITLES:
-        raise HTTPException(400, "app must be one of prowlarr, sonarr, radarr")
+        raise _bad(400, "err.connect.unknown_app")
     return app_name
 
 
@@ -553,7 +574,7 @@ async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
 async def api_connect_register(user=Depends(auth.require_user)):
     me_url = settings.get("telegrarr_url", "")
     if not me_url:
-        raise HTTPException(400, "Set the Telegrarr URL the *arr apps use to reach Telegrarr first")
+        raise _bad(400, "err.connect.own_url_missing")
     results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
     for res in results:
         if res["status"] == "created":
@@ -568,10 +589,9 @@ async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
     new = payload.get("new", "")
     if not auth.verify(user, current):
-        raise HTTPException(400, "current password is incorrect")
+        raise _bad(400, "err.account.wrong_password")
     if len(new) < auth.MIN_PASSWORD_LEN:
-        raise HTTPException(
-            400, f"new password must be at least {auth.MIN_PASSWORD_LEN} characters")
+        raise _bad(400, "err.account.password_short", min=auth.MIN_PASSWORD_LEN)
     auth.set_password(user, new)
     db.log("INFO", "Admin password changed")
     return {"ok": True}
@@ -582,11 +602,11 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
     current = payload.get("current", "")
     new = (payload.get("username") or "").strip()
     if not auth.verify(user, current):
-        raise HTTPException(400, "current password is incorrect")
+        raise _bad(400, "err.account.wrong_password")
     if len(new) < 3:
-        raise HTTPException(400, "username must be at least 3 characters")
+        raise _bad(400, "err.account.username_short", min=3)
     if new != user and auth.username_exists(new):
-        raise HTTPException(400, "that username is already taken")
+        raise _bad(400, "err.account.username_taken")
     auth.set_username(user, new)
     db.log("INFO", f"Admin username changed to {new}")
     # username change bumps the session epoch (revokes old cookies) — re-issue ours
@@ -638,9 +658,9 @@ async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
     try:
         return await tmdb.search_series(q)
     except tmdb.KeyMissing as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
     except tmdb.TMDBError as e:
-        raise HTTPException(502, str(e))
+        raise _keyed(502, e)
 
 
 @app.get("/api/tmdb/movies")
@@ -648,9 +668,9 @@ async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(aut
     try:
         return await tmdb.search_movies(q, year)
     except tmdb.KeyMissing as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
     except tmdb.TMDBError as e:
-        raise HTTPException(502, str(e))
+        raise _keyed(502, e)
 
 
 # ── movie channels: Pending review ────────────────────────────────────
@@ -664,9 +684,9 @@ async def api_review_assign(cid: int, mid: int, payload: dict, user=Depends(auth
     try:
         return await movies.assign(cid, mid, payload.get("tmdb_id"), payload.get("imdb_id"))
     except movies.NotPending as e:
-        raise HTTPException(404, str(e))
+        raise _keyed(404, e)
     except movies.ReviewError as e:
-        raise HTTPException(400, str(e))
+        raise _keyed(400, e)
 
 
 @app.post("/api/review/{cid}/{mid}/discard")
@@ -674,7 +694,7 @@ async def api_review_discard(cid: int, mid: int, user=Depends(auth.require_user)
     try:
         movies.discard(cid, mid)
     except movies.NotPending as e:
-        raise HTTPException(404, str(e))
+        raise _keyed(404, e)
     return {"ok": True}
 
 
@@ -689,16 +709,16 @@ async def api_directory_scan(payload: dict, user=Depends(auth.require_user)):
     chat_id = _normalize_chat_id(payload.get("chat_id"))
     client = await tg.authorized_client()
     if not client:
-        raise HTTPException(409, "Telegram not connected")
+        raise _bad(409, "err.tg.not_connected")
     try:
         return await directory.scan(client, chat_id)
     except directory.ScanRefused as e:
-        raise HTTPException(429, str(e))
+        raise _keyed(429, e)
 
 
 def _import_item(raw) -> directory.ImportItem:
     if not isinstance(raw, dict):
-        raise HTTPException(400, "each channel must be an object")
+        raise _bad(400, "err.directory.import_item")
     return directory.ImportItem(chat_id=_normalize_chat_id(raw.get("chat_id")), title=str(raw.get("title") or ""),
                                 tmdb_id=raw.get("tmdb_id"), tvdb_id=raw.get("tvdb_id"),
                                 series_title=str(raw.get("series_title") or ""))
@@ -708,9 +728,9 @@ def _import_item(raw) -> directory.ImportItem:
 async def api_directory_import(payload: dict, user=Depends(auth.require_user)):
     raw = payload.get("channels")
     if not isinstance(raw, list) or not raw:
-        raise HTTPException(400, "channels must be a non-empty list")
+        raise _bad(400, "err.directory.import_empty")
     if len(raw) > directory.MAX_IMPORT_ITEMS:
-        raise HTTPException(400, f"at most {directory.MAX_IMPORT_ITEMS} channels per import")
+        raise _bad(400, "err.directory.import_too_many", max=directory.MAX_IMPORT_ITEMS)
     return {"results": await directory.import_channels([_import_item(r) for r in raw])}
 
 

@@ -21,6 +21,7 @@ from telethon.errors import FloodWaitError
 
 from . import channels, downloader, settings, tg, tmdb
 from .config import POLL_FLOOR_MINUTES
+from .i18n import KeyedError, message
 
 log = logging.getLogger("directory")
 
@@ -30,12 +31,12 @@ RESOLVE_INTERVAL_S = 1.5          # pause between two username/invite resolution
 RESCAN_AFTER_S = POLL_FLOOR_MINUTES * 60   # a directory is read from Telegram at most this often
 MAX_IMPORT_ITEMS = 200
 
-RATE_LIMITED = "Telegram asked to slow down; scan again later"
-NOT_A_MEMBER = "Private invite link: join the channel in your Telegram app first"
-NOT_RESOLVED = "Not resolved: over the per-scan limit, scan again later"
+RATE_LIMITED = message("err.directory.rate_limited")
+NOT_A_MEMBER = message("err.directory.not_a_member")
+NOT_RESOLVED = message("err.directory.not_resolved")
 
 
-class ScanRefused(Exception):
+class ScanRefused(KeyedError):
     """The scan cannot run now (account-safety limits); carries the reason."""
 
 
@@ -115,7 +116,7 @@ class Resolved:
     chat_id: int | None = None
     title: str = ""
     username: str = ""
-    error: str = ""
+    error: dict | None = None        # an i18n message when not resolved
 
 
 @dataclass(frozen=True)
@@ -139,7 +140,7 @@ def _gate_check(now: float) -> None:
     closed_until = downloader.flood_gate.closed_until
     if closed_until > now:
         minutes = max(1, round((closed_until - now) / 60))
-        raise ScanRefused(f"Telegram rate limit active; try again in about {minutes} min")
+        raise ScanRefused("err.directory.rate_limit_active", minutes=minutes)
 
 
 async def _resolve(client, link: ChannelLink) -> Resolved:
@@ -150,9 +151,9 @@ async def _resolve(client, link: ChannelLink) -> Resolved:
     except FloodWaitError:
         raise
     except Exception as e:
-        return Resolved(link.link, link.kind, False, error=f"Could not resolve: {e}")
+        return Resolved(link.link, link.kind, False, error=message("err.directory.resolve_failed", error=str(e)))
     if not getattr(ent, "title", None):
-        return Resolved(link.link, link.kind, False, error="Not a channel")
+        return Resolved(link.link, link.kind, False, error=message("err.directory.not_a_channel"))
     return Resolved(link.link, link.kind, True, chat_id=utils.get_peer_id(ent), title=ent.title,
                     username=getattr(ent, "username", None) or "")
 
@@ -183,19 +184,19 @@ async def _read_telegram(client, chat_id: int, now: float) -> TelegramScan:
         messages = [m async for m in client.iter_messages(chat_id, limit=SCAN_MESSAGE_LIMIT)]
     except FloodWaitError as e:
         await downloader.flood_gate.trip(e.seconds)
-        raise ScanRefused(RATE_LIMITED) from e
+        raise ScanRefused(RATE_LIMITED["key"]) from e
     except Exception as e:
-        raise ScanRefused(f"Could not read the directory channel: {e}") from e
+        raise ScanRefused("err.directory.read_failed", error=str(e)) from e
     entries, complete = await _resolve_all(client, extract_links(messages), chat_id)
     return TelegramScan(directory={"chat_id": chat_id, "title": getattr(ent, "title", "") or ""},
                         messages_scanned=len(messages), entries=tuple(entries), scanned_at=now,
                         complete=complete)
 
 
-async def _suggestions(entries) -> tuple[dict[str, dict | None], str]:
+async def _suggestions(entries) -> tuple[dict[str, dict | None], dict | None]:
     """TMDB suggestion per resolved link, plus a TMDB error message (if any)."""
     if not (settings.get("tmdb_key", "") or "").strip():
-        return {}, tmdb.KEY_REQUIRED
+        return {}, tmdb.KeyMissing().message()
     out: dict[str, dict | None] = {}
     for e in entries:
         if not e.resolved:
@@ -203,9 +204,9 @@ async def _suggestions(entries) -> tuple[dict[str, dict | None], str]:
         try:
             hits = await tmdb.search_series(tmdb_query(e.title))
         except tmdb.TMDBError as err:
-            return out, str(err)
+            return out, err.message()
         out = {**out, e.link: hits[0] if hits else None}
-    return out, ""
+    return out, None
 
 
 async def scan(client, chat_id: int, now: float | None = None) -> dict:
@@ -238,13 +239,13 @@ class ImportItem:
 async def _import_one(item: ImportItem, added: dict[int, int], poll: int) -> dict:
     base = {"chat_id": item.chat_id, "title": item.title}
     if item.chat_id in added:
-        return {**base, "status": "skipped", "detail": "Already added", "channel_id": added[item.chat_id]}
+        return {**base, "status": "skipped", "detail": message("directory.already_added"), "channel_id": added[item.chat_id]}
     mapped = item.tmdb_id not in (None, "") or item.tvdb_id not in (None, "")
     if mapped:
         try:
             ids = await tmdb.series_ids(item.tmdb_id, item.tvdb_id)
         except tmdb.TMDBError as e:
-            return {**base, "status": "failed", "detail": str(e)}
+            return {**base, "status": "failed", "detail": e.message()}
     row = channels.upsert(item.chat_id, item.title or f"Channel {item.chat_id}", kind="tv", poll_minutes=poll)
     if mapped:
         # display title: the picked match, else TMDB's, else the cleaned channel title

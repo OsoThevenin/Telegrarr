@@ -11,13 +11,13 @@ import platform
 import httpx
 
 from . import db, settings, __version__ as VERSION
+from .i18n import message
 from .config import (DATA_DIR, DB_PATH, TV_DIR, MIN_FREE_SPACE_GB,
                      DL_WORKERS, MAX_CONCURRENT_DOWNLOADS)
 
 START_TIME = time.time()
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 GITHUB_REPO = "OsoThevenin/Telegrarr"
-WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _BACKUP_RE = re.compile(r"^telearr-backup-[0-9\-]+\.zip$")
 
 
@@ -35,6 +35,10 @@ def _disk():
 
 
 # ── Status / health ───────────────────────────────────────────────────
+def _check(check_id: str, ok, bad_level: str, msg: dict) -> dict:
+    return {"id": check_id, "ok": bool(ok), "level": "" if ok else bad_level, "message": msg}
+
+
 def status(authorized: bool, scanner_alive: bool) -> dict:
     disk = _disk()
     db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
@@ -44,20 +48,16 @@ def status(authorized: bool, scanner_alive: bool) -> dict:
         channels = c.execute("SELECT COUNT(*) FROM channels").fetchone()[0]
         enabled = c.execute("SELECT COUNT(*) FROM channels WHERE enabled=1").fetchone()[0]
         db_ok = c.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-    health = [
-        {"name": "Telegram", "ok": bool(authorized), "level": "" if authorized else "error",
-         "message": "Connected" if authorized
-                    else "Not connected — downloads are paused until you sign in"},
-        {"name": "Scanner", "ok": bool(scanner_alive), "level": "" if scanner_alive else "error",
-         "message": "Running" if scanner_alive else "Background scanner is not running"},
-        {"name": "Disk space", "ok": free_gb >= MIN_FREE_SPACE_GB,
-         "level": "" if free_gb >= MIN_FREE_SPACE_GB else "warn",
-         "message": f"{free_gb:.0f} GB free"
-                    + ("" if free_gb >= MIN_FREE_SPACE_GB else f" — below the {MIN_FREE_SPACE_GB} GB minimum")},
-        {"name": "Download queue", "ok": not paused, "level": "" if not paused else "warn",
-         "message": "Active" if not paused else "Paused"},
-        {"name": "Database", "ok": db_ok, "level": "" if db_ok else "error",
-         "message": f"Healthy · {db_size / 1e6:.1f} MB" if db_ok else "Integrity check failed"},
+    disk_ok = free_gb >= MIN_FREE_SPACE_GB
+    health = [   # the UI names each check by id (health.<id>) and translates its message
+        _check("telegram", authorized, "error", message("health.telegram.ok" if authorized else "health.telegram.off")),
+        _check("scanner", scanner_alive, "error",
+               message("health.scanner.ok" if scanner_alive else "health.scanner.off")),
+        _check("disk", disk_ok, "warn", message("health.disk.ok" if disk_ok else "health.disk.low",
+                                                 free=f"{free_gb:.0f}", min=MIN_FREE_SPACE_GB)),
+        _check("queue", not paused, "warn", message("health.queue.ok" if not paused else "health.queue.paused")),
+        _check("database", db_ok, "error", message("health.database.ok" if db_ok else "health.database.bad",
+                                                   size=f"{db_size / 1e6:.1f}")),
     ]
     return {
         "version": VERSION,
@@ -88,12 +88,11 @@ def tasks() -> list:
         poll = r["poll_minutes"] or 10
         last = r["last_scanned_at"] or 0
         nxt = (last + poll * 60) if last else now
-        days = [WEEKDAYS[int(d)] for d in str(r["weekdays"] or "").split(",")
-                if d != "" and d.isdigit() and 0 <= int(d) <= 6]
-        out.append({
-            "name": f"Scan · {r['title']}",
-            "interval": f"Every {poll} min",
-            "days": "Every day" if len(days) == 7 else ", ".join(days) or "—",
+        days = [int(d) for d in str(r["weekdays"] or "").split(",") if d.isdigit() and 0 <= int(d) <= 6]
+        out.append({   # the UI words the task ("Scan · title", interval, days) in its language
+            "title": r["title"],
+            "poll_minutes": poll,
+            "weekdays": days,
             "enabled": bool(r["enabled"]),
             "last_run": last or None,
             "next_run": nxt if r["enabled"] else None,
@@ -184,11 +183,11 @@ async def check_updates() -> dict:
             latest = (j.get("tag_name") or "").lstrip("v") or None
             url = j.get("html_url") or url
         elif r.status_code == 404:
-            error = "No releases published yet"
+            error = message("updates.no_releases")
         else:
-            error = f"GitHub returned HTTP {r.status_code}"
+            error = message("updates.github_http", status=r.status_code)
     except Exception as e:
-        error = f"Could not reach GitHub: {e}"
+        error = message("updates.github_unreachable", error=str(e))
     up_to_date = latest is None or latest == current
     return {"current": current, "latest": latest, "up_to_date": up_to_date,
             "url": url, "error": error}

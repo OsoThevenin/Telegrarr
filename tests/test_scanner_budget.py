@@ -63,7 +63,7 @@ async def test_exhausted_budget_keeps_download_queued_with_reason(quiet, tmp_pat
 
     row = _row(cid)
     assert row["status"] == "queued"
-    assert "budget" in (row["error"] or "").lower()
+    assert "pressupost diari" in (row["error"] or "")      # Catalan by default
     assert client.downloads == 0
     task.cancel()
     with pytest.raises(asyncio.CancelledError):

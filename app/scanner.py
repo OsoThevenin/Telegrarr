@@ -11,6 +11,7 @@ import logging
 
 from . import db, plex, notify, settings, safety, resolver, movies
 from .arr import category_for
+from .i18n import translate
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
@@ -379,7 +380,7 @@ async def _wait_for_budget(channel_id, message_id):
             resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
             with db.conn() as c:
                 c.execute("UPDATE downloads SET status='queued', error=? WHERE channel_id=? AND message_id=?",
-                          (f"Daily download budget reached — resumes at {resets}", channel_id, message_id))
+                          (translate("budget.download_held", resets=resets), channel_id, message_id))
             marked = True
         await asyncio.sleep(BUDGET_RECHECK_SECONDS)
 
@@ -449,7 +450,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                 ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
             show = (ch["imdb_title"] or ch["title"]) if ch else ""
             _spawn(plex.refresh_path(os.path.dirname(save_path)))
-            _spawn(notify.send("Downloaded", name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
+            _spawn(notify.send(translate("notify.downloaded"), name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
     except asyncio.CancelledError:
         if _shutting_down:
             # process is stopping — leave it queued so it resumes on next boot
