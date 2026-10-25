@@ -31,7 +31,7 @@ async def test_tvsearch_returns_release_built_from_fake_message(arr_app):
         "t": "tvsearch", "apikey": arr_app.apikey, "q": "the show", "season": "1", "ep": "2"})
 
     assert r.status_code == 200
-    assert "<title>The.Show.S01E02.1080p" in r.text
+    assert "<title>The.Show.S01E02.CAT.1080p.WEB-DL.x264-TELEGRARR</title>" in r.text
     assert f"/api/newznab/nzb?id={channel['id']}_1" in r.text
 
 
