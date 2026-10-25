@@ -1,0 +1,194 @@
+"""HTTP test harness: drive the app over HTTP exactly as Sonarr/Radarr do.
+
+The app runs for real (routes, DB, scanner, downloader). Only two things are
+substituted, both at the process boundary:
+
+* the Telegram client (``tg._client``) -> :class:`FakeTelegram`, which serves
+  canned channels, messages and file bytes;
+* settings/paths that point at the host filesystem (library dirs) -> tmp dirs.
+
+The app lifespan is NOT run (``httpx.ASGITransport`` skips it), so there is no
+background scan loop and no real Telethon connect; tests trigger scans over HTTP.
+"""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import Any, Callable
+
+import httpx
+
+BASE_URL = "http://telegrarr.test"
+POLL_INTERVAL_S = 0.02
+POLL_TIMEOUT_S = 5.0
+
+
+# ── fake Telegram ─────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class FakeDocument:
+    """Shape of a Telethon ``Document`` as the app reads it."""
+    id: int
+    size: int
+    file_name: str
+    dc_id: int = 2
+    access_hash: int = 0
+    file_reference: bytes = b""
+
+    @property
+    def attributes(self) -> list[SimpleNamespace]:
+        return [SimpleNamespace(file_name=self.file_name)]
+
+
+@dataclass(frozen=True)
+class FakeMessage:
+    """Shape of a Telethon ``Message`` carrying a document."""
+    id: int
+    chat_id: int
+    message: str
+    document: FakeDocument | None
+    video: None = None
+
+
+@dataclass
+class FakeChannel:
+    chat_id: int
+    title: str
+    messages: dict[int, FakeMessage] = field(default_factory=dict)
+    payloads: dict[int, bytes] = field(default_factory=dict)
+
+
+class FakeTelegram:
+    """Stand-in for the shared Telethon client.
+
+    Implements just the client surface the app calls. It has no
+    ``_borrow_exported_sender``, so the downloader's fast path fails over to the
+    sequential ``download_media`` path, which serves the canned bytes.
+    """
+
+    def __init__(self) -> None:
+        self.channels: dict[int, FakeChannel] = {}
+        self.downloaded: list[tuple[int, int]] = []   # (chat_id, message_id) served
+        self._next_doc_id = 1
+        self._downloads_open = asyncio.Event()
+        self._downloads_open.set()
+
+    def hold_downloads(self) -> None:
+        """Block file transfers (they stay in-flight) until :meth:`release_downloads`."""
+        self._downloads_open.clear()
+
+    def release_downloads(self) -> None:
+        self._downloads_open.set()
+
+    # canned data ---------------------------------------------------------
+    def add_channel(self, chat_id: int, title: str) -> FakeChannel:
+        channel = FakeChannel(chat_id=chat_id, title=title)
+        self.channels[chat_id] = channel
+        return channel
+
+    def post(self, chat_id: int, *, text: str, file_name: str, content: bytes = b"x" * 1024,
+             message_id: int | None = None) -> FakeMessage:
+        """Post a media message with ``content`` as its file bytes."""
+        channel = self.channels[chat_id]
+        mid = message_id if message_id is not None else max(channel.messages, default=0) + 1
+        doc = FakeDocument(id=self._next_doc_id, size=len(content), file_name=file_name)
+        self._next_doc_id += 1
+        msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=doc)
+        channel.messages[mid] = msg
+        channel.payloads[mid] = content
+        return msg
+
+    # Telethon client surface -----------------------------------------------
+    def is_connected(self) -> bool:
+        return True
+
+    async def connect(self) -> None:
+        return None
+
+    async def disconnect(self) -> None:
+        return None
+
+    async def is_user_authorized(self) -> bool:
+        return True
+
+    async def get_entity(self, chat_id: int) -> SimpleNamespace:
+        if chat_id not in self.channels:
+            raise ValueError(f"Cannot find any entity corresponding to {chat_id}")
+        return SimpleNamespace(id=chat_id, title=self.channels[chat_id].title)
+
+    async def iter_messages(self, chat_id: int, limit: int | None = None):
+        msgs = sorted(self.channels[chat_id].messages.values(), key=lambda m: -m.id)
+        for msg in msgs[:limit] if limit else msgs:
+            yield msg
+
+    async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
+        return self.channels[chat_id].messages.get(ids)
+
+    async def download_media(self, message: FakeMessage, file: str | None = None,
+                             progress_callback: Callable[[int, int], Any] | None = None) -> str:
+        await self._downloads_open.wait()
+        data = self.channels[message.chat_id].payloads[message.id]
+        with open(file, "wb") as fh:
+            fh.write(data)
+        self.downloaded.append((message.chat_id, message.id))
+        if progress_callback:
+            result = progress_callback(len(data), len(data))
+            if asyncio.iscoroutine(result):
+                await result
+        return file
+
+
+# ── the app, seen from Sonarr/Radarr ─────────────────────────────────
+@dataclass
+class ArrApp:
+    """An authenticated HTTP client on the app plus its fake Telegram."""
+    http: httpx.AsyncClient
+    telegram: FakeTelegram
+    apikey: str
+
+    async def add_channel(self, chat_id: int, *, kind: str = "tv", **fields: Any) -> dict:
+        """Add a source channel through the UI's API; returns the channel row."""
+        r = await self.http.post("/api/channels", json={"chat_id": chat_id, "kind": kind, **fields})
+        return r.raise_for_status().json()
+
+    async def scan(self, channel_id: int) -> dict:
+        """Trigger a channel scan over HTTP and wait until it has finished."""
+        (await self.http.post(f"/api/channels/{channel_id}/scan")).raise_for_status()
+
+        async def scanned() -> dict | None:
+            channels = (await self.http.get("/api/channels")).raise_for_status().json()
+            row = next((c for c in channels if c["id"] == channel_id), None)
+            return row if row and row["last_scanned_at"] else None
+
+        return await eventually(scanned)
+
+    async def history_slot(self, nzo_id: str) -> dict:
+        """Wait for ``nzo_id`` to reach SABnzbd history; return its slot."""
+        async def slot() -> dict | None:
+            r = await self.http.get("/sabnzbd/api", params={"mode": "history", "apikey": self.apikey})
+            slots = r.raise_for_status().json()["history"]["slots"]
+            return next((s for s in slots if s["nzo_id"] == nzo_id), None)
+
+        return await eventually(slot)
+
+
+LIBRARY_DIR_NAMES = ("TV_DIR", "TV_DIR_4K", "MOVIES_DIR", "MOVIES_DIR_4K", "OTHER_DIR")
+
+
+def library_dirs_under(root: str) -> dict[str, str]:
+    """Map each library-dir setting to a subdir of ``root`` (e.g. TV_DIR -> root/tv)."""
+    return {name: f"{root}/{name.lower().removesuffix('_dir').replace('_dir', '')}"
+            for name in LIBRARY_DIR_NAMES}
+
+
+async def eventually(probe: Callable[[], Any], *, timeout: float = POLL_TIMEOUT_S) -> Any:
+    """Poll the async ``probe`` until it returns a truthy value; return it."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        result = await probe()
+        if result:
+            return result
+        if loop.time() >= deadline:
+            raise AssertionError(f"condition not met within {timeout}s (last: {result!r})")
+        await asyncio.sleep(POLL_INTERVAL_S)
