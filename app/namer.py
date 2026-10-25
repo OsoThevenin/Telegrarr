@@ -222,6 +222,7 @@ _QUALITY_FLOORS = (
 )
 QUALITY_SD = "SDTV"
 CHANNEL_QUALITIES = (QUALITY_SD, "720p", "1080p", "2160p")
+DEFAULT_FALLBACK_QUALITY = "1080p"   # keep in sync with db.COLUMN_MIGRATIONS default
 
 
 def quality_from_dims(width: int | None, height: int | None, fallback: str | None = None) -> str | None:
