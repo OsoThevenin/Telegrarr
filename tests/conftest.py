@@ -124,3 +124,16 @@ def fake_tmdb(monkeypatch):
     fake = FakeTMDB()
     monkeypatch.setattr(tmdb, "transport", fake.transport)
     return fake
+
+
+# ── fake Prowlarr/Sonarr/Radarr (see tests/fake_arr.py) ──────────────
+@pytest.fixture()
+def arrs(monkeypatch):
+    """Fake Prowlarr/Sonarr/Radarr wired in as the app's outbound HTTP transport
+    (``app.connect.transport``). Keys are ``fake_arr.{PROWLARR,SONARR,RADARR}_KEY``."""
+    from app import connect
+    from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack
+
+    stack = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
+    monkeypatch.setattr(connect, "transport", stack.transport())
+    return stack

@@ -1,5 +1,8 @@
 # Connecting Telearr to Sonarr, Radarr & Prowlarr
 
+> **Telegrarr:** registration is now one click from the **Connect** page; the manual
+> steps are in [CONNECT.md](CONNECT.md). This upstream guide is kept for background.
+
 Telearr can act as **both** a Newznab indexer and a SABnzbd-compatible download
 client, so your existing \*arr stack can treat Telegram channels as a usenet-like
 source: search → grab → download → import, using the workflow you already run.

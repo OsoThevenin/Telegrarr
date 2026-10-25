@@ -12,7 +12,7 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
+from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, __version__
 from .tg import get_client
 from .namer import (imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES, DEFAULT_LANGUAGE,
                     DEFAULT_FALLBACK_QUALITY)
@@ -557,6 +557,33 @@ async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
         return {"ok": True, "settings": settings.apply(payload)}
     except settings.SettingRejected as e:
         raise HTTPException(400, str(e))
+
+
+# ── Connect page: Prowlarr / Sonarr / Radarr ──────────────────────────
+def _arr_app_name(payload: dict) -> str:
+    app_name = str(payload.get("app", ""))
+    if app_name not in connect.APP_TITLES:
+        raise HTTPException(400, "app must be one of prowlarr, sonarr, radarr")
+    return app_name
+
+
+@app.post("/api/connect/test")
+async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
+    return await connect.check_connection(_arr_app_name(payload))
+
+
+@app.post("/api/connect/register")
+async def api_connect_register(user=Depends(auth.require_user)):
+    me_url = settings.get("telegrarr_url", "")
+    if not me_url:
+        raise HTTPException(400, "Set the Telegrarr URL the *arr apps use to reach Telegrarr first")
+    results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
+    for res in results:
+        if res["status"] == "created":
+            db.log("INFO", f"Connect: registered Telegrarr {res['kind']} in {res['app']}")
+        elif res["status"] == "error":
+            db.log("WARNING", f"Connect: {res['app']} {res['kind']} registration failed: {res['error']}")
+    return {"results": results}
 
 
 @app.post("/api/account/password")

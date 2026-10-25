@@ -48,9 +48,18 @@ DEFAULTS = {
     # into the library layout.
     "operating_mode": "arr",
     "downloads_dir": config.DOWNLOADS_DIR,
+    # Connect page (*arr registration). Keys are secrets: exposed only as *_key_set.
+    "prowlarr_url": "",
+    "prowlarr_key": "",
+    "sonarr_url": "",
+    "sonarr_key": "",
+    "radarr_url": "",
+    "radarr_key": "",
+    "telegrarr_url": "",           # how Prowlarr/Sonarr/Radarr reach Telegrarr, e.g. http://telegrarr:8790
 }
 
 OPERATING_MODES = ("arr", "standalone")
+ARR_APPS = ("prowlarr", "sonarr", "radarr")
 
 
 def get(key, default=None):
@@ -109,6 +118,7 @@ def public() -> dict:
         "daily_budget_gb": get_float("daily_budget_gb", 0.0),
         "operating_mode": operating_mode(),
         "downloads_dir": get("downloads_dir"),
+        **_arr_public(),
     }
 
 
@@ -140,6 +150,22 @@ def _coerce_abs_dir(v) -> str:
     return path
 
 
+def _arr_public() -> dict:
+    view = {"telegrarr_url": get("telegrarr_url", "")}
+    for name in ARR_APPS:
+        view[f"{name}_url"] = get(f"{name}_url", "")
+        view[f"{name}_key_set"] = bool(get(f"{name}_key", ""))
+    return view
+
+
+def _http_url(value) -> str:
+    """Normalise a base URL; empty clears it, anything but http(s) is rejected (HTTP 400)."""
+    url = str(value).strip().rstrip("/")
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise SettingRejected("URLs must start with http:// or https://")
+    return url
+
+
 # keys the UI is allowed to write, with a coercer for each
 WRITABLE = {
     "dl_workers": lambda v: str(max(1, min(32, int(float(v))))),
@@ -156,6 +182,14 @@ WRITABLE = {
     "daily_budget_gb": _budget_gb,
     "operating_mode": _coerce_mode,
     "downloads_dir": _coerce_abs_dir,
+    # Connect page
+    "telegrarr_url": _http_url,
+    "prowlarr_url": _http_url,
+    "prowlarr_key": lambda v: str(v).strip(),
+    "sonarr_url": _http_url,
+    "sonarr_key": lambda v: str(v).strip(),
+    "radarr_url": _http_url,
+    "radarr_key": lambda v: str(v).strip(),
 }
 
 
