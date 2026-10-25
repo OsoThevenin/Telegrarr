@@ -174,3 +174,28 @@ async def register_all(me: Telegrarr) -> list[dict]:
     Each result: {"app", "kind", "name", "status": created|exists|skipped|error, "error"?}.
     """
     return [await _register_one(app, me) for app in APP_TITLES]
+
+
+# ── Sonarr episode list ───────────────────────────────────────────────
+@dataclass(frozen=True)
+class Episode:
+    season: int
+    episode: int
+    title: str
+
+
+async def sonarr_episodes(tvdb_id: int, season: int) -> list[Episode]:
+    """Episodes of ``season`` for the Sonarr series with ``tvdb_id``, by episode number.
+
+    Empty when Sonarr does not know the series. Raises ArrError when Sonarr is not
+    configured or the request fails, so callers can fall back to another source.
+    """
+    target = configured("sonarr")
+    series = await _request(target, "GET", "/series", params={"tvdbId": tvdb_id})
+    if not series:
+        return []
+    rows = await _request(target, "GET", "/episode",
+                          params={"seriesId": series[0]["id"], "seasonNumber": season})
+    episodes = [Episode(int(e["seasonNumber"]), int(e["episodeNumber"]), str(e.get("title") or ""))
+                for e in rows if int(e.get("seasonNumber", -1)) == season]
+    return sorted(episodes, key=lambda e: e.episode)

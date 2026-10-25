@@ -218,3 +218,47 @@ async def test_register_requires_telegrarr_url(arr_app, arrs):
 
     assert r.status_code == 400
     assert arrs.prowlarr.requests == []
+
+
+# ── Sonarr episode list (reused by part resolution) ───────────────────
+TVDB_ID = 81189
+
+
+def _seed_sonarr_series(sonarr):
+    sonarr.series.append({"id": 12, "tvdbId": TVDB_ID, "title": "Merlí"})
+    sonarr.episodes.extend([
+        {"seriesId": 12, "seasonNumber": 2, "episodeNumber": 2, "title": "Els sofistes"},
+        {"seriesId": 12, "seasonNumber": 2, "episodeNumber": 1, "title": "Plató"},
+        {"seriesId": 12, "seasonNumber": 1, "episodeNumber": 1, "title": "Els peripatètics"},
+        {"seriesId": 99, "seasonNumber": 2, "episodeNumber": 1, "title": "Another show"},
+    ])
+
+
+@pytest.mark.asyncio
+async def test_sonarr_episodes_lists_a_season_by_tvdb_id(arr_app, arrs):
+    from app import connect
+
+    _seed_sonarr_series(arrs.sonarr)
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    episodes = await connect.sonarr_episodes(TVDB_ID, 2)
+
+    assert episodes == [connect.Episode(season=2, episode=1, title="Plató"),
+                        connect.Episode(season=2, episode=2, title="Els sofistes")]
+
+
+@pytest.mark.asyncio
+async def test_sonarr_episodes_is_empty_when_series_not_in_sonarr(arr_app, arrs):
+    from app import connect
+
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    assert await connect.sonarr_episodes(TVDB_ID, 1) == []
+
+
+@pytest.mark.asyncio
+async def test_sonarr_episodes_raises_when_sonarr_not_configured(arr_app, arrs):
+    from app import connect
+
+    with pytest.raises(connect.ArrError, match="Sonarr URL and API key are not set"):
+        await connect.sonarr_episodes(TVDB_ID, 1)
