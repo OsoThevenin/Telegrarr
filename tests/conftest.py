@@ -61,19 +61,24 @@ def fake_telegram(monkeypatch):
 
 @pytest.fixture()
 def library_dirs(tmp_path, monkeypatch):
-    """Point every library directory setting at a per-test tmp dir.
+    """Point every library directory setting, and the *arr downloads base, at
+    per-test tmp dirs.
 
     The dirs are read from ``app.config`` at import and re-bound by name in a few
-    modules, so each binding is substituted. Returns {setting name: path}.
+    modules, so each binding is substituted. The downloads base is a runtime
+    setting whose default comes from config, so its default is substituted too.
+    Returns {setting name: path}.
     """
-    from app import config, downloader, scanner, system
+    from app import config, downloader, scanner, settings, system
 
     dirs = library_dirs_under(str(tmp_path / "media"))
     for module in (config, scanner, downloader, system):
         for name, path in dirs.items():
             if hasattr(module, name):
                 monkeypatch.setattr(module, name, path)
-    return dirs
+    downloads = str(tmp_path / "downloads")
+    monkeypatch.setitem(settings.DEFAULTS, "downloads_dir", downloads)
+    return {**dirs, "DOWNLOADS_DIR": downloads}
 
 
 async def _drain_background_tasks():
