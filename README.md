@@ -239,7 +239,8 @@ Telegrarr is configured in two complementary places.
 | `TELEARR_OTHER_DIR` | Fallback library for unparsed media | `/media/Other` |
 | `TELEARR_MIN_FREE_GB` | Refuse to start a download below this free space | `50` |
 | `TELEARR_DL_WORKERS` | Parallel senders per file | `4` |
-| `TELEARR_MAX_CONCURRENT` | Simultaneous downloads | `1` |
+| `TELEARR_MAX_CONCURRENT` | Simultaneous downloads | `2` |
+| `TELEARR_TG_DEVICE_MODEL` / `TELEARR_TG_SYSTEM_VERSION` / `TELEARR_TG_APP_VERSION` | Client fingerprint presented to Telegram | `Desktop` / `Windows 10` / `5.12.3 x64` |
 | `TELEARR_BIND_PORT` | Web/API port | `8790` |
 | `TELEARR_SECRET_KEY` | Session-cookie signing key | — (set a strong random value) |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Seed admin login (first run only) | — |
@@ -248,7 +249,8 @@ Telegrarr is configured in two complementary places.
 
 **Settings UI (runtime)** — a subset of settings can be changed live from the
 Settings page with no rebuild: download workers, max concurrent, min free GB,
-progress interval, default poll interval, history retention, Plex URL/token, and
+progress interval, default poll interval (minimum 15 min, jittered), daily download
+budget (GB, 0 = unlimited), history retention, Plex URL/token, and
 the notification webhook. These are stored in the database and override the `.env`
 defaults. Secrets (Plex token) are write-only in the UI — the API only reports
 whether they are set, never their value.

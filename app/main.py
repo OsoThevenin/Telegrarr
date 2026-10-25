@@ -12,7 +12,7 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, __version__
+from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from .tg import get_client
 from .namer import (imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES, DEFAULT_LANGUAGE,
                     DEFAULT_FALLBACK_QUALITY)
@@ -173,6 +173,7 @@ def _live_snapshot():
     except Exception:
         total = used = free = 0
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
+            "budget": safety.budget_status(),
             "disk": {"total": total, "used": used, "free": free},
             "speed": round(sum(a.get("speed_mbs") or 0 for a in active), 1)}
 
@@ -223,7 +224,7 @@ async def api_status(user=Depends(auth.require_user)):
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
             "disk": {"total": total, "used": used, "free": free},
-            "stats": stats, "config": summary()}
+            "stats": stats, "config": summary(), "budget": safety.budget_status()}
 
 
 # ── system (status / tasks / backups / updates) ───────────────────────
@@ -325,7 +326,11 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
     weekdays = payload.get("weekdays", "0,1,2,3,4,5,6")
-    poll = int(payload.get("poll_minutes", 10))
+    try:
+        poll = settings.poll_minutes(payload.get("poll_minutes", settings.get_int(
+            "default_poll_minutes", settings.DEFAULTS["default_poll_minutes"])))
+    except settings.SettingRejected as e:
+        raise HTTPException(400, str(e))
     try:
         client = get_client()
         if not client.is_connected():
@@ -359,6 +364,11 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title",
                "language", "fallback_quality"}
     payload = {**payload, **_release_fields(payload)}
+    if "poll_minutes" in payload:
+        try:
+            payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
+        except settings.SettingRejected as e:
+            raise HTTPException(400, str(e))
     sets = [f"{k}=?" for k in payload if k in allowed]
     vals = [payload[k] for k in payload if k in allowed]
     if not sets:
@@ -524,7 +534,10 @@ async def api_arr_regen(user=Depends(auth.require_user)):
 
 @app.patch("/api/settings")
 async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
-    return {"ok": True, "settings": settings.apply(payload)}
+    try:
+        return {"ok": True, "settings": settings.apply(payload)}
+    except settings.SettingRejected as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/account/password")

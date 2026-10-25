@@ -574,13 +574,14 @@ export function viewSettings(ctx) {
       row("Parallel connections", inp("set-dl_workers", s.dl_workers, "number"), "per download · too high triggers Telegram FloodWait"),
       row("Concurrent downloads", inp("set-max_concurrent", s.max_concurrent, "number")),
       row("Min free space (GB)", inp("set-min_free_gb", s.min_free_gb, "number")),
-      row("Default poll (min)", inp("set-default_poll_minutes", s.default_poll_minutes, "number")),
+      row("Default poll (min)", inp("set-default_poll_minutes", s.default_poll_minutes, "number"), `minimum ${s.poll_floor_minutes} · random jitter added to protect the account`),
+      row("Daily budget (GB)", inp("set-daily_budget_gb", s.daily_budget_gb, "number"), "0 = unlimited · downloads pause until midnight once reached"),
       row("Keep per show", inp("set-history_limit_per_show", s.history_limit_per_show, "number"), "completed records to keep · 0 = all (files always kept)"),
       h("div", { class: "set-actions" }, h("button", {
         class: "btn primary sm", onClick: async () => {
           const g = (k) => root.querySelector("#set-" + k).value;
-          await jpatch("/api/settings", { dl_workers: g("dl_workers"), max_concurrent: g("max_concurrent"), min_free_gb: g("min_free_gb"), default_poll_minutes: g("default_poll_minutes"), history_limit_per_show: g("history_limit_per_show") });
-          toast("Performance saved", "ok");
+          const r = await jpatch("/api/settings", { dl_workers: g("dl_workers"), max_concurrent: g("max_concurrent"), min_free_gb: g("min_free_gb"), default_poll_minutes: g("default_poll_minutes"), daily_budget_gb: g("daily_budget_gb"), history_limit_per_show: g("history_limit_per_show") });
+          if (r) toast("Performance saved", "ok");
         },
       }, "Save performance")));
 
@@ -734,6 +735,8 @@ export function openTelegramConnect(ctx) {
   api("/api/telegram/auth").then((a) => step(a && a.api_ready ? "phone" : "api"));
 }
 
+const POLL_FLOOR_MIN = 15;   // account safety: mirrors config.POLL_FLOOR_MINUTES (server enforces it)
+
 export function openChannelModal(ctx, channel) {
   const host = document.querySelector("#modal-root");
   let pick = null, imdbTimer = null;
@@ -745,7 +748,7 @@ export function openChannelModal(ctx, channel) {
   const curQuality = (channel && channel.fallback_quality) || "1080p";
   const fallbackQuality = h("select", {}, ...[["SDTV", "SDTV"], ["720p", "720p"], ["1080p", "1080p"], ["2160p", "2160p (4K)"]]
     .map(([v, label]) => h("option", { value: v, selected: curQuality === v }, label)));
-  const poll = h("input", { type: "number", min: "1", value: channel ? channel.poll_minutes : 10 });
+  const poll = h("input", { type: "number", min: String(POLL_FLOOR_MIN), value: channel ? Math.max(POLL_FLOOR_MIN, channel.poll_minutes) : POLL_FLOOR_MIN });
   const daysOn = channel ? (channel.weekdays || "").split(",") : ["0", "1", "2", "3", "4", "5", "6"];
   const dayBtns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) =>
     h("button", { type: "button", class: `m-day ${daysOn.includes(String(i)) ? "on" : ""}`, dataset: { day: i }, onClick: (e) => e.target.classList.toggle("on") }, d));
@@ -802,14 +805,16 @@ export function openChannelModal(ctx, channel) {
   document.addEventListener("keydown", onKey);
   const save = async () => {
     const weekdays = dayBtns.filter((b) => b.classList.contains("on")).map((b) => b.dataset.day).join(",") || "0,1,2,3,4,5,6";
-    const pm = parseInt(poll.value) || 10;
+    const pm = parseInt(poll.value) || POLL_FLOOR_MIN;
     if (channel) {
       const patch = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
       if (pick) Object.assign(patch, pick);
-      if (await jpatch(`/api/channels/${channel.id}`, patch)) toast("Channel updated", "ok");
+      if (!(await jpatch(`/api/channels/${channel.id}`, patch))) return;
+      toast("Channel updated", "ok");
     } else {
       if (!selected) return toast("Pick a channel or resolve a link first", "err");
       const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value });
+      if (!ch) return;
       if (ch && ch.id && pick) await jpatch(`/api/channels/${ch.id}`, pick);
       if (ch) toast("Channel added", "ok");
     }
