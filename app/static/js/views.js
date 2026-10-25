@@ -292,6 +292,20 @@ function sortRows(rows) {
 const matchQ = (d) => !ui.q || (base(d.save_path) || d.file_name || "").toLowerCase().includes(ui.q.toLowerCase())
   || (d.channel_title || "").toLowerCase().includes(ui.q.toLowerCase());
 
+// Two-part episode resolution ("(2a Part)" published as the next TVDB episode).
+const EPISODE_SOURCES = { "tmdb-ca": "TMDB (Catalan)", "tmdb-en": "TMDB (English)", sonarr: "Sonarr" };
+const epTag = (n) => `E${String(n).padStart(2, "0")}`;
+function episodeNote(d) {
+  if (d.parsed_episode == null || !d.episode_source) return null;
+  if (d.episode_source === "channel")
+    return h("span", { class: "ep-note", title: "No confident match in TMDB or Sonarr; the channel's numbering was kept" },
+      `Part kept as ${epTag(d.parsed_episode)}`);
+  const via = EPISODE_SOURCES[d.episode_source] || d.episode_source;
+  const text = d.parsed_episode === d.episode ? `Part checked: ${epTag(d.episode)} via ${via}`
+    : `Part resolved: channel ${epTag(d.parsed_episode)} → ${epTag(d.episode)} via ${via}`;
+  return h("span", { class: "ep-note" }, text);
+}
+
 function rowsTable(rows, ctx, selectAll = true) {
   const allSel = rows.length && rows.every((d) => ui.sel.has(d.id));
   const head = h("tr", {},
@@ -305,7 +319,7 @@ function rowsTable(rows, ctx, selectAll = true) {
       type: "checkbox", checked: ui.sel.has(d.id), "aria-label": "Select row",
       onChange: (e) => { e.target.checked ? ui.sel.add(d.id) : ui.sel.delete(d.id); ctx.rerender(); },
     })),
-    h("td", { title: d.save_path }, base(d.save_path) || d.file_name),
+    h("td", { title: d.save_path }, base(d.save_path) || d.file_name, episodeNote(d)),
     h("td", {}, d.channel_title || "—"),
     h("td", {}, d.file_size ? gb(d.file_size) : "—"),
     h("td", {}, statusPill(d.status)),

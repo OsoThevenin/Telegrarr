@@ -211,3 +211,13 @@ async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
     if not tvdb_n:
         raise TMDBError("TMDB has no TVDB id for this series. Enter the TVDB id manually.")
     return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None, title=title)
+
+
+async def season_episodes(tmdb_id: int, season: int, language: str) -> list[tuple[int, str]]:
+    """(episode number, episode name in ``language``) of a TV season, by number.
+
+    Untranslated episodes come back with an empty name."""
+    j = await _get(f"/tv/{tmdb_id}/season/{season}", language=language)
+    episodes = [(int(e["episode_number"]), str(e.get("name") or ""))
+                for e in j.get("episodes") or [] if e.get("episode_number") is not None]
+    return sorted(episodes)
