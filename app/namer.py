@@ -11,15 +11,24 @@ import logging
 import unicodedata
 import urllib.parse
 import urllib.request
+from typing import NamedTuple
 
 log = logging.getLogger("namer")
 
 _SEP = r"[\s._\-]*"
-SEASON_EP_RE = re.compile(rf"S{_SEP}(\d{{1,2}}){_SEP}E{_SEP}(\d{{1,3}})", re.I)
-ALT_SE_RE = re.compile(r"(?:^|\D)(\d{1,2})\s*x\s*(\d{1,3})(?:\D|$)")
-EP_ONLY_RE = re.compile(rf"\bEp(?:isode)?{_SEP}(\d{{1,3}})\b", re.I)
+# Episode markers, in priority order. Text is NFKC-normalised and underscores
+# become spaces before matching (see _normalise).
 SEASON_EPISODE_WORD_RE = re.compile(
     rf"Season{_SEP}(\d{{1,2}}){_SEP}Episode{_SEP}(\d{{1,3}})", re.I)
+TEMPORADA_RE = re.compile(
+    rf"\bTemporada{_SEP}(\d{{1,2}})[\s.,\-]*(?:Cap[ií]tol|Cap|Episodi|Ep|C)[\s.\-]*(\d{{1,3}})(?!\d)", re.I)
+SEASON_EP_RE = re.compile(rf"(?<![a-z0-9])S{_SEP}(\d{{1,2}}){_SEP}E{_SEP}(\d{{1,3}})", re.I)
+T_C_RE = re.compile(r"(?<![a-z0-9])T(\d{1,2})[CE](\d{1,3})(?![a-z0-9])", re.I)
+# NxNN with an optional double-episode range: 1x01-02, 1x01-1x02
+ALT_SE_RE = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?:-(?:\d{1,2}x)?(\d{1,3}))?(?![\da-z])", re.I)
+EP_ONLY_RE = re.compile(
+    r"(?<![a-z0-9])(?:(?:Cap[ií]tol|Cap|Episodi|Episode|Ep)[\s.\-]*|C)(\d{1,3})(?!\d)", re.I)
+_SEASON_EPISODE_RES = (SEASON_EPISODE_WORD_RE, TEMPORADA_RE, SEASON_EP_RE, T_C_RE, ALT_SE_RE)
 DATE_RE = re.compile(r"(20\d{2})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})")
 # underscore/dot are word chars, so \b fails around them — use explicit boundaries
 QUALITY_RE = re.compile(r"(?<![a-z0-9])(2160p|1440p|1080p|720p|480p|4k|uhd)(?![a-z0-9])", re.I)
@@ -37,20 +46,47 @@ def clean_title(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def extract_episode(text: str) -> dict:
-    """Best-effort {season, episode, date, quality}."""
-    out = {"season": None, "episode": None, "date": None, "quality": None}
-    if not text:
-        return out
-    for rx in (SEASON_EPISODE_WORD_RE, SEASON_EP_RE, ALT_SE_RE):
+class EpisodeMarker(NamedTuple):
+    season: int | None
+    episode: int
+    episode_end: int | None
+    start: int
+    end: int
+
+
+def _normalise(text: str) -> str:
+    """Compose accents (NFD filenames from macOS) and turn underscores into spaces."""
+    return unicodedata.normalize("NFKC", text or "").replace("_", " ")
+
+
+def _range_end(episode: int, raw_end: str | None) -> int | None:
+    end = int(raw_end) if raw_end else None
+    return end if end and end > episode else None
+
+
+def find_episode_marker(text: str) -> EpisodeMarker | None:
+    """First episode marker in already-normalised text, with its span."""
+    for rx in _SEASON_EPISODE_RES:
         m = rx.search(text)
         if m:
-            out["season"], out["episode"] = int(m.group(1)), int(m.group(2))
-            break
-    else:
-        m = EP_ONLY_RE.search(text)
-        if m:
-            out["episode"] = int(m.group(1))
+            episode = int(m.group(2))
+            raw_end = m.group(3) if rx is ALT_SE_RE else None
+            return EpisodeMarker(int(m.group(1)), episode, _range_end(episode, raw_end), m.start(), m.end())
+    m = EP_ONLY_RE.search(text)
+    if m:
+        return EpisodeMarker(None, int(m.group(1)), None, m.start(), m.end())
+    return None
+
+
+def extract_episode(text: str) -> dict:
+    """Best-effort {season, episode, episode_end, date, quality}."""
+    out = {"season": None, "episode": None, "episode_end": None, "date": None, "quality": None}
+    if not text:
+        return out
+    text = _normalise(text)
+    marker = find_episode_marker(text)
+    if marker:
+        out["season"], out["episode"], out["episode_end"] = marker.season, marker.episode, marker.episode_end
     d = DATE_RE.search(text)
     if d:
         out["date"] = f"{d.group(1)}-{int(d.group(2)):02d}-{int(d.group(3)):02d}"
@@ -112,7 +148,8 @@ def group_key(msg_text: str, filename: str, message_id: int) -> str:
     if not info.get("season"):
         info = extract_episode(msg_text or "")
     if info.get("season") and info.get("episode"):
-        return f"S{info['season']:02d}E{info['episode']:02d}"
+        key = f"S{info['season']:02d}E{info['episode']:02d}"
+        return f"{key}E{info['episode_end']:02d}" if info.get("episode_end") else key
     if info.get("episode"):
         return f"E{info['episode']:03d}"
     if info.get("date"):

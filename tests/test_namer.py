@@ -41,7 +41,7 @@ def test_extract_episode_episode_only(text, episode):
 
 def test_extract_episode_empty():
     assert namer.extract_episode("") == {
-        "season": None, "episode": None, "date": None, "quality": None}
+        "season": None, "episode": None, "episode_end": None, "date": None, "quality": None}
 
 
 # --------------------------------------------------------------------------
