@@ -96,8 +96,19 @@ def extract_episode(text: str) -> dict:
     return out
 
 
+_EXTENSION_RE = re.compile(r"\.(mp4|mkv|avi|mov|webm|m4v|flv|wmv|ts|3gp)\s*$", re.I | re.M)
+# A "(1a Part)" / "(2a Part)" suffix is part of the episode title, not noise.
+_PART_RE = re.compile(r"\(\s*\d+\s*[aª]?\s*part\s*\)", re.I)
+_BRACKETED_RE = re.compile(r"[\[\(\{][^\]\)\}]{0,80}[\]\)\}]")
+_LABEL_LINE_RE = re.compile(r"^(title|file|name|size|quality|audio|video|language|season|"
+                            r"episode|ep)\s*[:：\-]?\s*$", re.I)
+_TITLE_SEPARATORS_RE = re.compile(r"[._\-|:·•]+")
+_MIN_TITLE_LEN = 3
+_MAX_TITLE_LEN = 60
+# "avi" is deliberately not listed: it is a Catalan word (grandfather); file
+# extensions are stripped by _EXTENSION_RE instead.
 _JUNK = [
-    r"\b(mp4|mkv|avi|mov|webm|m4v|flv|wmv|ts|3gp)\b",
+    r"\b(mp4|mkv|mov|webm|m4v|flv|wmv|ts|3gp)\b",
     r"\b(2160p|1440p|1080p|720p|480p|360p|4k|uhd|hd|sd)\b",
     r"\b(x[\s._-]?26[45]|h[\s._-]?26[45]|hevc|avc|aac2?|ac3|dd5?\.?1|mp3|opus)\b",
     r"\b(web[\s-]?dl|web[\s-]?rip|hdrip|hdtv|dvdrip|bluray|brrip|amzn|nf|dsnp|"
@@ -107,40 +118,56 @@ _JUNK = [
 ]
 
 
-def extract_episode_title(msg_text: str, filename: str, season: int, episode: int,
-                          show_title: str = "") -> str:
-    src = (msg_text or "").strip() or (filename or "")
-    if not src:
-        return ""
-    src = unicodedata.normalize("NFKD", src)
-    line = ""
-    for ln in src.split("\n"):
-        ln = ln.strip()
-        if not ln:
-            continue
-        if re.match(r"^(title|file|name|size|quality|audio|video|language|season|"
-                    r"episode|ep)\s*[:：\-]?\s*$", ln, re.I):
-            continue
-        line = ln
-        break
-    if not line:
-        line = src.split("\n")[0]
-    line = re.sub(r"^[^\w]*\b(title|file|name)\b\s*[:：\-—]?\s*", "", line, flags=re.I)
+def _title_line(src: str) -> str:
+    """The caption line carrying the episode marker, else the first meaningful line."""
+    lines = [ln.strip() for ln in src.split("\n") if ln.strip()]
+    with_marker = next((ln for ln in lines if find_episode_marker(ln)), "")
+    if with_marker:
+        return with_marker
+    meaningful = next((ln for ln in lines if not _LABEL_LINE_RE.match(ln)), "")
+    return meaningful or src.split("\n")[0]
+
+
+def _keep_part_suffix(m: re.Match) -> str:
+    return m.group(0) if _PART_RE.fullmatch(m.group(0)) else " "
+
+
+def _clean_title_text(text: str, show_title: str) -> str:
+    line = re.sub(r"^[^\w]*\b(title|file|name)\b\s*[:：\-—]?\s*", "", text, flags=re.I)
     line = re.sub(r"https?://\S+", " ", line)
     line = re.sub(r"[@#]\w+", " ", line)
-    line = re.sub(r"[\[\(\{][^\]\)\}]{0,80}[\]\)\}]", " ", line)
-    line = re.sub(r"[._\-|:·•]+", " ", line)
-    for rx in (SEASON_EP_RE, SEASON_EPISODE_WORD_RE, ALT_SE_RE, EP_ONLY_RE):
+    line = _BRACKETED_RE.sub(_keep_part_suffix, line)
+    line = _TITLE_SEPARATORS_RE.sub(" ", line)
+    for rx in (*_SEASON_EPISODE_RES, EP_ONLY_RE):
         line = rx.sub(" ", line)
     for pat in _JUNK:
         line = re.sub(pat, " ", line, flags=re.I)
     for st in filter(None, [show_title, re.sub(r"\s+", " ", show_title or "")]):
         line = re.sub(re.escape(st).replace(r"\ ", r"[\s_]+"), " ", line, flags=re.I)
-    line = re.sub(r"[._\-|:·•]+", " ", line)
+    line = _TITLE_SEPARATORS_RE.sub(" ", line)
     line = re.sub(r"\s+", " ", line).strip(" -_.:·•!?")
-    if len(line) < 3:
+    if len(line) < _MIN_TITLE_LEN:
         return ""
-    return line[:60].rstrip(" -_.:·•!?")
+    return line[:_MAX_TITLE_LEN].rstrip(" -_.:·•!?")
+
+
+def extract_episode_title(msg_text: str, filename: str, season: int, episode: int,
+                          show_title: str = "", mapped: bool = False) -> str:
+    """Episode title = text after the episode marker.
+
+    Text before the marker (usually the channel's own show name) is ignored on
+    mapped channels; unmapped channels fall back to it when nothing follows."""
+    src = (msg_text or "").strip() or (filename or "")
+    if not src:
+        return ""
+    line = _title_line(_normalise(_EXTENSION_RE.sub("", src)))
+    marker = find_episode_marker(line)
+    if not marker:
+        return _clean_title_text(line, show_title)
+    after = _clean_title_text(line[marker.end:], show_title)
+    if after or mapped:
+        return after
+    return _clean_title_text(line[:marker.start], show_title)
 
 
 def group_key(msg_text: str, filename: str, message_id: int) -> str:
