@@ -37,8 +37,10 @@ MIN_FREE_SPACE_GB = _i("TELEARR_MIN_FREE_GB", 50)
 # Telegram's ~1.5 MB/s-per-connection cap → N senders ≈ N × 1.5 MB/s.
 DL_WORKERS = _i("TELEARR_DL_WORKERS", 4)           # exported senders per file (higher → Telegram FloodWait)
 DL_CHUNK_MB = _i("TELEARR_DL_CHUNK_MB", 1)          # 1 MB = Telegram max
-MAX_CONCURRENT_DOWNLOADS = _i("TELEARR_MAX_CONCURRENT", 1)
+MAX_CONCURRENT_DOWNLOADS = _i("TELEARR_MAX_CONCURRENT", 2)
 PROGRESS_MIN_INTERVAL = float(os.getenv("TELEARR_PROGRESS_INTERVAL", "1.0"))  # s
+# Account safety: never poll a channel more often than this (minutes).
+POLL_FLOOR_MINUTES = 15
 
 # ── Web ───────────────────────────────────────────────────────────────
 BIND_HOST = os.getenv("TELEARR_BIND_HOST", "0.0.0.0")   # container-internal

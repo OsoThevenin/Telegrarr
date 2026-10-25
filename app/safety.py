@@ -10,6 +10,7 @@ import logging
 from typing import Awaitable, Callable
 
 from . import settings
+from .config import POLL_FLOOR_MINUTES
 
 log = logging.getLogger("safety")
 
@@ -74,7 +75,6 @@ class FloodGate:
 
 
 # ── channel polling ───────────────────────────────────────────────────
-POLL_FLOOR_MINUTES = 15
 POLL_JITTER_FRACTION = 0.2          # up to +20% of the interval, so scans never align
 
 
