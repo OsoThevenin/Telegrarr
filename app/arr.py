@@ -69,10 +69,36 @@ def caps_xml() -> str:
     )
 
 
-def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100):
+def _norm_imdb(imdbid) -> str:
+    return "tt" + str(imdbid).strip().lstrip("t")
+
+
+def _as_int(value) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _id_filter(tvdbid, tmdbid, imdbid):
+    """Predicate over a release row for the Newznab id params given (None = no filter)."""
+    wanted = []
+    if tvdbid not in (None, ""):
+        wanted.append(("tvdb_id", _as_int(tvdbid)))
+    if tmdbid not in (None, ""):
+        wanted.append(("tmdb_id", _as_int(tmdbid)))
+    if imdbid not in (None, ""):
+        wanted.append(("imdb_id", _norm_imdb(imdbid)))
+    return lambda r: all(want is not None and r[col] == want for col, want in wanted)
+
+
+def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100,
+                    tvdbid=None, tmdbid=None):
+    matches_ids = _id_filter(tvdbid, tmdbid, imdbid)
     with db.conn() as c:
         rows = c.execute(
-            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.imdb_id, ch.kind
+            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.imdb_id, ch.kind,
+                      ch.tvdb_id, ch.tmdb_id
                FROM releases r JOIN channels ch ON ch.id = r.channel_id
                WHERE ch.enabled = 1
                ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
@@ -87,10 +113,8 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
             continue
         if want_tv and kind == "movie":
             continue
-        if imdbid:
-            norm = "tt" + str(imdbid).lstrip("t")
-            if not r["imdb_id"] or r["imdb_id"] != norm:
-                continue
+        if not matches_ids(r):
+            continue
         show = (r["imdb_title"] or r["chtitle"] or "").lower()
         if ql and ql not in show and ql not in (r["title"] or "").lower():
             continue
@@ -102,6 +126,15 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
         if len(out) >= limit:
             break
     return out
+
+
+def _id_attrs(r) -> str:
+    """Newznab id attrs so Sonarr/Radarr can map a release by id, not by title."""
+    keys = r.keys()
+    ids = (("tvdbid", r["tvdb_id"] if "tvdb_id" in keys else None),
+           ("tmdbid", r["tmdb_id"] if "tmdb_id" in keys else None),
+           ("imdb", (r["imdb_id"] or "").removeprefix("tt") if "imdb_id" in keys else None))
+    return "".join(f'<newznab:attr name="{name}" value="{html.escape(str(v))}"/>' for name, v in ids if v)
 
 
 def feed_xml(base: str, releases) -> str:
@@ -120,7 +153,7 @@ def feed_xml(base: str, releases) -> str:
             f'<category>{parent}</category>'
             f'<newznab:attr name="category" value="{parent}"/>'
             f'<newznab:attr name="category" value="{sub}"/>'
-            f'<newznab:attr name="size" value="{size}"/></item>')
+            f'<newznab:attr name="size" value="{size}"/>{_id_attrs(r)}</item>')
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">'

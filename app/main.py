@@ -677,8 +677,8 @@ def _base_url(request: Request) -> str:
 @app.get("/api/newznab/api")
 @app.get("/api/newznab")
 async def newznab(request: Request, t: str = "", apikey: str = "", q: str = "",
-                  season: str = "", ep: str = "", imdbid: str = "", cat: str = "",
-                  limit: int = 100, offset: int = 0):
+                  season: str = "", ep: str = "", imdbid: str = "", tvdbid: str = "",
+                  tmdbid: str = "", cat: str = "", limit: int = 100, offset: int = 0):
     if t == "caps":
         return Response(arr.caps_xml(), media_type="application/xml")
     if not arr.check_key(apikey):
@@ -686,7 +686,8 @@ async def newznab(request: Request, t: str = "", apikey: str = "", q: str = "",
                         media_type="application/xml", status_code=401)
     limit = max(1, min(limit, 200))
     rels = arr.search_releases(t or "search", q=q, season=season or None,
-                               ep=ep or None, imdbid=imdbid or None, limit=limit)
+                               ep=ep or None, imdbid=imdbid or None, limit=limit,
+                               tvdbid=tvdbid or None, tmdbid=tmdbid or None)
     return Response(arr.feed_xml(_base_url(request), rels), media_type="application/xml")
 
 

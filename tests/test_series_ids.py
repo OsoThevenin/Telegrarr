@@ -134,3 +134,67 @@ async def test_mapping_a_series_tmdb_has_no_tvdb_id_for_asks_for_one(arr_app, fa
 
     assert r.status_code == 400
     assert "TVDB id" in r.json()["detail"]
+
+
+async def _two_mapped_series(arr_app, fake_tmdb):
+    """Joc de trons on SHOW_CHAT and Merlí on OTHER_CHAT, both scanned with one episode."""
+    fake_tmdb.add_series(1399, titles={"ca-ES": "Joc de trons"}, tvdb_id=121361, imdb_id="tt0944947")
+    fake_tmdb.add_series(61662, titles={"ca-ES": "Merlí"}, tvdb_id=297571, imdb_id="tt4807092")
+    await _save_tmdb_key(arr_app)
+    channels = {}
+    for chat_id, tmdb_id, name in ((SHOW_CHAT, 1399, "Joc de trons"), (OTHER_CHAT, 61662, "Merlí")):
+        channel = await _series_channel(arr_app, chat_id, f"{name} CAT")
+        arr_app.telegram.post(chat_id, text=f"{name} 1x02", file_name=f"{name}.S01E02.1080p.mkv")
+        (await arr_app.http.put(f"/api/channels/{channel['id']}/series",
+                                json={"tmdb_id": tmdb_id, "title": name})).raise_for_status()
+        await arr_app.scan(channel["id"])
+        channels[name] = channel
+    return channels
+
+
+def _items(feed: str) -> list[ET.Element]:
+    return ET.fromstring(feed).findall("./channel/item")
+
+
+def _attrs(item: ET.Element) -> dict[str, str]:
+    return {a.attrib["name"]: a.attrib["value"] for a in item.findall(f"{NEWZNAB_NS}attr")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("id_param", [
+    {"tvdbid": "121361"},
+    {"tmdbid": "1399"},
+    {"imdbid": "0944947"},
+    {"imdbid": "tt0944947"},
+])
+async def test_tvsearch_by_id_returns_only_that_series_releases(arr_app, fake_tmdb, id_param):
+    channels = await _two_mapped_series(arr_app, fake_tmdb)
+
+    r = await arr_app.http.get("/api/newznab", params={
+        "t": "tvsearch", "apikey": arr_app.apikey, "season": "1", "ep": "2", **id_param})
+
+    assert r.status_code == 200
+    items = _items(r.text)
+    assert len(items) == 1
+    assert f"telearr-{channels['Joc de trons']['id']}-" in items[0].find("guid").text
+
+
+@pytest.mark.asyncio
+async def test_tvsearch_by_an_unknown_tvdb_id_returns_nothing(arr_app, fake_tmdb):
+    await _two_mapped_series(arr_app, fake_tmdb)
+
+    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
+                                                         "tvdbid": "1"})
+
+    assert _items(r.text) == []
+
+
+@pytest.mark.asyncio
+async def test_feed_items_carry_the_series_ids(arr_app, fake_tmdb):
+    await _two_mapped_series(arr_app, fake_tmdb)
+
+    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
+                                                         "tvdbid": "297571"})
+
+    attrs = _attrs(_items(r.text)[0])
+    assert (attrs["tvdbid"], attrs["tmdbid"], attrs["imdb"]) == ("297571", "61662", "4807092")
