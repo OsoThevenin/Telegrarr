@@ -739,6 +739,12 @@ export function openChannelModal(ctx, channel) {
   let pick = null, imdbTimer = null;
   let selected = channel ? { chat_id: channel.chat_id, title: channel.imdb_title || channel.title } : null;
   const kind = h("select", {}, ...["tv", "movie", "other"].map((k) => h("option", { value: k, selected: channel && channel.kind === k }, k === "tv" ? "TV show" : k === "movie" ? "Movie" : "Other")));
+  const curLang = (channel && channel.language) || "cat";
+  const language = h("select", {}, ...[["cat", "Català (CAT)"], ["es", "Castellano (SPA)"], ["en", "English (ENG)"], ["multi", "Multi (MULTI)"]]
+    .map(([v, label]) => h("option", { value: v, selected: curLang === v }, label)));
+  const curQuality = (channel && channel.fallback_quality) || "1080p";
+  const fallbackQuality = h("select", {}, ...[["SDTV", "SDTV"], ["720p", "720p"], ["1080p", "1080p"], ["2160p", "2160p (4K)"]]
+    .map(([v, label]) => h("option", { value: v, selected: curQuality === v }, label)));
   const poll = h("input", { type: "number", min: "1", value: channel ? channel.poll_minutes : 10 });
   const daysOn = channel ? (channel.weekdays || "").split(",") : ["0", "1", "2", "3", "4", "5", "6"];
   const dayBtns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) =>
@@ -798,12 +804,12 @@ export function openChannelModal(ctx, channel) {
     const weekdays = dayBtns.filter((b) => b.classList.contains("on")).map((b) => b.dataset.day).join(",") || "0,1,2,3,4,5,6";
     const pm = parseInt(poll.value) || 10;
     if (channel) {
-      const patch = { kind: kind.value, weekdays, poll_minutes: pm };
+      const patch = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
       if (pick) Object.assign(patch, pick);
       if (await jpatch(`/api/channels/${channel.id}`, patch)) toast("Channel updated", "ok");
     } else {
       if (!selected) return toast("Pick a channel or resolve a link first", "err");
-      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm });
+      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value });
       if (ch && ch.id && pick) await jpatch(`/api/channels/${ch.id}`, pick);
       if (ch) toast("Channel added", "ok");
     }
@@ -816,6 +822,8 @@ export function openChannelModal(ctx, channel) {
         h("button", { class: "btn ghost icon", "aria-label": "Close", onClick: close }, h("span", { html: icon("x") }))),
       chanArea,
       h("label", {}, "Kind", kind),
+      h("label", {}, "Audio language", language),
+      h("label", {}, "Fallback quality (when Telegram omits the video size)", fallbackQuality),
       h("label", {}, "Scan on days"), h("div", { class: "days" }, ...dayBtns),
       h("label", {}, "Poll interval (minutes)", poll),
       h("label", {}, "IMDb match", imdbQ), results, picked,

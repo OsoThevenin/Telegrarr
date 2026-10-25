@@ -8,6 +8,7 @@ def test_release_name_tv():
     assert "720p" in n
     assert n.startswith("The.Traitors")
     assert " " not in n  # scene names use dots
+    assert n == "The.Traitors.2025.S02E01.CAT.720p.WEB-DL.x264-TELEGRARR"
 
 
 def test_release_name_quality_normalization():

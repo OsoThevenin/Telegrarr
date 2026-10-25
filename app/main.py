@@ -14,7 +14,8 @@ from fastapi.templating import Jinja2Templates
 
 from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, __version__
 from .tg import get_client
-from .namer import imdb_search
+from .namer import (imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES, DEFAULT_LANGUAGE,
+                    DEFAULT_FALLBACK_QUALITY)
 from .config import summary
 
 logging.basicConfig(level=logging.INFO,
@@ -303,10 +304,23 @@ def _normalize_chat_id(raw) -> int:
     return cid
 
 
+_CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
+
+
+def _release_fields(payload: dict) -> dict:
+    """Validated language / fallback_quality from a channel payload (only keys present)."""
+    fields = {k: payload[k] for k in _CHANNEL_CHOICES if payload.get(k) is not None}
+    for key, value in fields.items():
+        if value not in _CHANNEL_CHOICES[key]:
+            raise HTTPException(400, f"{key} must be one of: {', '.join(_CHANNEL_CHOICES[key])}")
+    return fields
+
+
 @app.post("/api/channels")
 async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
         raise HTTPException(400, "chat_id is required")
+    release = _release_fields(payload)
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
@@ -323,21 +337,28 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     with db.conn() as c:
         c.execute("""INSERT OR REPLACE INTO channels
            (chat_id,title,kind,weekdays,poll_minutes,enabled,created_at,
-            last_message_id,last_scanned_at,imdb_id,imdb_title)
+            last_message_id,last_scanned_at,imdb_id,imdb_title,
+            language,fallback_quality)
            VALUES(?,?,?,?,?,1,?,
              COALESCE((SELECT last_message_id FROM channels WHERE chat_id=?),0),
              COALESCE((SELECT last_scanned_at FROM channels WHERE chat_id=?),0),
              (SELECT imdb_id FROM channels WHERE chat_id=?),
-             (SELECT imdb_title FROM channels WHERE chat_id=?))""",
+             (SELECT imdb_title FROM channels WHERE chat_id=?),
+             COALESCE(?, (SELECT language FROM channels WHERE chat_id=?), ?),
+             COALESCE(?, (SELECT fallback_quality FROM channels WHERE chat_id=?), ?))""",
            (chat_id, title, kind, weekdays, poll, int(time.time()),
-            chat_id, chat_id, chat_id, chat_id))
+            chat_id, chat_id, chat_id, chat_id,
+            release.get("language"), chat_id, DEFAULT_LANGUAGE,
+            release.get("fallback_quality"), chat_id, DEFAULT_FALLBACK_QUALITY))
         ch = c.execute("SELECT * FROM channels WHERE chat_id=?", (chat_id,)).fetchone()
     return dict(ch)
 
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title"}
+    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title",
+               "language", "fallback_quality"}
+    payload = {**payload, **_release_fields(payload)}
     sets = [f"{k}=?" for k in payload if k in allowed]
     vals = [payload[k] for k in payload if k in allowed]
     if not sets:
