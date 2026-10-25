@@ -157,7 +157,18 @@ async def test_unknown_usernames_are_reported_as_unresolvable(arr_app):
     [entry] = (await _scan(arr_app))["links"]
 
     assert (entry["link"], entry["resolved"], entry["chat_id"]) == ("https://t.me/gone_channel", False, None)
-    assert entry["error"]
+    assert entry["error"] == {"key": "err.directory.resolve_failed", "params": {"error": "ValueError"}}
+    assert "Cannot find any entity" not in str(entry)
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_directory_reports_the_error_type_only(arr_app):
+    # the directory itself is unknown to Telegram: get_entity raises ValueError("Cannot find any entity ...")
+    r = await arr_app.http.post("/api/directory/scan", json={"chat_id": DIRECTORY})
+
+    assert r.status_code == 429
+    assert r.json()["detail"] == {"key": "err.directory.read_failed", "params": {"error": "ValueError"}}
+    assert "Cannot find any entity" not in r.text
 
 
 # ── account safety ───────────────────────────────────────────────────
