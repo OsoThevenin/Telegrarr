@@ -64,3 +64,73 @@ async def test_tmdb_search_without_key_says_a_key_is_required(arr_app, fake_tmdb
     assert r.status_code == 400
     assert "TMDB API key is required" in r.json()["detail"]
     assert fake_tmdb.requests == []
+
+
+async def _series_channel(arr_app, chat_id=SHOW_CHAT, title="Joc de trons CAT"):
+    arr_app.telegram.add_channel(chat_id, title)
+    return await arr_app.add_channel(chat_id, kind="tv")
+
+
+@pytest.mark.asyncio
+async def test_mapping_a_picked_tmdb_series_stores_tvdb_tmdb_and_imdb_ids(arr_app, fake_tmdb):
+    fake_tmdb.add_series(1399, titles={"ca-ES": "Joc de trons", "en-US": "Game of Thrones"},
+                         tvdb_id=121361, imdb_id="tt0944947")
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series",
+                               json={"tmdb_id": 1399, "title": "Joc de trons (2011)"})
+
+    assert r.status_code == 200
+    stored = next(c for c in (await arr_app.http.get("/api/channels")).json() if c["id"] == channel["id"])
+    assert (stored["tvdb_id"], stored["tmdb_id"], stored["imdb_id"]) == (121361, 1399, "tt0944947")
+    assert stored["imdb_title"] == "Joc de trons (2011)"
+
+
+@pytest.mark.asyncio
+async def test_an_edited_tvdb_id_wins_over_the_derived_one(arr_app, fake_tmdb):
+    fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361, imdb_id="tt0944947")
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series",
+                               json={"tmdb_id": 1399, "tvdb_id": "999999", "title": "Game of Thrones"})
+
+    assert (r.json()["tvdb_id"], r.json()["tmdb_id"]) == (999999, 1399)
+
+
+@pytest.mark.asyncio
+async def test_a_typed_tvdb_id_alone_derives_tmdb_and_imdb_ids(arr_app, fake_tmdb):
+    fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361, imdb_id="tt0944947")
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tvdb_id": 121361})
+
+    body = r.json()
+    assert (body["tvdb_id"], body["tmdb_id"], body["imdb_id"]) == (121361, 1399, "tt0944947")
+    assert body["imdb_title"] == "Game of Thrones"
+
+
+@pytest.mark.asyncio
+async def test_mapping_without_tmdb_key_is_blocked_with_a_clear_message(arr_app, fake_tmdb):
+    channel = await _series_channel(arr_app)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 1399})
+
+    assert r.status_code == 400
+    assert "TMDB API key is required" in r.json()["detail"]
+    stored = next(c for c in (await arr_app.http.get("/api/channels")).json() if c["id"] == channel["id"])
+    assert stored["tvdb_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_mapping_a_series_tmdb_has_no_tvdb_id_for_asks_for_one(arr_app, fake_tmdb):
+    fake_tmdb.add_series(5000, titles={"ca-ES": "Sèrie local"}, tvdb_id=None, imdb_id=None)
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 5000})
+
+    assert r.status_code == 400
+    assert "TVDB id" in r.json()["detail"]

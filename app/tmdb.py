@@ -6,6 +6,8 @@ import re
 import time
 import logging
 import urllib.parse
+from dataclasses import dataclass
+
 import httpx
 from . import settings
 
@@ -164,3 +166,48 @@ async def search_series(query: str) -> list[dict]:
         if hits:
             return hits
     return []
+
+
+@dataclass(frozen=True)
+class SeriesIds:
+    tvdb_id: int
+    tmdb_id: int
+    imdb_id: str | None
+    title: str
+
+
+def _as_id(value, name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        n = int(str(value).strip())
+    except ValueError:
+        raise TMDBError(f"{name} must be a number") from None
+    if n <= 0:
+        raise TMDBError(f"{name} must be a positive number")
+    return n
+
+
+async def _tmdb_id_for_tvdb(tvdb_id: int) -> tuple[int, str]:
+    j = await _get(f"/find/{tvdb_id}", external_source="tvdb_id")
+    hits = j.get("tv_results") or []
+    if not hits:
+        raise TMDBError(f"TMDB has no series with TVDB id {tvdb_id}")
+    return hits[0]["id"], hits[0].get("name") or ""
+
+
+async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
+    """Resolve a series' TVDB/TMDB/IMDb ids from a picked TMDB id and/or a typed
+    TVDB id. A typed TVDB id always wins over the one TMDB derives."""
+    _require_key()
+    tmdb_n, tvdb_n = _as_id(tmdb_id, "TMDB id"), _as_id(tvdb_id, "TVDB id")
+    if tmdb_n is None and tvdb_n is None:
+        raise TMDBError("Pick a series from the TMDB search or enter its TVDB id")
+    title = ""
+    if tmdb_n is None:
+        tmdb_n, title = await _tmdb_id_for_tvdb(tvdb_n)
+    ext = await _get(f"/tv/{tmdb_n}/external_ids")
+    tvdb_n = tvdb_n or ext.get("tvdb_id")
+    if not tvdb_n:
+        raise TMDBError("TMDB has no TVDB id for this series. Enter the TVDB id manually.")
+    return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None, title=title)

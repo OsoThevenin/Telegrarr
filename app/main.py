@@ -351,6 +351,25 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     return dict(ch)
 
 
+@app.put("/api/channels/{cid}/series")
+async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user)):
+    """Map a series channel to its TVDB id (+ TMDB/IMDb ids derived via TMDB)."""
+    with db.conn() as c:
+        if not c.execute("SELECT 1 FROM channels WHERE id=?", (cid,)).fetchone():
+            raise HTTPException(404)
+    try:
+        ids = await tmdb.series_ids(payload.get("tmdb_id"), payload.get("tvdb_id"))
+    except tmdb.TMDBError as e:
+        raise HTTPException(400, str(e))
+    title = (payload.get("title") or "").strip() or ids.title
+    with db.conn() as c:
+        c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?,
+                     imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
+                  (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, title, cid))
+        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    return dict(ch)
+
+
 @app.delete("/api/channels/{cid}")
 async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
     with db.conn() as c:
