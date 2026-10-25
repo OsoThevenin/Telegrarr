@@ -16,6 +16,7 @@ DEFAULTS = {
     "history_limit_per_show": 0,   # 0 = keep every completed record
     "tmdb_key": "",                # optional TMDB api key for poster artwork
     "paused": "0",
+    "daily_budget_gb": 0,          # account safety: max GB downloaded per day, 0 = unlimited
 }
 
 
@@ -70,6 +71,7 @@ def public() -> dict:
         "notify_telegram": get_bool("notify_telegram", False),
         "paused": get_bool("paused", False),
         "proxy_set": bool(get("tg_proxy", "")),
+        "daily_budget_gb": get_float("daily_budget_gb", 0.0),
     }
 
 
@@ -86,6 +88,7 @@ WRITABLE = {
     "notify_webhook": lambda v: str(v),
     "notify_telegram": lambda v: "1" if str(v).strip().lower() in ("1", "true", "yes", "on") else "0",
     "tmdb_key": lambda v: str(v).strip(),
+    "daily_budget_gb": lambda v: str(max(0.0, float(v))),
 }
 
 

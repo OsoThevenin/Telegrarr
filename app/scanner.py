@@ -29,6 +29,7 @@ _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
+BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
 
 
 def begin_shutdown():
@@ -254,6 +255,19 @@ async def backfill_channel(client, channel, full=True):
     return queued
 
 
+async def _wait_for_budget(channel_id, message_id):
+    """Hold a download (status queued, reason in `error`) until the daily budget allows it."""
+    marked = False
+    while safety.budget_exhausted():
+        if not marked:
+            resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
+            with db.conn() as c:
+                c.execute("UPDATE downloads SET status='queued', error=? WHERE channel_id=? AND message_id=?",
+                          (f"Daily download budget reached — resumes at {resets}", channel_id, message_id))
+            marked = True
+        await asyncio.sleep(BUDGET_RECHECK_SECONDS)
+
+
 async def _run_download(client, channel_id, msg, save_path, gk):
     key = (channel_id, gk)
     with db.conn() as c:
@@ -273,6 +287,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
             return
         _inflight.add(key)
     try:
+        await _wait_for_budget(channel_id, msg.id)
         async with _sem_current():
             # If the finished file is already on disk — fully downloaded but not
             # finalized before a crash/restart, or grabbed by a sibling source —
@@ -294,7 +309,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                 db.log("INFO", f"Already on disk — finalized {os.path.basename(save_path)}", channel_id=channel_id)
                 return
             with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='downloading', started_at=?
+                c.execute("""UPDATE downloads SET status='downloading', started_at=?, error=NULL
                              WHERE channel_id=? AND message_id=?""",
                           (int(time.time()), channel_id, msg.id))
 
@@ -305,6 +320,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                               (pct, speed, channel_id, msg.id))
 
             await download_file(client, msg, save_path, progress_cb=pcb)
+            safety.record_download(fsize)
 
             with db.conn() as c:
                 c.execute("""UPDATE downloads SET status='completed', progress=1.0,

@@ -5,8 +5,11 @@
 import time
 import random
 import asyncio
+import datetime
 import logging
 from typing import Awaitable, Callable
+
+from . import settings
 
 log = logging.getLogger("safety")
 
@@ -103,3 +106,44 @@ class PollScheduler:
             return True
         interval = effective_poll_minutes(poll_minutes) * 60
         return now >= last_scanned_at + interval + self._jitter_for(channel_id, last_scanned_at, interval)
+
+
+# ── daily download budget ─────────────────────────────────────────────
+GB = 1024 ** 3
+
+
+def _day_key(now: float) -> str:
+    return datetime.datetime.fromtimestamp(now).strftime("%Y-%m-%d")
+
+
+def _next_midnight(now: float) -> float:
+    today = datetime.datetime.fromtimestamp(now).date()
+    return datetime.datetime.combine(today + datetime.timedelta(days=1), datetime.time()).timestamp()
+
+
+def _used_today(now: float) -> int:
+    if settings.get("budget_day", "") != _day_key(now):
+        return 0
+    return settings.get_int("budget_used_bytes", 0)
+
+
+def record_download(nbytes: int, now: float | None = None) -> None:
+    """Add a finished download's size to today's usage."""
+    now = time.time() if now is None else now
+    used = _used_today(now) + max(0, int(nbytes))
+    settings.set("budget_day", _day_key(now))
+    settings.set("budget_used_bytes", str(used))
+
+
+def budget_status(now: float | None = None) -> dict:
+    """Today's budget: limit (0 = unlimited), bytes used, whether downloads are paused, reset time."""
+    now = time.time() if now is None else now
+    limit_gb = settings.get_float("daily_budget_gb", 0.0)
+    used = _used_today(now)
+    exhausted = limit_gb > 0 and used >= limit_gb * GB
+    return {"limit_gb": limit_gb, "used_bytes": used, "exhausted": exhausted,
+            "resets_at": _next_midnight(now)}
+
+
+def budget_exhausted(now: float | None = None) -> bool:
+    return budget_status(now)["exhausted"]
