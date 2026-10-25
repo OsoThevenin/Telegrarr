@@ -397,6 +397,19 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 .chip { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 6px 12px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); font-size: 13px; font-weight: 500; }
 .pad { padding: 12px 14px; }
 
+/* directory import dialog */
+.modal-card.wide { width: min(680px, 96vw); }
+.dir-pick { display: flex; gap: 8px; align-items: center; }
+.dir-pick select { flex: 1; min-width: 0; }
+.dir-list { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.dir-row { display: flex; gap: 11px; align-items: flex-start; padding: 11px 13px; border-bottom: 1px solid var(--line-soft); }
+.dir-row:last-child { border-bottom: 0; }
+.dir-row.off .ci-title { color: var(--muted); }
+.dir-row input[type=checkbox] { margin-top: 3px; width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+.dir-row .ci-main { gap: 3px; flex: 1; }
+.dir-match { display: grid; gap: 6px; font-size: 13px; }
+.dir-match-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
 .drawer { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.4); backdrop-filter: blur(6px); display: grid; place-items: start center; padding: 5vh 16px 16px; overflow: auto; }
 .drawer-card { width: min(820px, 100%); background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-raised); }
 .hero-wrap { position: relative; }

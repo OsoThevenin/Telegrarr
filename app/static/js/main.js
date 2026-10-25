@@ -4,6 +4,7 @@ import { icon } from "./icons.js";
 import { viewDashboard, viewChannels, viewDownloads, viewActivity, viewSystem, viewSettings, openChannelModal, openTelegramConnect, liveActive, liveDashboard, ui } from "./views.js";
 import { initPalette, openCommandPalette } from "./palette.js";
 import { viewConnect } from "./connect.js";
+import { openDirectoryImport } from "./directory.js";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", view: viewDashboard },
@@ -84,7 +85,8 @@ function syncNav() {
   document.title = active === "dashboard" ? "Telegrarr" : `${TITLE[active]} · Telegrarr`;
   const ca = qs("#ctx-actions");
   if (ca) mount(ca, active === "channels"
-    ? h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), "Add channel")
+    ? [h("button", { class: "btn ghost", onClick: () => openDirectoryImport(ctx) }, h("span", { html: icon("link") }), "Import directory"),
+      h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), "Add channel")]
     : []);
 }
 function syncThemeBtn() { const b = qs("#theme-toggle"); if (b) mount(b, h("span", { html: icon(getTheme() === "dark" ? "moon" : getTheme() === "light" ? "sun" : "wifi") })); }
@@ -163,6 +165,7 @@ function getCommands() {
   const cmds = NAV.map((n) => ({ label: "Go to " + n.label, icon: n.icon, hint: "view", run: () => go(n.id) }));
   const paused = DATA.status && DATA.status.paused;
   cmds.push({ label: "Add channel", icon: "plus", run: () => openChannelModal(ctx, null) });
+  cmds.push({ label: "Import channels from a directory", icon: "link", run: () => openDirectoryImport(ctx) });
   cmds.push({ label: paused ? "Resume downloads" : "Pause downloads", icon: paused ? "play" : "pause", run: togglePause });
   cmds.push({ label: "Scan all channels", icon: "scan", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/scan`, { method: "POST" }); } });
   cmds.push({ label: "Backfill all channels", icon: "refresh", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/backfill`, { method: "POST" }); } });
