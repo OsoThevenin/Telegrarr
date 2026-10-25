@@ -5,11 +5,11 @@ import sqlite3
 import time
 import logging
 import contextlib
-from .config import DB_PATH
+from .config import DB_PATH, POLL_FLOOR_MINUTES
 
 _logger = logging.getLogger("db")
 
-SCHEMA = """
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY,
   pw_hash  TEXT NOT NULL
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS channels (
   imdb_id TEXT,
   imdb_title TEXT,
   weekdays TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6',
-  poll_minutes INTEGER NOT NULL DEFAULT 10,
+  poll_minutes INTEGER NOT NULL DEFAULT {POLL_FLOOR_MINUTES},
   enabled INTEGER NOT NULL DEFAULT 1,
   last_scanned_at INTEGER DEFAULT 0,
   last_message_id INTEGER DEFAULT 0,
