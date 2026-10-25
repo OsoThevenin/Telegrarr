@@ -11,11 +11,13 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, movies, __version__
+from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from . import i18n
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
+from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
+from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -23,15 +25,6 @@ log = logging.getLogger("main")
 
 HERE = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
-
-
-def _bad(status: int, key: str, **params) -> HTTPException:
-    """An HTTP error whose detail is an i18n message the UI translates."""
-    return HTTPException(status, i18n.message(key, **params))
-
-
-def _keyed(status: int, e: i18n.KeyedError) -> HTTPException:
-    return HTTPException(status, e.message())
 
 
 def _page_ctx(lang: str, **extra) -> dict:
@@ -47,9 +40,9 @@ async def lifespan(app: FastAPI):
     try:
         await client.connect()
         if not await client.is_user_authorized():
-            db.log("ERROR", "Telegram session not authorized — see README auth step.")
+            db.log("ERROR", i18n.message("event.tg_not_authorized"))
     except Exception as e:
-        db.log("ERROR", f"Telegram connect failed at startup: {e}")
+        db.log("ERROR", i18n.message("event.tg_connect_failed", error=str(e)))
     scanner.start_background()
     yield
     # graceful shutdown: requeue anything in flight so it resumes next boot
@@ -64,6 +57,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
+for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes):
+    app.include_router(_router.router)
 
 
 # The UI is entirely first-party: templates, /static assets and inline handlers,
@@ -124,14 +119,14 @@ async def do_login(request: Request, username: str = Form(...), password: str = 
 
     wait = auth.throttle_retry_after(key)
     if wait:
-        db.log("WARN", f"Login attempt from {key} rejected — locked out for {wait}s")
+        db.log("WARN", i18n.message("event.login_locked", client=key, seconds=wait))
         return RedirectResponse(
             f"/login?error=throttled&wait={wait}",
             status_code=303)
 
     if not auth.verify(username, password):
         auth.record_failure(key)
-        db.log("WARN", f"Failed login for '{username}' from {key}")
+        db.log("WARN", i18n.message("event.login_failed", user=username, client=key))
         return RedirectResponse("/login?error=invalid", status_code=303)
 
     auth.record_success(key)
@@ -166,8 +161,6 @@ async def service_worker():
 
 
 def _live_snapshot():
-    import shutil
-    from .config import TV_DIR
     with db.conn() as c:
         stats = {k: c.execute(q).fetchone()[0] for k, q in {
             "channels": "SELECT COUNT(*) FROM channels",
@@ -182,18 +175,9 @@ def _live_snapshot():
             "SELECT d.*, ch.title AS channel_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
             "WHERE d.status IN ('downloading','queued') ORDER BY d.id")]
-    root = TV_DIR
-    for _ in range(4):
-        if os.path.exists(root):
-            break
-        root = os.path.dirname(root)
-    try:
-        total, used, free = shutil.disk_usage(root if os.path.exists(root) else "/")
-    except Exception:
-        total = used = free = 0
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
             "budget": safety.budget_status(),
-            "disk": {"total": total, "used": used, "free": free},
+            "disk": system.disk_usage(),
             "speed": round(sum(a.get("speed_mbs") or 0 for a in active), 1)}
 
 
@@ -215,17 +199,6 @@ async def api_events(request: Request, user=Depends(auth.require_user)):
 # ── status ────────────────────────────────────────────────────────────
 @app.get("/api/status")
 async def api_status(user=Depends(auth.require_user)):
-    import shutil
-    from .config import TV_DIR
-    root = TV_DIR
-    for _ in range(4):
-        if os.path.ismount(root) or os.path.exists(root):
-            break
-        root = os.path.dirname(root)
-    try:
-        total, used, free = shutil.disk_usage(root if os.path.exists(root) else "/")
-    except Exception:
-        total = used = free = 0
     client = get_client()
     try:
         authed = client.is_connected() and await client.is_user_authorized()
@@ -242,7 +215,7 @@ async def api_status(user=Depends(auth.require_user)):
         stats["total_size"] = c.execute(
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
-            "disk": {"total": total, "used": used, "free": free},
+            "disk": system.disk_usage(),
             "stats": stats, "config": summary(), "budget": safety.budget_status()}
 
 
@@ -267,8 +240,7 @@ async def api_system_scan_all(user=Depends(auth.require_user)):
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    with db.conn() as c:
-        chans = c.execute("SELECT * FROM channels WHERE enabled=1").fetchall()
+    chans = channels.listed(enabled_only=True)
     for ch in chans:
         scanner._spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
@@ -307,21 +279,7 @@ async def api_system_updates(user=Depends(auth.require_user)):
 # ── channels ──────────────────────────────────────────────────────────
 @app.get("/api/channels")
 async def api_channels(user=Depends(auth.require_user)):
-    with db.conn() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM channels ORDER BY id DESC")]
-
-
-def _normalize_chat_id(raw) -> int:
-    """Accept -100… , bare channel ids, or @usernames-as-int; return -100 form."""
-    try:
-        cid = int(raw)
-    except (TypeError, ValueError):
-        raise _bad(400, "err.channel.chat_id_numeric")
-    if cid > 0 and not str(cid).startswith("100"):
-        return int(f"-100{cid}")
-    if cid > 0:
-        return -cid
-    return cid
+    return channels.listed()
 
 
 _CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
@@ -356,57 +314,35 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         ent = await client.get_entity(chat_id)
         title = getattr(ent, "title", None) or title
     except Exception as e:
-        db.log("WARN", f"get_entity failed for {chat_id}: {e}")
+        db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
     return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release)
 
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title",
-               "language", "fallback_quality"}
     payload = {**payload, **_release_fields(payload)}
     if "poll_minutes" in payload:
         try:
             payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
         except settings.SettingRejected as e:
             raise _keyed(400, e)
-    sets = [f"{k}=?" for k in payload if k in allowed]
-    vals = [payload[k] for k in payload if k in allowed]
-    if not sets:
+    if not channels.EDITABLE & payload.keys():
         return {"ok": True}
-    vals.append(cid)
-    with db.conn() as c:
-        c.execute(f"UPDATE channels SET {','.join(sets)} WHERE id=?", vals)
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.update(cid, payload)
     if not ch:
         raise HTTPException(404)
-    return dict(ch)
-
-
-@app.put("/api/channels/{cid}/series")
-async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user)):
-    """Map a series channel to its TVDB id (+ TMDB/IMDb ids derived via TMDB)."""
-    with db.conn() as c:
-        if not c.execute("SELECT 1 FROM channels WHERE id=?", (cid,)).fetchone():
-            raise HTTPException(404)
-    try:
-        return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
-                                         title=payload.get("title") or "")
-    except tmdb.TMDBError as e:
-        raise _keyed(400, e)
+    return ch
 
 
 @app.delete("/api/channels/{cid}")
 async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        c.execute("DELETE FROM channels WHERE id=?", (cid,))
+    channels.delete(cid)
     return {"ok": True}
 
 
 @app.post("/api/channels/{cid}/scan")
 async def api_scan(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
     client = get_client()
@@ -418,8 +354,7 @@ async def api_scan(cid: int, user=Depends(auth.require_user)):
 
 @app.post("/api/channels/{cid}/backfill")
 async def api_backfill(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
     client = get_client()
@@ -446,7 +381,7 @@ async def api_downloads(limit: int = 100, status: str = "",
     q += " ORDER BY d.id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:
-        return [dict(r) for r in c.execute(q, args)]
+        return [_with_message(r, "error_key", "error_params", "error_msg") for r in c.execute(q, args)]
 
 
 @app.post("/api/downloads/bulk")
@@ -533,7 +468,13 @@ async def api_logs(limit: int = 200, channel_id: int = None,
     q += " ORDER BY id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:
-        return [dict(r) for r in c.execute(q, args)]
+        return [_with_message(r, "msg_key", "msg_params", "msg") for r in c.execute(q, args)]
+
+
+def _with_message(row, key_col: str, params_col: str, as_name: str) -> dict:
+    """A row as a dict whose stored key/params columns become one {key, params} field."""
+    fields = {k: row[k] for k in row.keys() if k not in (key_col, params_col)}
+    return {**fields, as_name: db.stored_message(row[key_col], row[params_col])}
 
 
 # ── settings ──────────────────────────────────────────────────────────
@@ -545,7 +486,7 @@ async def api_get_settings(user=Depends(auth.require_user)):
 
 @app.post("/api/integrations/arr/regenerate")
 async def api_arr_regen(user=Depends(auth.require_user)):
-    db.log("INFO", "arr API key regenerated")
+    db.log("INFO", i18n.message("event.arr_key_regenerated"))
     return {"apikey": arr.regenerate()}
 
 
@@ -557,33 +498,6 @@ async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
         raise _keyed(400, e)
 
 
-# ── Connect page: Prowlarr / Sonarr / Radarr ──────────────────────────
-def _arr_app_name(payload: dict) -> str:
-    app_name = str(payload.get("app", ""))
-    if app_name not in connect.APP_TITLES:
-        raise _bad(400, "err.connect.unknown_app")
-    return app_name
-
-
-@app.post("/api/connect/test")
-async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
-    return await connect.check_connection(_arr_app_name(payload))
-
-
-@app.post("/api/connect/register")
-async def api_connect_register(user=Depends(auth.require_user)):
-    me_url = settings.get("telegrarr_url", "")
-    if not me_url:
-        raise _bad(400, "err.connect.own_url_missing")
-    results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
-    for res in results:
-        if res["status"] == "created":
-            db.log("INFO", f"Connect: registered Telegrarr {res['kind']} in {res['app']}")
-        elif res["status"] == "error":
-            db.log("WARNING", f"Connect: {res['app']} {res['kind']} registration failed: {res['error']}")
-    return {"results": results}
-
-
 @app.post("/api/account/password")
 async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
@@ -593,7 +507,7 @@ async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     if len(new) < auth.MIN_PASSWORD_LEN:
         raise _bad(400, "err.account.password_short", min=auth.MIN_PASSWORD_LEN)
     auth.set_password(user, new)
-    db.log("INFO", "Admin password changed")
+    db.log("INFO", i18n.message("event.password_changed"))
     return {"ok": True}
 
 
@@ -608,7 +522,7 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
     if new != user and auth.username_exists(new):
         raise _bad(400, "err.account.username_taken")
     auth.set_username(user, new)
-    db.log("INFO", f"Admin username changed to {new}")
+    db.log("INFO", i18n.message("event.username_changed", user=new))
     # username change bumps the session epoch (revokes old cookies) — re-issue ours
     r = JSONResponse({"ok": True, "username": new})
     r.set_cookie("telearr_sess", auth.make_cookie(new),
@@ -621,14 +535,14 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
 @app.post("/api/queue/pause")
 async def api_pause(user=Depends(auth.require_user)):
     scanner.pause()
-    db.log("INFO", "Downloads paused")
+    db.log("INFO", i18n.message("event.downloads_paused"))
     return {"ok": True, "paused": True}
 
 
 @app.post("/api/queue/resume")
 async def api_resume(user=Depends(auth.require_user)):
     await scanner.resume_all()
-    db.log("INFO", "Downloads resumed")
+    db.log("INFO", i18n.message("event.downloads_resumed"))
     return {"ok": True, "paused": False}
 
 
@@ -645,93 +559,7 @@ async def api_notify_test(user=Depends(auth.require_user)):
 
 @app.get("/api/art")
 async def api_art(imdb: str = "", user=Depends(auth.require_user)):
-    title = ""
-    if imdb:
-        with db.conn() as c:
-            row = c.execute("SELECT imdb_title FROM channels WHERE imdb_id=? LIMIT 1", (imdb,)).fetchone()
-        title = (row["imdb_title"] if row else "") or ""
-    return await tmdb.art(imdb, title)
-
-
-@app.get("/api/tmdb/search")
-async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
-    try:
-        return await tmdb.search_series(q)
-    except tmdb.KeyMissing as e:
-        raise _keyed(400, e)
-    except tmdb.TMDBError as e:
-        raise _keyed(502, e)
-
-
-@app.get("/api/tmdb/movies")
-async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(auth.require_user)):
-    try:
-        return await tmdb.search_movies(q, year)
-    except tmdb.KeyMissing as e:
-        raise _keyed(400, e)
-    except tmdb.TMDBError as e:
-        raise _keyed(502, e)
-
-
-# ── movie channels: Pending review ────────────────────────────────────
-@app.get("/api/review")
-async def api_review(user=Depends(auth.require_user)):
-    return movies.pending()
-
-
-@app.post("/api/review/{cid}/{mid}/assign")
-async def api_review_assign(cid: int, mid: int, payload: dict, user=Depends(auth.require_user)):
-    try:
-        return await movies.assign(cid, mid, payload.get("tmdb_id"), payload.get("imdb_id"))
-    except movies.NotPending as e:
-        raise _keyed(404, e)
-    except movies.ReviewError as e:
-        raise _keyed(400, e)
-
-
-@app.post("/api/review/{cid}/{mid}/discard")
-async def api_review_discard(cid: int, mid: int, user=Depends(auth.require_user)):
-    try:
-        movies.discard(cid, mid)
-    except movies.NotPending as e:
-        raise _keyed(404, e)
-    return {"ok": True}
-
-
-@app.post("/api/integrations/tmdb/test")
-async def api_tmdb_test(payload: dict = None, user=Depends(auth.require_user)):
-    return await tmdb.test((payload or {}).get("key") or None)
-
-
-# ── directory channel mass import ────────────────────────────────────
-@app.post("/api/directory/scan")
-async def api_directory_scan(payload: dict, user=Depends(auth.require_user)):
-    chat_id = _normalize_chat_id(payload.get("chat_id"))
-    client = await tg.authorized_client()
-    if not client:
-        raise _bad(409, "err.tg.not_connected")
-    try:
-        return await directory.scan(client, chat_id)
-    except directory.ScanRefused as e:
-        raise _keyed(429, e)
-
-
-def _import_item(raw) -> directory.ImportItem:
-    if not isinstance(raw, dict):
-        raise _bad(400, "err.directory.import_item")
-    return directory.ImportItem(chat_id=_normalize_chat_id(raw.get("chat_id")), title=str(raw.get("title") or ""),
-                                tmdb_id=raw.get("tmdb_id"), tvdb_id=raw.get("tvdb_id"),
-                                series_title=str(raw.get("series_title") or ""))
-
-
-@app.post("/api/directory/import")
-async def api_directory_import(payload: dict, user=Depends(auth.require_user)):
-    raw = payload.get("channels")
-    if not isinstance(raw, list) or not raw:
-        raise _bad(400, "err.directory.import_empty")
-    if len(raw) > directory.MAX_IMPORT_ITEMS:
-        raise _bad(400, "err.directory.import_too_many", max=directory.MAX_IMPORT_ITEMS)
-    return {"results": await directory.import_channels([_import_item(r) for r in raw])}
+    return await tmdb.art(imdb, channels.series_title(imdb) if imdb else "")
 
 
 @app.get("/api/telegram/dialogs")

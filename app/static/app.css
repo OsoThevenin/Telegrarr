@@ -162,6 +162,7 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 
 /* two-part episode resolution note under a download's file name */
 .ep-note { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.err-note { display: block; margin-top: 2px; font-size: 12px; color: var(--err); }
 
 /* status pills — Apple capsule, restrained tint */
 .pill { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: var(--r-pill); border: 1px solid transparent; white-space: nowrap; text-transform: capitalize; }

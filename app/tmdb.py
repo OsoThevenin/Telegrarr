@@ -12,6 +12,7 @@ from difflib import SequenceMatcher
 
 import httpx
 from . import settings
+from .http_errors import ErrorKeys, request_json
 from .i18n import KeyedError, message
 
 log = logging.getLogger("art")
@@ -111,13 +112,18 @@ async def test(key=None):
         if r.status_code < 400:
             return {"ok": True, "detail": message("tmdb.test.ok")}
         return {"ok": False, "detail": message("tmdb.test.invalid_key", status=r.status_code)}
-    except Exception as e:
-        return {"ok": False, "detail": message("err.tmdb.unreachable", error=str(e))}
+    except httpx.HTTPError as e:
+        log.warning("tmdb key test failed: %s", e)
+        return {"ok": False, "detail": message("err.tmdb.unreachable", error=type(e).__name__)}
 
 
 # ── series identity (search + id derivation) ─────────────────────────
 class TMDBError(KeyedError):
-    """TMDB could not answer; the keyed message is safe to show to the user."""
+    """A TMDB lookup failed; the keyed message is safe to show to the user."""
+
+
+class TMDBUnavailable(TMDBError):
+    """TMDB itself failed to answer (network, rejected key, HTTP error, bad body)."""
 
 
 class KeyMissing(TMDBError):
@@ -132,19 +138,14 @@ def _require_key() -> str:
     return key
 
 
+_ERRORS = ErrorKeys(error=TMDBUnavailable, unreachable="err.tmdb.unreachable", bad_key="err.tmdb.rejected_key",
+                    http="err.tmdb.http", not_json="err.tmdb.not_json")
+
+
 async def _get(path: str, **params) -> dict:
     key = _require_key()
-    try:
-        async with http() as client:
-            r = await client.get(f"{API}{path}", params={"api_key": key, **params})
-    except httpx.HTTPError as e:
-        log.warning("tmdb %s failed: %s", path, e)
-        raise TMDBError("err.tmdb.unreachable", error=str(e)) from e
-    if r.status_code == 401:
-        raise TMDBError("err.tmdb.rejected_key")
-    if r.status_code >= 400:
-        raise TMDBError("err.tmdb.http", status=r.status_code)
-    return r.json()
+    async with http() as client:
+        return await request_json(client, _ERRORS, "GET", f"{API}{path}", params={"api_key": key, **params})
 
 
 def _series_hit(item: dict) -> dict:

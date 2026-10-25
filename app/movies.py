@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from . import db, tmdb
-from .i18n import KeyedError, translate
+from .i18n import KeyedError, message
 from .namer import release_name, DEFAULT_LANGUAGE
 
 # pending_review.reason holds a dictionary key; the UI translates it.
@@ -80,7 +80,8 @@ def _hold(posted: PostedFilm, reason: str) -> None:
             (posted.channel_id, posted.message_id, posted.title, posted.year, posted.quality,
              posted.file_name, posted.caption, posted.size, posted.group_key, reason,
              STATUS_PENDING, int(time.time())))
-    db.log("INFO", f"Pending review: {posted.file_name} ({translate(reason, 'en')})", channel_id=posted.channel_id)
+    db.log("INFO", message("event.pending_review", file=posted.file_name, reason=message(reason)),
+           channel_id=posted.channel_id)
 
 
 async def _lookup(posted: PostedFilm) -> tuple[tmdb.Film | None, str]:
@@ -91,7 +92,8 @@ async def _lookup(posted: PostedFilm) -> tuple[tmdb.Film | None, str]:
     except tmdb.KeyMissing as e:
         return None, e.key
     except tmdb.TMDBError as e:
-        db.log("WARN", f"TMDB lookup failed for {posted.file_name}: {e}", channel_id=posted.channel_id)
+        db.log("WARN", message("event.tmdb_lookup_failed", file=posted.file_name, error=e.message()),
+               channel_id=posted.channel_id)
         return None, REASON_LOOKUP_FAILED
     return film, REASON_NO_MATCH
 
@@ -152,7 +154,7 @@ async def assign(channel_id: int, message_id: int, tmdb_id=None, imdb_id=None) -
         title = _index_film(c, _channel(c, channel_id), (channel_id, message_id), row["group_key"],
                             film, row["quality"], row["size"] or 0)
         c.execute("DELETE FROM pending_review WHERE channel_id=? AND message_id=?", (channel_id, message_id))
-    db.log("INFO", f"Review: assigned {row['file_name']} → {title}", channel_id=channel_id)
+    db.log("INFO", message("event.review_assigned", file=row["file_name"], title=title), channel_id=channel_id)
     return {"title": title, "tmdb_id": film.tmdb_id, "imdb_id": film.imdb_id, "year": film.year}
 
 
@@ -162,4 +164,4 @@ def discard(channel_id: int, message_id: int) -> None:
         row = _pending_row(c, channel_id, message_id)
         c.execute("UPDATE pending_review SET status=? WHERE channel_id=? AND message_id=?",
                   (STATUS_DISCARDED, channel_id, message_id))
-    db.log("INFO", f"Review: discarded {row['file_name']}", channel_id=channel_id)
+    db.log("INFO", message("event.review_discarded", file=row["file_name"]), channel_id=channel_id)

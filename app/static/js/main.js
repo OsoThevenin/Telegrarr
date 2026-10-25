@@ -2,7 +2,9 @@
 import { h, mount, qs, api } from "./core.js";
 import { icon } from "./icons.js";
 import { t, fmtTime } from "./i18n.js";
-import { viewDashboard, viewChannels, viewDownloads, viewActivity, viewSystem, viewSettings, openChannelModal, openTelegramConnect, liveActive, liveDashboard, ui } from "./views.js";
+import { viewDashboard, viewChannels, viewDownloads, viewActivity, viewSettings, openChannelModal, liveActive, liveDashboard, ui } from "./views.js";
+import { viewSystem } from "./system.js";
+import { openTelegramConnect } from "./telegram-connect.js";
 import { initPalette, openCommandPalette } from "./palette.js";
 import { viewConnect } from "./connect.js";
 import { openDirectoryImport } from "./directory.js";

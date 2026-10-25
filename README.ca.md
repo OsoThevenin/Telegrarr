@@ -225,7 +225,7 @@ moltes opcions es poden canviar en calent a *Configuració*, que té prioritat s
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Usuari administrador inicial (primera execució) | — |
 | `PATH_TO_DOWNLOADS` | Carpeta de l'amfitrió muntada a `/downloads` | `./downloads` |
 | `TELEARR_DOWNLOADS_DIR` | Base de baixades dins del contenidor | `/downloads` |
-| `TELEARR_MEDIA_ROOT` | Camí de l'amfitrió muntat a `/media` (biblioteques del mode autònom) | obligatori per al compose |
+| `TELEARR_MEDIA_ROOT` | Camí de l'amfitrió muntat a `/media` (biblioteques del mode autònom; no s'usa en mode *arr) | `./media` |
 | `TELEARR_BIND_ADDR` | Adreça de l'amfitrió on escolta la interfície | `0.0.0.0` |
 | `PUID` / `PGID` | Només si actives `user:` al compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Connexions per fitxer / fitxers simultanis | `4` / `2` |

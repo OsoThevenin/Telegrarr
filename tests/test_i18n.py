@@ -53,6 +53,14 @@ def test_translate_fills_placeholders_in_the_requested_language():
     assert i18n.translate("err.settings.poll_floor", "ca", floor=15) == "L’interval de consulta ha de ser d’almenys 15 minuts"
 
 
+def test_a_param_that_is_a_message_is_translated_in_the_same_language():
+    reason = i18n.message("review.reason.no_year")
+
+    text = i18n.translate("event.pending_review", "ca", file="pel.mkv", reason=reason)
+
+    assert text == "Pendent de revisió: pel.mkv (El títol no té any)"
+
+
 def test_translate_returns_the_key_when_it_is_unknown():
     assert i18n.translate("no.such.key", "ca") == "no.such.key"
 

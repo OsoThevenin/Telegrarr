@@ -215,7 +215,7 @@ changed live in *Settings*, which override `.env`.
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Seed admin login (first run) | — |
 | `PATH_TO_DOWNLOADS` | Host folder mounted at `/downloads` | `./downloads` |
 | `TELEARR_DOWNLOADS_DIR` | Downloads base inside the container | `/downloads` |
-| `TELEARR_MEDIA_ROOT` | Host path mounted at `/media` (standalone libraries) | required by compose |
+| `TELEARR_MEDIA_ROOT` | Host path mounted at `/media` (standalone libraries; unused in *arr mode) | `./media` |
 | `TELEARR_BIND_ADDR` | Host address the UI binds to | `0.0.0.0` |
 | `PUID` / `PGID` | Only if you enable `user:` in compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Senders per file / concurrent files | `4` / `2` |

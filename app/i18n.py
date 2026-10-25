@@ -39,9 +39,17 @@ def ui_lang() -> str:
 
 def translate(key: str, lang: str | None = None, **params) -> str:
     """Render `key` in `lang` (default: the UI language). Unknown keys render
-    as themselves so stored or future keys never break the display."""
-    text = load(lang or ui_lang()).get(key, key)
-    return _PLACEHOLDER.sub(lambda m: str(params.get(m.group(1), m.group(0))), text)
+    as themselves so stored or future keys never break the display. A param
+    that is itself a message ({"key", "params"}) is translated too."""
+    lang = lang or ui_lang()
+    text = load(lang).get(key, key)
+    return _PLACEHOLDER.sub(lambda m: _param_text(params.get(m.group(1), m.group(0)), lang), text)
+
+
+def _param_text(value, lang: str) -> str:
+    if isinstance(value, dict) and "key" in value:
+        return translate(value["key"], lang, **(value.get("params") or {}))
+    return str(value)
 
 
 def message(key: str, **params) -> dict:

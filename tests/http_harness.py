@@ -13,6 +13,7 @@ background scan loop and no real Telethon connect; tests trigger scans over HTTP
 from __future__ import annotations
 
 import asyncio
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -235,6 +236,30 @@ class ArrApp:
             return next((s for s in slots if s["nzo_id"] == nzo_id), None)
 
         return await eventually(slot)
+
+    async def sab(self, **params: Any) -> dict:
+        """One SABnzbd API call, as Sonarr/Radarr make it."""
+        r = await self.http.get("/sabnzbd/api", params={"apikey": self.apikey, "output": "json", **params})
+        return r.raise_for_status().json()
+
+    async def publish_episodes(self, chat_id: int, show: str, *episodes: int) -> list[str]:
+        """A scanned series channel with one season-1 post per episode; returns
+        the NZB urls Sonarr would grab them by, in ``episodes`` order."""
+        self.telegram.add_channel(chat_id, show)
+        dotted = show.replace(" ", ".")
+        for ep in episodes:
+            self.telegram.post(chat_id, text=f"{show} S01E{ep:02d} 1080p", file_name=f"{dotted}.S01E{ep:02d}.mkv")
+        channel = await self.add_channel(chat_id)
+        await self.scan(channel["id"])
+        r = await self.http.get("/api/newznab", params={"t": "tvsearch", "apikey": self.apikey, "q": show})
+        items = ET.fromstring(r.raise_for_status().text).findall("./channel/item")
+        urls = {i.find("title").text: i.find("enclosure").attrib["url"] for i in items}
+        return [next(u for title, u in urls.items() if f"S01E{ep:02d}" in title) for ep in episodes]
+
+    async def download(self, file_name: str) -> dict | None:
+        """The UI's download row for ``file_name``, if any."""
+        rows = (await self.http.get("/api/downloads")).raise_for_status().json()
+        return next((d for d in rows if d["file_name"] == file_name), None)
 
 
 LIBRARY_DIR_NAMES = ("TV_DIR", "TV_DIR_4K", "MOVIES_DIR", "MOVIES_DIR_4K", "OTHER_DIR")

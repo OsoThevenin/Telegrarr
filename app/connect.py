@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import httpx
 
 from . import settings
+from .http_errors import ErrorKeys, request_json
 from .i18n import KeyedError
 
 transport: httpx.AsyncBaseTransport | None = None
@@ -53,21 +54,13 @@ def configured(app: str) -> ArrApp:
 async def _request(target: ArrApp, method: str, path: str, *, params: dict | None = None,
                    json: object = None) -> object:
     """One API call; returns the decoded JSON body or raises ArrError."""
-    url = f"{target.url}{target.api}{path}"
-    try:
-        async with httpx.AsyncClient(transport=transport, timeout=TIMEOUT_S) as client:
-            r = await client.request(method, url, params=params, json=json,
-                                     headers={"X-Api-Key": target.key})
-    except httpx.HTTPError as e:
-        raise ArrError("err.arr.unreachable", app=target.title, url=target.url, error=type(e).__name__) from e
-    if r.status_code == 401:
-        raise ArrError("err.arr.bad_key", app=target.title)
-    if r.status_code >= 400:
-        raise ArrError("err.arr.http", app=target.title, status=r.status_code, detail=_validation_detail(r))
-    try:
-        return r.json()
-    except ValueError as e:
-        raise ArrError("err.arr.not_json", app=target.title, url=target.url) from e
+    keys = ErrorKeys(error=ArrError, unreachable="err.arr.unreachable", bad_key="err.arr.bad_key",
+                     http="err.arr.http", not_json="err.arr.not_json",
+                     params={"app": target.title}, where={"url": target.url},
+                     http_detail=lambda r: {"detail": _validation_detail(r)})
+    async with httpx.AsyncClient(transport=transport, timeout=TIMEOUT_S) as client:
+        return await request_json(client, keys, method, f"{target.url}{target.api}{path}", params=params,
+                                  json=json, headers={"X-Api-Key": target.key})
 
 
 def _validation_detail(r: httpx.Response) -> str:

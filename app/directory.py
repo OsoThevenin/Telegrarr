@@ -136,6 +136,11 @@ class _Cache:
 _cache = _Cache()
 
 
+def forget_scans() -> None:
+    """Drop every remembered scan: the next scan of each directory reads Telegram."""
+    _cache.scans = {}
+
+
 def _gate_check(now: float) -> None:
     closed_until = downloader.flood_gate.closed_until
     if closed_until > now:
@@ -151,7 +156,9 @@ async def _resolve(client, link: ChannelLink) -> Resolved:
     except FloodWaitError:
         raise
     except Exception as e:
-        return Resolved(link.link, link.kind, False, error=message("err.directory.resolve_failed", error=str(e)))
+        log.warning("directory: resolving %s failed: %s", link.link, e)
+        return Resolved(link.link, link.kind, False,
+                        error=message("err.directory.resolve_failed", error=type(e).__name__))
     if not getattr(ent, "title", None):
         return Resolved(link.link, link.kind, False, error=message("err.directory.not_a_channel"))
     return Resolved(link.link, link.kind, True, chat_id=utils.get_peer_id(ent), title=ent.title,
@@ -186,7 +193,8 @@ async def _read_telegram(client, chat_id: int, now: float) -> TelegramScan:
         await downloader.flood_gate.trip(e.seconds)
         raise ScanRefused(RATE_LIMITED["key"]) from e
     except Exception as e:
-        raise ScanRefused("err.directory.read_failed", error=str(e)) from e
+        log.warning("directory: reading %s failed: %s", chat_id, e)
+        raise ScanRefused("err.directory.read_failed", error=type(e).__name__) from e
     entries, complete = await _resolve_all(client, extract_links(messages), chat_id)
     return TelegramScan(directory={"chat_id": chat_id, "title": getattr(ent, "title", "") or ""},
                         messages_scanned=len(messages), entries=tuple(entries), scanned_at=now,

@@ -21,8 +21,10 @@ async function load(code) {
 const DICT = await load(lang);
 const plural = new Intl.PluralRules(locale);
 
+// A param may itself be a server message ({key, params}): it is translated too.
 const fill = (text, params) =>
-  text.replace(/\{(\w+)\}/g, (m, name) => (params && params[name] != null ? String(params[name]) : m));
+  text.replace(/\{(\w+)\}/g, (m, name) => (params && params[name] != null ? paramText(params[name]) : m));
+const paramText = (v) => (typeof v === "object" && v.key ? t(v.key, v.params) : String(v));
 
 // Unknown keys render as the key itself so a missing entry is visible, not blank.
 export function t(key, params) {

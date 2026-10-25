@@ -32,3 +32,12 @@ def test_legacy_db_is_migrated_and_keeps_rows(tmp_path, monkeypatch):
         row = c.execute("SELECT * FROM channels WHERE chat_id=-1").fetchone()
     assert row["language"] == "cat"
     assert row["fallback_quality"] == "1080p"
+
+
+def test_a_channel_stored_without_a_poll_interval_polls_at_the_floor(fresh_db):
+    from app import config, db
+    with db.conn() as c:
+        c.execute("INSERT INTO channels(chat_id,title,created_at) VALUES(-2,'No poll given',0)")
+        row = c.execute("SELECT poll_minutes FROM channels WHERE chat_id=-2").fetchone()
+
+    assert row["poll_minutes"] == config.POLL_FLOOR_MINUTES == 15

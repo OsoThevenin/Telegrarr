@@ -100,3 +100,15 @@ async def test_invite_link_for_non_member_asks_user_to_join(monkeypatch):
     res = await tg.resolve("https://t.me/+AbCdEfGhIjKlMn")
     assert res["error"]["key"] == "err.tg.not_a_member"
     assert not any(isinstance(r, ImportChatInviteRequest) for r in fake.requests)
+
+
+def test_cli_login_registers_the_same_device_as_the_service(recorder):
+    import authorize
+
+    client = authorize.build_client()
+
+    assert client is recorder.built[0]
+    assert client.session == config.SESSION_PATH
+    assert client.kwargs["device_model"] == config.TG_DEVICE_MODEL
+    assert client.kwargs["system_version"] == config.TG_SYSTEM_VERSION
+    assert client.kwargs["app_version"] == config.TG_APP_VERSION
