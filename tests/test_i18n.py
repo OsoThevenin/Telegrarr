@@ -33,6 +33,21 @@ def test_no_translation_is_empty():
         assert [k for k, v in _dictionary(lang).items() if not v.strip()] == []
 
 
+JS_DIR = I18N_DIR.parent / "js"
+# t("key"), tn("key", n) and tOr("key", …) with a literal key; template keys are dynamic and skipped.
+JS_KEY = re.compile(r"\b(t|tn|tOr)\(\s*[\"`]([\w.-]+)[\"`]")
+
+
+def test_every_key_the_spa_uses_exists_in_the_dictionary():
+    en = _dictionary("en")
+    missing = set()
+    for path in JS_DIR.glob("*.js"):
+        for fn, key in JS_KEY.findall(path.read_text(encoding="utf-8")):
+            wanted = [f"{key}.one", f"{key}.other"] if fn == "tn" else [key]
+            missing |= {f"{path.name}: {k}" for k in wanted if k not in en}
+    assert missing == set()
+
+
 def test_translate_fills_placeholders_in_the_requested_language():
     assert i18n.translate("err.settings.poll_floor", "en", floor=15) == "Poll interval must be at least 15 minutes"
     assert i18n.translate("err.settings.poll_floor", "ca", floor=15) == "L’interval de consulta ha de ser d’almenys 15 minuts"

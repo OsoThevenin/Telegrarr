@@ -2,13 +2,13 @@
 // tests and one-click registration of Telegrarr. API keys are write-only: the
 // server only reports whether one is saved.
 import { h, api, jpost, jpatch, toast } from "./core.js";
+import { t, tn, msg } from "./i18n.js";
 
 const APPS = [
-  { id: "prowlarr", label: "Prowlarr", port: 9696, role: "Telegrarr is added as a Generic Newznab indexer." },
-  { id: "sonarr", label: "Sonarr", port: 8989, role: "Telegrarr is added as a SABnzbd download client (category tv)." },
-  { id: "radarr", label: "Radarr", port: 7878, role: "Telegrarr is added as a SABnzbd download client (category movies)." },
+  { id: "prowlarr", label: "Prowlarr", port: 9696, role: t("connect.role.prowlarr") },
+  { id: "sonarr", label: "Sonarr", port: 8989, role: t("connect.role.sonarr") },
+  { id: "radarr", label: "Radarr", port: 7878, role: t("connect.role.radarr") },
 ];
-const STATUS_TEXT = { created: "created", exists: "already registered", skipped: "skipped", error: "failed" };
 const STATUS_TONE = { created: "ok", exists: "ok", skipped: "muted", error: "err" };
 
 const card = (title, ...body) => h("section", { class: "card" }, h("div", { class: "card-h" }, title), ...body);
@@ -19,27 +19,28 @@ const say = (out, text, tone) => { out.textContent = text; out.style.color = `va
 function appCard(app, s) {
   const urlInp = h("input", { type: "url", value: s[`${app.id}_url`] || "", placeholder: `http://${app.id}:${app.port}` });
   const keyInp = h("input", { type: "password", autocomplete: "off",
-    placeholder: s[`${app.id}_key_set`] ? "•••• saved — type to replace" : "Settings → General → API Key" });
+    placeholder: s[`${app.id}_key_set`] ? t("common.key_saved_placeholder") : t("connect.key_placeholder") });
   const out = h("span", { class: "test-out" });
   const saveAndTest = async () => {
     const patch = { [`${app.id}_url`]: urlInp.value };
     if (keyInp.value) patch[`${app.id}_key`] = keyInp.value;
     if (!(await jpatch("/api/settings", patch))) return;
     keyInp.value = "";
-    say(out, "Testing…", "muted");
+    say(out, t("common.testing"), "muted");
     const r = await jpost("/api/connect/test", { app: app.id });
-    if (r) say(out, r.ok ? `Connected · v${r.version}` : r.error, r.ok ? "ok" : "err");
+    if (r) say(out, r.ok ? t("connect.connected_version", { version: r.version }) : msg(r.error), r.ok ? "ok" : "err");
   };
   return card(app.label,
     h("div", { class: "muted small", style: "margin-bottom:10px" }, app.role),
-    row("URL", urlInp, "as reachable from Telegrarr"),
-    row("API key" + (s[`${app.id}_key_set`] ? " (saved)" : ""), keyInp),
-    h("div", { class: "set-actions" }, h("button", { class: "btn primary sm", onClick: saveAndTest }, "Save & test"), out));
+    row(t("common.url"), urlInp, t("connect.url_hint")),
+    row(t("common.api_key") + (s[`${app.id}_key_set`] ? ` ${t("common.saved_suffix")}` : ""), keyInp),
+    h("div", { class: "set-actions" }, h("button", { class: "btn primary sm", onClick: saveAndTest }, t("common.save_test")), out));
 }
 
 function resultLine(res) {
   const label = APPS.find((a) => a.id === res.app)?.label || res.app;
-  const text = `${label} ${res.kind}: ${STATUS_TEXT[res.status] || res.status}${res.error ? ` — ${res.error}` : ""}`;
+  const status = t(`connect.status.${res.status}`);
+  const text = `${label} · ${t(`connect.kind.${res.kind}`)}: ${status}${res.error ? ` — ${msg(res.error)}` : ""}`;
   return h("div", { style: `color:var(--${STATUS_TONE[res.status] || "muted"})` }, text);
 }
 
@@ -52,19 +53,18 @@ function registerCard(s) {
     if (!r) return;
     results.replaceChildren(...r.results.map(resultLine));
     const created = r.results.filter((x) => x.status === "created").length;
-    toast(created ? `Registered in ${created} app${created > 1 ? "s" : ""}` : "Nothing new to register", "ok");
+    toast(created ? tn("connect.registered", created) : t("connect.nothing_new"), "ok");
   };
-  return card("Register Telegrarr",
+  return card(t("connect.register_title"),
     h("div", { class: "muted small", style: "margin-bottom:10px" },
-      "One click adds Telegrarr to every app saved above. Safe to repeat: anything already named “Telegrarr” is left as is. "
-      + "Prefer doing it by hand? See docs/CONNECT.md."),
-    row("Telegrarr URL", meInp, "how Prowlarr, Sonarr and Radarr reach Telegrarr, e.g. http://telegrarr:8790"),
-    h("div", { class: "set-actions" }, h("button", { class: "btn primary sm", onClick: register }, "Register Telegrarr")),
+      t("connect.register_intro")),
+    row(t("connect.own_url"), meInp, t("connect.own_url_hint")),
+    h("div", { class: "set-actions" }, h("button", { class: "btn primary sm", onClick: register }, t("connect.register_title"))),
     results);
 }
 
 export function viewConnect() {
-  const root = h("div", { class: "stack settings-wrap" }, h("div", { class: "empty" }, "Loading…"));
+  const root = h("div", { class: "stack settings-wrap" }, h("div", { class: "empty" }, t("common.loading")));
   (async () => {
     const data = await api("/api/settings"); if (!data) return;
     const s = data.settings;
