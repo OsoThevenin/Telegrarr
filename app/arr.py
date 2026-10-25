@@ -81,30 +81,46 @@ def _as_int(value) -> int | None:
         return None
 
 
-def _id_filter(tvdbid, tmdbid, imdbid):
-    """Predicate over a release row for the Newznab id params given (None = no filter)."""
-    wanted = []
-    if tvdbid not in (None, ""):
-        wanted.append(("tvdb_id", _as_int(tvdbid)))
-    if tmdbid not in (None, ""):
-        wanted.append(("tmdb_id", _as_int(tmdbid)))
-    if imdbid not in (None, ""):
-        wanted.append(("imdb_id", _norm_imdb(imdbid)))
-    return lambda r: all(want is not None and r[col] == want for col, want in wanted)
+# Newznab id param -> the SQL expression it is matched against (fixed strings, never input)
+_ID_COLUMNS = {"tvdbid": "ch.tvdb_id",
+               "tmdbid": "COALESCE(r.movie_tmdb_id, ch.tmdb_id)",
+               "imdbid": "COALESCE(r.movie_imdb_id, ch.imdb_id)"}
+
+
+def _id_where(tvdbid, tmdbid, imdbid) -> tuple[list[str], list] | None:
+    """SQL conditions + args for the Newznab id params given; None when an id can never match."""
+    given = {"tvdbid": tvdbid, "tmdbid": tmdbid, "imdbid": imdbid}
+    clauses, args = [], []
+    for param, raw in given.items():
+        if raw in (None, ""):
+            continue
+        value = _norm_imdb(raw) if param == "imdbid" else _as_int(raw)
+        if value is None:
+            return None
+        clauses.append(f"{_ID_COLUMNS[param]} = ?")
+        args.append(value)
+    return clauses, args
+
+
+_SCAN_WINDOW = 2000   # newest releases considered by one search (id filters apply before it)
 
 
 def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100,
                     tvdbid=None, tmdbid=None):
-    matches_ids = _id_filter(tvdbid, tmdbid, imdbid)
+    id_where = _id_where(tvdbid, tmdbid, imdbid)
+    if id_where is None:
+        return []
+    clauses, args = id_where
+    where = " AND ".join(["ch.enabled = 1", *clauses])
     with db.conn() as c:
         rows = c.execute(
-            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.kind, ch.tvdb_id,
-                      COALESCE(r.movie_tmdb_id, ch.tmdb_id) AS tmdb_id,
-                      COALESCE(r.movie_imdb_id, ch.imdb_id) AS imdb_id
-               FROM releases r JOIN channels ch ON ch.id = r.channel_id
-               WHERE ch.enabled = 1
-               ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
-               LIMIT 2000""").fetchall()
+            f"""SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.kind, ch.tvdb_id,
+                       COALESCE(r.movie_tmdb_id, ch.tmdb_id) AS tmdb_id,
+                       COALESCE(r.movie_imdb_id, ch.imdb_id) AS imdb_id
+                FROM releases r JOIN channels ch ON ch.id = r.channel_id
+                WHERE {where}
+                ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
+                LIMIT ?""", (*args, _SCAN_WINDOW)).fetchall()
     ql = (q or "").strip().lower()
     want_movie = t in ("movie", "moviesearch")
     want_tv = t in ("tvsearch", "tv-search", "tv")
@@ -114,8 +130,6 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
         if want_movie and kind != "movie":
             continue
         if want_tv and kind == "movie":
-            continue
-        if not matches_ids(r):
             continue
         show = (r["imdb_title"] or r["chtitle"] or "").lower()
         if ql and ql not in show and ql not in (r["title"] or "").lower().replace(".", " "):
