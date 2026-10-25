@@ -523,7 +523,7 @@ async function sysBackup(root) {
       : [h("tr", {}, h("td", { colspan: 4 }, h("div", { class: "empty" }, "No backups yet.")))]))));
   const note = card("Restore",
     h("p", { class: "muted small", style: "margin:0;line-height:1.6" },
-      "To restore: download a backup, stop Telearr, unzip telearr.db into your data directory, and start again. Restoring replaces all channels, history, and settings."));
+      "To restore: download a backup, stop Telegrarr, unzip telearr.db into your data directory, and start again. Restoring replaces all channels, history, and settings."));
   mount(root, head, table, note);
 }
 
@@ -574,13 +574,14 @@ export function viewSettings(ctx) {
       row("Parallel connections", inp("set-dl_workers", s.dl_workers, "number"), "per download · too high triggers Telegram FloodWait"),
       row("Concurrent downloads", inp("set-max_concurrent", s.max_concurrent, "number")),
       row("Min free space (GB)", inp("set-min_free_gb", s.min_free_gb, "number")),
-      row("Default poll (min)", inp("set-default_poll_minutes", s.default_poll_minutes, "number")),
+      row("Default poll (min)", inp("set-default_poll_minutes", s.default_poll_minutes, "number"), `minimum ${s.poll_floor_minutes} · random jitter added to protect the account`),
+      row("Daily budget (GB)", inp("set-daily_budget_gb", s.daily_budget_gb, "number"), "0 = unlimited · downloads pause until midnight once reached"),
       row("Keep per show", inp("set-history_limit_per_show", s.history_limit_per_show, "number"), "completed records to keep · 0 = all (files always kept)"),
       h("div", { class: "set-actions" }, h("button", {
         class: "btn primary sm", onClick: async () => {
           const g = (k) => root.querySelector("#set-" + k).value;
-          await jpatch("/api/settings", { dl_workers: g("dl_workers"), max_concurrent: g("max_concurrent"), min_free_gb: g("min_free_gb"), default_poll_minutes: g("default_poll_minutes"), history_limit_per_show: g("history_limit_per_show") });
-          toast("Performance saved", "ok");
+          const r = await jpatch("/api/settings", { dl_workers: g("dl_workers"), max_concurrent: g("max_concurrent"), min_free_gb: g("min_free_gb"), default_poll_minutes: g("default_poll_minutes"), daily_budget_gb: g("daily_budget_gb"), history_limit_per_show: g("history_limit_per_show") });
+          if (r) toast("Performance saved", "ok");
         },
       }, "Save performance")));
 
@@ -618,7 +619,7 @@ export function viewSettings(ctx) {
       onChange: async (e) => { await jpatch("/api/settings", { operating_mode: e.target.checked ? "standalone" : "arr" }); toast(e.target.checked ? "Standalone mode on" : "*arr mode on", "ok"); } });
     if (s.operating_mode === "standalone") standaloneChk.checked = true;
     const arr = card("Sonarr / Radarr / Prowlarr",
-      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Add Telearr as a Newznab indexer and a SABnzbd download client. See docs/ARR_INTEGRATION.md."),
+      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Add Telegrarr as a Newznab indexer and a SABnzbd download client. See docs/ARR_INTEGRATION.md."),
       row("Newznab URL", nzInp),
       row("SABnzbd host / port", (() => { const i = inp("arr-sab", `${location.hostname} : ${location.port || 8790}`); i.readOnly = true; return i; })()),
       row("API key", keyInp),
@@ -637,8 +638,8 @@ export function viewSettings(ctx) {
     const tgAuth = (await api("/api/telegram/auth")) || {};
     const tgCard = card("Telegram account",
       h("div", { class: "muted small", style: "margin-bottom:10px" }, tgAuth.authorized
-        ? "Connected — Telearr is signed in to your Telegram account."
-        : "Not connected. Connect your account so Telearr can read your channels."),
+        ? "Connected — Telegrarr is signed in to your Telegram account."
+        : "Not connected. Connect your account so Telegrarr can read your channels."),
       h("div", { class: "set-actions" }, tgAuth.authorized
         ? h("button", { class: "btn ghost sm", onClick: async () => { if (confirm("Disconnect Telegram? Downloads stop until you reconnect.")) { await api("/api/telegram/auth/logout", { method: "POST" }); toast("Telegram disconnected", "ok"); ctx.rerender(); } } }, "Disconnect")
         : h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, h("span", { html: icon("telegram") }), "Connect Telegram")));
@@ -727,7 +728,7 @@ export function openTelegramConnect(ctx) {
       mount(body, h("div", { class: "tg-done" },
         h("span", { class: "tg-check", html: icon("check") }),
         h("h3", {}, "Telegram connected"),
-        h("p", { class: "muted small" }, "Telearr is signed in and can now watch your channels."),
+        h("p", { class: "muted small" }, "Telegrarr is signed in and can now watch your channels."),
         h("button", { class: "btn primary block", onClick: close }, "Done")));
     }
   };
@@ -741,12 +742,20 @@ export function openTelegramConnect(ctx) {
   api("/api/telegram/auth").then((a) => step(a && a.api_ready ? "phone" : "api"));
 }
 
+const POLL_FLOOR_MIN = 15;   // account safety: mirrors config.POLL_FLOOR_MINUTES (server enforces it)
+
 export function openChannelModal(ctx, channel) {
   const host = document.querySelector("#modal-root");
   let pick = null, imdbTimer = null;
   let selected = channel ? { chat_id: channel.chat_id, title: channel.imdb_title || channel.title } : null;
   const kind = h("select", {}, ...["tv", "movie", "other"].map((k) => h("option", { value: k, selected: channel && channel.kind === k }, k === "tv" ? "TV show" : k === "movie" ? "Movie" : "Other")));
-  const poll = h("input", { type: "number", min: "1", value: channel ? channel.poll_minutes : 10 });
+  const curLang = (channel && channel.language) || "cat";
+  const language = h("select", {}, ...[["cat", "Català (CAT)"], ["es", "Castellano (SPA)"], ["en", "English (ENG)"], ["multi", "Multi (MULTI)"]]
+    .map(([v, label]) => h("option", { value: v, selected: curLang === v }, label)));
+  const curQuality = (channel && channel.fallback_quality) || "1080p";
+  const fallbackQuality = h("select", {}, ...[["SDTV", "SDTV"], ["720p", "720p"], ["1080p", "1080p"], ["2160p", "2160p (4K)"]]
+    .map(([v, label]) => h("option", { value: v, selected: curQuality === v }, label)));
+  const poll = h("input", { type: "number", min: String(POLL_FLOOR_MIN), value: channel ? Math.max(POLL_FLOOR_MIN, channel.poll_minutes) : POLL_FLOOR_MIN });
   const daysOn = channel ? (channel.weekdays || "").split(",") : ["0", "1", "2", "3", "4", "5", "6"];
   const dayBtns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) =>
     h("button", { type: "button", class: `m-day ${daysOn.includes(String(i)) ? "on" : ""}`, dataset: { day: i }, onClick: (e) => e.target.classList.toggle("on") }, d));
@@ -803,14 +812,16 @@ export function openChannelModal(ctx, channel) {
   document.addEventListener("keydown", onKey);
   const save = async () => {
     const weekdays = dayBtns.filter((b) => b.classList.contains("on")).map((b) => b.dataset.day).join(",") || "0,1,2,3,4,5,6";
-    const pm = parseInt(poll.value) || 10;
+    const pm = parseInt(poll.value) || POLL_FLOOR_MIN;
     if (channel) {
-      const patch = { kind: kind.value, weekdays, poll_minutes: pm };
+      const patch = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
       if (pick) Object.assign(patch, pick);
-      if (await jpatch(`/api/channels/${channel.id}`, patch)) toast("Channel updated", "ok");
+      if (!(await jpatch(`/api/channels/${channel.id}`, patch))) return;
+      toast("Channel updated", "ok");
     } else {
       if (!selected) return toast("Pick a channel or resolve a link first", "err");
-      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm });
+      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value });
+      if (!ch) return;
       if (ch && ch.id && pick) await jpatch(`/api/channels/${ch.id}`, pick);
       if (ch) toast("Channel added", "ok");
     }
@@ -823,6 +834,8 @@ export function openChannelModal(ctx, channel) {
         h("button", { class: "btn ghost icon", "aria-label": "Close", onClick: close }, h("span", { html: icon("x") }))),
       chanArea,
       h("label", {}, "Kind", kind),
+      h("label", {}, "Audio language", language),
+      h("label", {}, "Fallback quality (when Telegram omits the video size)", fallbackQuality),
       h("label", {}, "Scan on days"), h("div", { class: "days" }, ...dayBtns),
       h("label", {}, "Poll interval (minutes)", poll),
       h("label", {}, "IMDb match", imdbQ), results, picked,

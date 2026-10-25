@@ -1,11 +1,14 @@
 services:
-  telearr:
+  telegrarr:
     build: .
-    image: telearr:2.3.3
-    container_name: telearr
+    image: telegrarr:local      # or drop `build:` and use ghcr.io/osothevenin/telegrarr:latest
+    container_name: telegrarr
     restart: unless-stopped
     env_file: .env
-    user: "${PUID:-1000}:${PGID:-1000}"      # own new media files as you, not root
+    # The image already runs as non-root UID/GID 1000. Uncomment to own new
+    # media files as a different host user (set PUID/PGID in .env):
+    # user: "${PUID:-1000}:${PGID:-1000}"
+    security_opt: ["no-new-privileges:true"]
     ports:
       # Bound to the host LAN address. Set TELEARR_BIND_ADDR=127.0.0.1 to keep
       # it local-only and reach it through a reverse proxy instead.

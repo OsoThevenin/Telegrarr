@@ -9,11 +9,12 @@ import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings
+from . import db, plex, notify, settings, safety
 from .arr import category_for
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
-                    build_save_path, flat_save_path, is_uhd, release_name)
+                    build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
+                    DEFAULT_LANGUAGE)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
                      MAX_CONCURRENT_DOWNLOADS)
 from .downloader import download_file
@@ -29,6 +30,8 @@ _task_registry = {}                     # download_id -> asyncio.Task
 _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
+_poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
+BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
 
 
 def begin_shutdown():
@@ -93,14 +96,57 @@ def _file_name(doc, msg_id):
     return f"file_{msg_id}.mp4"
 
 
-def _resolve_path(channel, msg, fn):
+def _video_dims(doc) -> tuple[int | None, int | None]:
+    """Width/height from Telegram's DocumentAttributeVideo, if the upload has one."""
+    for attr in getattr(doc, "attributes", []) or []:
+        w, h = getattr(attr, "w", None), getattr(attr, "h", None)
+        if isinstance(w, int) and isinstance(h, int):
+            return w, h
+    return None, None
+
+
+def _parse_episode(msg, fn) -> dict:
+    """Episode info from the file name, falling back to the caption."""
     info = extract_episode(fn) if fn else {}
     if not info.get("season"):
         info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
+    return info
+
+
+def _show_title(channel) -> str:
+    return channel["imdb_title"] or channel["title"]
+
+
+def _is_mapped(channel) -> bool:
+    return bool((channel["imdb_id"] or "").strip() or (channel["imdb_title"] or "").strip())
+
+
+def build_release(channel, msg, fn) -> dict:
+    """What a Telegram media message is published as on the Newznab feed.
+
+    Quality precedence: video dimensions > quality tag in the text > the
+    channel's fallback quality."""
+    info = _parse_episode(msg, fn)
+    season, episode = info.get("season") or 0, info.get("episode") or 0
+    width, height = _video_dims(msg.document or msg.video)
+    quality = quality_from_dims(width, height, fallback=info.get("quality") or channel["fallback_quality"])
+    show = _show_title(channel)
+    title = release_name(show, season, episode, quality or "", channel["kind"],
+                         language=channel["language"] or DEFAULT_LANGUAGE,
+                         episode_end=info.get("episode_end"))
+    episode_title = extract_episode_title(msg.message or "", fn, season, episode,
+                                          show_title=show, mapped=_is_mapped(channel))
+    return {"title": title, "season": info.get("season"), "episode": info.get("episode"),
+            "episode_end": info.get("episode_end"), "quality": quality, "episode_title": episode_title}
+
+
+def _resolve_path(channel, msg, fn):
+    info = _parse_episode(msg, fn)
+    show = _show_title(channel)
     ep_title = extract_episode_title(msg.message or "", fn,
                                      info.get("season") or 0,
-                                     info.get("episode") or 0, show_title=show)
+                                     info.get("episode") or 0, show_title=show,
+                                     mapped=_is_mapped(channel))
     base = base_dir_for(channel, info.get("quality"))
     return build_save_path(base, show, info.get("season") or 0,
                            info.get("episode") or 0, fn, ep_title)
@@ -158,17 +204,6 @@ async def _iter_best(client, chat_id, *, limit, stop_at=0):
     return best, max_seen
 
 
-def _release_info(channel, msg, fn):
-    """(episode info, Newznab release title) for a media message."""
-    info = extract_episode(fn) if fn else {}
-    if not info.get("season"):
-        info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
-    title = release_name(show, info.get("season") or 0, info.get("episode") or 0,
-                         info.get("quality") or "", channel["kind"])
-    return info, title
-
-
 def _flat_path(channel, msg, fn):
     """*arr grab path: <downloads>/telegram/<category>/<release title>/<file>.
 
@@ -176,13 +211,13 @@ def _flat_path(channel, msg, fn):
     with db.conn() as c:
         row = c.execute("SELECT title FROM releases WHERE channel_id=? AND message_id=?",
                         (channel["id"], msg.id)).fetchone()
-    title = row["title"] if row else _release_info(channel, msg, fn)[1]
+    title = row["title"] if row else build_release(channel, msg, fn)["title"]
     return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
 
 
 def _record_release(channel, msg, size, fn, gk):
     """Index a seen media item so the Newznab endpoint can serve it as a release."""
-    info, title = _release_info(channel, msg, fn)
+    rel = build_release(channel, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT INTO releases
             (channel_id,message_id,group_key,title,season,episode,quality,size,added_at)
@@ -190,8 +225,8 @@ def _record_release(channel, msg, size, fn, gk):
             ON CONFLICT(channel_id,message_id) DO UPDATE SET
               title=excluded.title, season=excluded.season, episode=excluded.episode,
               quality=excluded.quality, size=excluded.size""",
-            (channel["id"], msg.id, gk, title, info.get("season"), info.get("episode"),
-             info.get("quality"), size, int(time.time())))
+            (channel["id"], msg.id, gk, rel["title"], rel["season"], rel["episode"],
+             rel["quality"], size, int(time.time())))
 
 
 async def _enqueue(client, channel, msg, size, fn, gk):
@@ -274,6 +309,19 @@ async def backfill_channel(client, channel, full=True):
     return queued
 
 
+async def _wait_for_budget(channel_id, message_id):
+    """Hold a download (status queued, reason in `error`) until the daily budget allows it."""
+    marked = False
+    while safety.budget_exhausted():
+        if not marked:
+            resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
+            with db.conn() as c:
+                c.execute("UPDATE downloads SET status='queued', error=? WHERE channel_id=? AND message_id=?",
+                          (f"Daily download budget reached — resumes at {resets}", channel_id, message_id))
+            marked = True
+        await asyncio.sleep(BUDGET_RECHECK_SECONDS)
+
+
 async def _run_download(client, channel_id, msg, save_path, gk):
     key = (channel_id, gk)
     with db.conn() as c:
@@ -293,6 +341,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
             return
         _inflight.add(key)
     try:
+        await _wait_for_budget(channel_id, msg.id)
         async with _sem_current():
             # If the finished file is already on disk — fully downloaded but not
             # finalized before a crash/restart, or grabbed by a sibling source —
@@ -314,7 +363,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                 db.log("INFO", f"Already on disk — finalized {os.path.basename(save_path)}", channel_id=channel_id)
                 return
             with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='downloading', started_at=?
+                c.execute("""UPDATE downloads SET status='downloading', started_at=?, error=NULL
                              WHERE channel_id=? AND message_id=?""",
                           (int(time.time()), channel_id, msg.id))
 
@@ -325,6 +374,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                               (pct, speed, channel_id, msg.id))
 
             await download_file(client, msg, save_path, progress_cb=pcb)
+            safety.record_download(fsize)
 
             with db.conn() as c:
                 c.execute("""UPDATE downloads SET status='completed', progress=1.0,
@@ -465,7 +515,7 @@ async def scan_loop():
             for ch in rows:
                 if not channel_should_run_today(ch):
                     continue
-                if now < (ch["last_scanned_at"] or 0) + ch["poll_minutes"] * 60:
+                if not _poll.is_due(ch["id"], ch["last_scanned_at"] or 0, ch["poll_minutes"], now):
                     continue
                 try:
                     await scan_channel(client, ch)

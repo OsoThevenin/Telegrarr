@@ -25,12 +25,12 @@ except ImportError:  # older Telethon: alias so the except clause still compiles
     FloodPremiumWaitError = FloodWaitError
 
 from . import settings
+from .safety import FloodGate
 from .config import (DL_WORKERS, DL_CHUNK_MB, MIN_FREE_SPACE_GB, OTHER_DIR,
                      PROGRESS_MIN_INTERVAL)
 
 log = logging.getLogger("downloader")
 
-_flood_until = 0.0          # global flood-wait gate shared by all senders
 PART = DL_CHUNK_MB * 1024 * 1024   # 1 MB — Telegram's max GetFile limit
 PART_TIMEOUT = 45           # a single 1 MB part must arrive within this many seconds
 MAX_PART_TIMEOUTS = 3       # …retried this many times before the fast path bails to fallback
@@ -58,26 +58,25 @@ def _location(doc):
                                      file_reference=doc.file_reference, thumb_size="")
 
 
-async def _flood_gate():
-    global _flood_until
-    wait = _flood_until - time.time()
-    if wait > 0:
-        log.info("flood gate: sleeping %.0fs", wait)
-        await asyncio.sleep(wait + 1)
-        _flood_until = 0.0
+async def _notify_long_flood(seconds: float) -> None:
+    from . import notify
+    await notify.send("Telegram FloodWait",
+                      f"Downloads paused for {seconds / 60:.0f} min to protect the account.")
+
+
+flood_gate = FloodGate(notifier=_notify_long_flood)   # global gate shared by all senders
 
 
 async def _worker(client, sender, location, fd, parts, part_size, file_size,
                   on_bytes, refresh):
     """Fetch an assigned list of part indices and pwrite them at their offsets."""
-    global _flood_until
     loop = asyncio.get_event_loop()
     for idx in parts:
         offset = idx * part_size
         limit = min(part_size, file_size - offset)
         timeouts = 0
         while True:
-            await _flood_gate()
+            await flood_gate.wait()
             try:
                 # Bound each part fetch — a desynced/hung borrowed sender would
                 # otherwise stall the whole download forever with no progress.
@@ -91,8 +90,7 @@ async def _worker(client, sender, location, fd, parts, part_size, file_size,
                 if timeouts >= MAX_PART_TIMEOUTS:
                     raise RuntimeError(f"download stalled: part {idx} timed out {timeouts}x")
             except (FloodWaitError, FloodPremiumWaitError) as e:
-                _flood_until = time.time() + e.seconds
-                log.warning("FloodWait %ss — pausing senders, will retry", e.seconds)
+                await flood_gate.trip(e.seconds)
             except FileReferenceExpiredError:
                 location = await refresh()   # re-resolve a fresh file_reference
         data = res.bytes[:limit]
