@@ -114,6 +114,8 @@ COLUMN_MIGRATIONS = (
     ("downloads", "retry_count", "INTEGER DEFAULT 0"),
     ("channels", "language", "TEXT NOT NULL DEFAULT 'cat'"),
     ("channels", "fallback_quality", "TEXT NOT NULL DEFAULT '1080p'"),
+    ("channels", "tvdb_id", "INTEGER"),      # series channels: Sonarr matches by TVDB id
+    ("channels", "tmdb_id", "INTEGER"),
 )
 
 

@@ -1,5 +1,5 @@
 // views.js — each view builds real DOM via h(); handlers are attached inline.
-import { h, mount, api, jpost, jpatch, toast, copy, gb, fmtBytes, fmtETA, base } from "./core.js";
+import { h, mount, api, jpost, jpatch, jput, toast, copy, gb, fmtBytes, fmtETA, base } from "./core.js";
 import { icon } from "./icons.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
@@ -606,7 +606,7 @@ export function viewSettings(ctx) {
 
     const tmdbOut = h("span", { class: "test-out" });
     const tmdbc = card("Artwork (TMDB)",
-      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Posters work automatically via IMDb — no key needed. Add a free TMDB key (themoviedb.org → Settings → API) for higher-resolution artwork and backdrops."),
+      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Required: series channels are mapped to their TVDB/TMDB/IMDb ids through TMDB, so Sonarr finds releases by id. Get a free key at themoviedb.org → Settings → API. It also adds higher-resolution artwork and backdrops."),
       row("API key" + (s.tmdb_key_set ? " (saved)" : ""), inp("set-tmdb_key", "", "password")),
       h("div", { class: "set-actions" },
         h("button", { class: "btn primary sm", onClick: async () => { const tk = root.querySelector("#set-tmdb_key").value; if (tk) await jpatch("/api/settings", { tmdb_key: tk }); toast("TMDB key saved", "ok"); } }, "Save"),
@@ -744,11 +744,61 @@ export function openTelegramConnect(ctx) {
 
 const POLL_FLOOR_MIN = 15;   // account safety: mirrors config.POLL_FLOOR_MINUTES (server enforces it)
 
+const CHANNEL_KINDS = [["tv", "Series channel"], ["movie", "Movie channel"]];
+const SEARCH_DEBOUNCE_MS = 350;
+
+const idsLine = (c) => [c.tvdb_id && `TVDB ${c.tvdb_id}`, c.tmdb_id && `TMDB ${c.tmdb_id}`, c.imdb_id && `IMDb ${c.imdb_id}`].filter(Boolean).join(" · ");
+
+/** Series identity block of the channel dialog: TMDB search (Catalan titles,
+ * English fallback server-side) + editable TVDB id. Mapping is saved via
+ * PUT /api/channels/{id}/series, which derives the TMDB/IMDb ids. */
+function seriesMapper(channel) {
+  let pick = null, timer = null, tvdbEdited = false;
+  const keyNote = h("div", { class: "muted small", style: "color:var(--err)" });
+  const query = h("input", { placeholder: "Search TMDB by title (Catalan or English)…", autocomplete: "off", value: channel && channel.imdb_title ? channel.imdb_title : "" });
+  const results = h("div", { class: "imdb-results" });
+  const tvdb = h("input", { inputmode: "numeric", placeholder: "Filled in from TMDB when you pick a series", value: channel && channel.tvdb_id ? channel.tvdb_id : "" });
+  tvdb.addEventListener("input", () => { tvdbEdited = true; });
+  const picked = h("div", { class: "imdb-picked" }, channel && idsLine(channel) ? `Current: ${channel.imdb_title || ""} (${idsLine(channel)})` : "");
+  const choose = (r) => {
+    const yr = r.year ? ` (${r.year})` : "";
+    pick = { tmdb_id: r.tmdb_id, title: `${r.title}${yr}` };
+    query.value = r.title; results.replaceChildren();
+    if (!tvdbEdited) tvdb.value = "";
+    picked.replaceChildren(h("span", {}, "✓ "), h("b", {}, pick.title), h("span", { class: "muted small" }, ` (TMDB ${r.tmdb_id})`));
+  };
+  const search = async (q) => {
+    if (!q || q.length < 2) return results.replaceChildren();
+    const res = await api(`/api/tmdb/search?q=${encodeURIComponent(q)}`); if (!res) return;
+    if (!res.length) return mount(results, h("div", { class: "muted small pad" }, "No series found on TMDB. Enter the TVDB id instead."));
+    results.replaceChildren(...res.map((r) => h("button", { type: "button", class: "hit", onClick: () => choose(r) },
+      r.title, h("small", {}, ` ${r.year ? `(${r.year})` : ""}${r.original_title && r.original_title !== r.title ? ` · ${r.original_title}` : ""}`))));
+  };
+  query.addEventListener("input", () => { clearTimeout(timer); const q = query.value; timer = setTimeout(() => search(q), SEARCH_DEBOUNCE_MS); });
+  api("/api/settings").then((s) => {
+    if (s && !s.settings.tmdb_key_set) keyNote.textContent = "A TMDB API key is required to map a series. Add it in Settings → Integrations → Artwork (TMDB).";
+  });
+  const node = h("div", { class: "series-map" },
+    keyNote,
+    h("label", {}, "Series (TMDB search)", query), results,
+    h("label", {}, "TVDB id", tvdb), picked);
+  return {
+    node,
+    searchFor: (title) => { if (!query.value && title) { query.value = title; search(title); } },
+    // Payload for PUT /api/channels/{id}/series, or null when nothing changed.
+    payload: () => {
+      const typed = tvdb.value.trim();
+      if (!pick && !(tvdbEdited && typed)) return null;
+      return { tmdb_id: pick ? pick.tmdb_id : null, tvdb_id: tvdbEdited ? typed : null, title: pick ? pick.title : "" };
+    },
+  };
+}
+
 export function openChannelModal(ctx, channel) {
   const host = document.querySelector("#modal-root");
-  let pick = null, imdbTimer = null;
   let selected = channel ? { chat_id: channel.chat_id, title: channel.imdb_title || channel.title } : null;
-  const kind = h("select", {}, ...["tv", "movie", "other"].map((k) => h("option", { value: k, selected: channel && channel.kind === k }, k === "tv" ? "TV show" : k === "movie" ? "Movie" : "Other")));
+  const kinds = CHANNEL_KINDS.some(([k]) => channel && channel.kind === k) || !channel ? CHANNEL_KINDS : [...CHANNEL_KINDS, [channel.kind, channel.kind]];
+  const kind = h("select", {}, ...kinds.map(([k, label]) => h("option", { value: k, selected: channel && channel.kind === k }, label)));
   const curLang = (channel && channel.language) || "cat";
   const language = h("select", {}, ...[["cat", "Català (CAT)"], ["es", "Castellano (SPA)"], ["en", "English (ENG)"], ["multi", "Multi (MULTI)"]]
     .map(([v, label]) => h("option", { value: v, selected: curLang === v }, label)));
@@ -759,17 +809,12 @@ export function openChannelModal(ctx, channel) {
   const daysOn = channel ? (channel.weekdays || "").split(",") : ["0", "1", "2", "3", "4", "5", "6"];
   const dayBtns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) =>
     h("button", { type: "button", class: `m-day ${daysOn.includes(String(i)) ? "on" : ""}`, dataset: { day: i }, onClick: (e) => e.target.classList.toggle("on") }, d));
-  const imdbQ = h("input", { placeholder: "Search IMDb by title…", autocomplete: "off", value: channel && channel.imdb_title ? channel.imdb_title : "" });
-  const results = h("div", { class: "imdb-results" });
-  const picked = h("div", { class: "imdb-picked" }, channel && channel.imdb_id ? `Current: ${channel.imdb_title || ""} (${channel.imdb_id})` : "");
-  const doImdbSearch = async (q) => {
-    if (!q || q.length < 2) return results.replaceChildren();
-    const res = await api(`/api/imdb/search?q=${encodeURIComponent(q)}`); if (!res) return;
-    results.replaceChildren(...res.map((r) => h("button", { type: "button", class: "hit",
-      onClick: () => { const yr = r.year ? ` (${r.year})` : ""; pick = { imdb_id: r.imdb_id, imdb_title: `${r.title}${yr}` }; imdbQ.value = r.title; results.replaceChildren(); picked.replaceChildren(h("span", {}, "✓ "), h("b", {}, pick.imdb_title), h("span", { class: "muted small" }, ` (${r.imdb_id})`)); },
-    }, r.title, h("small", {}, ` ${r.year ? `(${r.year})` : ""} · ${r.kind || ""}`))));
-  };
-  imdbQ.addEventListener("input", () => { clearTimeout(imdbTimer); const q = imdbQ.value; imdbTimer = setTimeout(() => doImdbSearch(q), 350); });
+  const series = seriesMapper(channel);
+  const movieNote = h("div", { class: "muted small" }, "Movie channels hold many films; each message is matched to its film on its own.");
+  const identity = h("div", {});
+  const showIdentity = () => mount(identity, kind.value === "tv" ? series.node : movieNote);
+  kind.addEventListener("change", showIdentity);
+  showIdentity();
 
   // ── channel selection ──
   let chanArea;
@@ -782,7 +827,7 @@ export function openChannelModal(ctx, channel) {
     let dialogs = [];
     const showSel = () => mount(chanSel, selected
       ? h("div", { class: "chip" }, h("span", { html: icon("check") }), h("span", {}, `${selected.title} · ${selected.chat_id}`)) : []);
-    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); if (!imdbQ.value && d.title) { imdbQ.value = d.title; doImdbSearch(d.title); } };
+    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); series.searchFor(d.title); };
     const resolveChan = async () => {
       mount(chanList, h("div", { class: "muted small pad" }, "Resolving…"));
       const r = await jpost("/api/telegram/resolve", { query: chanQ.value.trim() });
@@ -813,18 +858,16 @@ export function openChannelModal(ctx, channel) {
   const save = async () => {
     const weekdays = dayBtns.filter((b) => b.classList.contains("on")).map((b) => b.dataset.day).join(",") || "0,1,2,3,4,5,6";
     const pm = parseInt(poll.value) || POLL_FLOOR_MIN;
-    if (channel) {
-      const patch = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
-      if (pick) Object.assign(patch, pick);
-      if (!(await jpatch(`/api/channels/${channel.id}`, patch))) return;
-      toast("Channel updated", "ok");
-    } else {
-      if (!selected) return toast("Pick a channel or resolve a link first", "err");
-      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value });
-      if (!ch) return;
-      if (ch && ch.id && pick) await jpatch(`/api/channels/${ch.id}`, pick);
-      if (ch) toast("Channel added", "ok");
-    }
+    if (!channel && !selected) return toast("Pick a channel or resolve a link first", "err");
+    const fields = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
+    const ch = channel
+      ? await jpatch(`/api/channels/${channel.id}`, fields)
+      : await jpost("/api/channels", { chat_id: selected.chat_id, ...fields });
+    if (!ch) return;
+    const mapping = kind.value === "tv" ? series.payload() : null;
+    // a failed mapping keeps the dialog open; api() has already shown the reason
+    if (mapping && !(await jput(`/api/channels/${ch.id}/series`, mapping))) { ctx.refresh(); return; }
+    toast(channel ? "Channel updated" : "Channel added", "ok");
     close(); ctx.refresh();
   };
 
@@ -838,7 +881,7 @@ export function openChannelModal(ctx, channel) {
       h("label", {}, "Fallback quality (when Telegram omits the video size)", fallbackQuality),
       h("label", {}, "Scan on days"), h("div", { class: "days" }, ...dayBtns),
       h("label", {}, "Poll interval (minutes)", poll),
-      h("label", {}, "IMDb match", imdbQ), results, picked,
+      identity,
       h("div", { class: "modal-foot" },
         h("button", { class: "btn ghost", onClick: close }, "Cancel"),
         h("button", { class: "btn primary", onClick: save }, "Save"))));

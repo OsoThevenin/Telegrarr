@@ -382,6 +382,25 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     return dict(ch)
 
 
+@app.put("/api/channels/{cid}/series")
+async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user)):
+    """Map a series channel to its TVDB id (+ TMDB/IMDb ids derived via TMDB)."""
+    with db.conn() as c:
+        if not c.execute("SELECT 1 FROM channels WHERE id=?", (cid,)).fetchone():
+            raise HTTPException(404)
+    try:
+        ids = await tmdb.series_ids(payload.get("tmdb_id"), payload.get("tvdb_id"))
+    except tmdb.TMDBError as e:
+        raise HTTPException(400, str(e))
+    title = (payload.get("title") or "").strip() or ids.title
+    with db.conn() as c:
+        c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?,
+                     imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
+                  (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, title, cid))
+        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    return dict(ch)
+
+
 @app.delete("/api/channels/{cid}")
 async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
     with db.conn() as c:
@@ -610,6 +629,16 @@ async def api_art(imdb: str = "", user=Depends(auth.require_user)):
     return await tmdb.art(imdb, title)
 
 
+@app.get("/api/tmdb/search")
+async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
+    try:
+        return await tmdb.search_series(q)
+    except tmdb.KeyMissing as e:
+        raise HTTPException(400, str(e))
+    except tmdb.TMDBError as e:
+        raise HTTPException(502, str(e))
+
+
 @app.post("/api/integrations/tmdb/test")
 async def api_tmdb_test(payload: dict = None, user=Depends(auth.require_user)):
     return await tmdb.test((payload or {}).get("key") or None)
@@ -683,8 +712,8 @@ def _base_url(request: Request) -> str:
 @app.get("/api/newznab/api")
 @app.get("/api/newznab")
 async def newznab(request: Request, t: str = "", apikey: str = "", q: str = "",
-                  season: str = "", ep: str = "", imdbid: str = "", cat: str = "",
-                  limit: int = 100, offset: int = 0):
+                  season: str = "", ep: str = "", imdbid: str = "", tvdbid: str = "",
+                  tmdbid: str = "", cat: str = "", limit: int = 100, offset: int = 0):
     if t == "caps":
         return Response(arr.caps_xml(), media_type="application/xml")
     if not arr.check_key(apikey):
@@ -692,7 +721,8 @@ async def newznab(request: Request, t: str = "", apikey: str = "", q: str = "",
                         media_type="application/xml", status_code=401)
     limit = max(1, min(limit, 200))
     rels = arr.search_releases(t or "search", q=q, season=season or None,
-                               ep=ep or None, imdbid=imdbid or None, limit=limit)
+                               ep=ep or None, imdbid=imdbid or None, limit=limit,
+                               tvdbid=tvdbid or None, tmdbid=tmdbid or None)
     return Response(arr.feed_xml(_base_url(request), rels), media_type="application/xml")
 
 

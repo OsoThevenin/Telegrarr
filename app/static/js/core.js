@@ -59,6 +59,7 @@ export async function api(url, opts = {}) {
 }
 export const jpost = (url, obj) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
 export const jpatch = (url, obj) => api(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
+export const jput = (url, obj) => api(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
 
 export async function copy(text) {
   // navigator.clipboard needs a secure context (https or localhost). Over a
