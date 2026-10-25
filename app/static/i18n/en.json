@@ -28,6 +28,7 @@
  "err.tmdb.unreachable": "Could not reach TMDB: {error}",
  "err.tmdb.rejected_key": "TMDB rejected the API key (HTTP 401). Check it in Settings.",
  "err.tmdb.http": "TMDB request failed (HTTP {status})",
+ "err.tmdb.not_json": "TMDB did not answer with JSON",
  "err.tmdb.id_not_number": "{source} id must be a number",
  "err.tmdb.id_not_positive": "{source} id must be a positive number",
  "err.tmdb.no_series_tvdb": "TMDB has no series with TVDB id {tvdb_id}",

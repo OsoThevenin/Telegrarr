@@ -34,6 +34,11 @@ def _keyed(status: int, e: i18n.KeyedError) -> HTTPException:
     return HTTPException(status, e.message())
 
 
+def _tmdb_failed(e: tmdb.TMDBError) -> HTTPException:
+    """TMDB itself failing is a bad gateway; a missing key or an unusable id is the request's fault."""
+    return _keyed(502 if isinstance(e, tmdb.TMDBUnavailable) else 400, e)
+
+
 def _page_ctx(lang: str, **extra) -> dict:
     """Template context: the page language and a translator bound to it."""
     return {"lang": lang, "t": lambda key, **params: i18n.translate(key, lang, **params), **extra}
@@ -393,7 +398,7 @@ async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user
         return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
                                          title=payload.get("title") or "")
     except tmdb.TMDBError as e:
-        raise _keyed(400, e)
+        raise _tmdb_failed(e)
 
 
 @app.delete("/api/channels/{cid}")
@@ -657,20 +662,16 @@ async def api_art(imdb: str = "", user=Depends(auth.require_user)):
 async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
     try:
         return await tmdb.search_series(q)
-    except tmdb.KeyMissing as e:
-        raise _keyed(400, e)
     except tmdb.TMDBError as e:
-        raise _keyed(502, e)
+        raise _tmdb_failed(e)
 
 
 @app.get("/api/tmdb/movies")
 async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(auth.require_user)):
     try:
         return await tmdb.search_movies(q, year)
-    except tmdb.KeyMissing as e:
-        raise _keyed(400, e)
     except tmdb.TMDBError as e:
-        raise _keyed(502, e)
+        raise _tmdb_failed(e)
 
 
 # ── movie channels: Pending review ────────────────────────────────────

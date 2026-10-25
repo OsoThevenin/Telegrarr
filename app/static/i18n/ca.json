@@ -28,6 +28,7 @@
  "err.tmdb.unreachable": "No s’ha pogut connectar amb TMDB: {error}",
  "err.tmdb.rejected_key": "TMDB ha rebutjat la clau API (HTTP 401). Revisa-la a Configuració.",
  "err.tmdb.http": "La petició a TMDB ha fallat (HTTP {status})",
+ "err.tmdb.not_json": "TMDB no ha respost amb JSON",
  "err.tmdb.id_not_number": "L’identificador de {source} ha de ser un número",
  "err.tmdb.id_not_positive": "L’identificador de {source} ha de ser un número positiu",
  "err.tmdb.no_series_tvdb": "TMDB no té cap sèrie amb l’identificador TVDB {tvdb_id}",

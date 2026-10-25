@@ -54,3 +54,47 @@ async def test_tmdb_connection_test_when_unreachable_names_the_error_type_only(a
     assert r.json()["ok"] is False
     assert r.json()["detail"] == {"key": "err.tmdb.unreachable", "params": {"error": "ConnectError"}}
     assert INTERNAL_DETAIL not in r.text
+
+
+@pytest.mark.asyncio
+async def test_tmdb_search_answered_with_a_non_json_page_is_a_keyed_502(arr_app, tmdb_wire):
+    await _save_tmdb_key(arr_app)
+    tmdb_wire(_html_page)
+
+    r = await arr_app.http.get("/api/tmdb/search", params={"q": "merlí"})
+
+    assert r.status_code == 502
+    assert r.json()["detail"] == {"key": "err.tmdb.not_json", "params": {}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path, params", [("/api/tmdb/search", {"q": "merlí"}),
+                                          ("/api/tmdb/movies", {"q": "pa negre"})])
+async def test_tmdb_searches_without_key_are_400(arr_app, tmdb_wire, path, params):
+    tmdb_wire(_unreachable)
+
+    r = await arr_app.http.get(path, params=params)
+
+    assert (r.status_code, r.json()["detail"]["key"]) == (400, "err.tmdb.key_missing")
+
+
+@pytest.mark.asyncio
+async def test_movie_search_when_tmdb_is_unreachable_is_502(arr_app, tmdb_wire):
+    await _save_tmdb_key(arr_app)
+    tmdb_wire(_unreachable)
+
+    r = await arr_app.http.get("/api/tmdb/movies", params={"q": "pa negre"})
+
+    assert (r.status_code, r.json()["detail"]["key"]) == (502, "err.tmdb.unreachable")
+
+
+@pytest.mark.asyncio
+async def test_mapping_a_series_when_tmdb_is_unreachable_is_502(arr_app, tmdb_wire):
+    await _save_tmdb_key(arr_app)
+    arr_app.telegram.add_channel(-1003000000001, "Merlí CAT")
+    channel = await arr_app.add_channel(-1003000000001)
+    tmdb_wire(_unreachable)
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 61662})
+
+    assert (r.status_code, r.json()["detail"]["key"]) == (502, "err.tmdb.unreachable")
