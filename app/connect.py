@@ -90,3 +90,87 @@ async def check_connection(app: str) -> dict:
     except ArrError as e:
         return {"app": app, "ok": False, "error": str(e)}
     return {"app": app, "ok": True, "version": str(status.get("version", "?"))}
+
+
+# ── one-click registration ────────────────────────────────────────────
+REGISTRATION_NAME = "Telegrarr"
+NEWZNAB_API_PATH = "/api/newznab"
+GENERIC_NEWZNAB = "Generic Newznab"
+SAB_CATEGORIES = {"sonarr": ("tvCategory", "tv"), "radarr": ("movieCategory", "movies")}
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+@dataclass(frozen=True)
+class Telegrarr:
+    """How the *arr apps reach Telegrarr, and the key they authenticate with."""
+    url: str        # e.g. http://telegrarr:8790 (no trailing slash)
+    apikey: str
+
+
+def _with_fields(provider: dict, values: dict) -> dict:
+    """A copy of a schema ``provider`` with the named field values replaced."""
+    fields = [{**f, "value": values[f["name"]]} if f.get("name") in values else dict(f)
+              for f in provider.get("fields", [])]
+    return {**provider, "fields": fields}
+
+
+async def _existing(target: ArrApp, path: str) -> bool:
+    providers = await _request(target, "GET", path)
+    return any(str(p.get("name", "")).lower() == REGISTRATION_NAME.lower() for p in providers)
+
+
+def _schema_entry(schema: list, implementation: str, preferred_name: str | None = None) -> dict:
+    matches = [s for s in schema if s.get("implementation") == implementation]
+    preferred = [s for s in matches if preferred_name in (s.get("definitionName"), s.get("name"))]
+    if not matches:
+        raise ArrError(f"no {implementation} template in the provider schema")
+    return (preferred or matches)[0]
+
+
+async def _prowlarr_indexer(target: ArrApp, me: Telegrarr) -> dict:
+    schema = await _request(target, "GET", "/indexer/schema")
+    profiles = await _request(target, "GET", "/appprofile")
+    template = _schema_entry(schema, "Newznab", GENERIC_NEWZNAB)
+    indexer = _with_fields(template, {"baseUrl": me.url, "apiPath": NEWZNAB_API_PATH, "apiKey": me.apikey})
+    profile_id = profiles[0]["id"] if profiles else template.get("appProfileId", 1)
+    return {**indexer, "name": REGISTRATION_NAME, "enable": True, "appProfileId": profile_id}
+
+
+def _sab_location(url: str) -> dict:
+    parsed = httpx.URL(url)
+    return {"host": parsed.host, "port": parsed.port or DEFAULT_PORTS.get(parsed.scheme, 80),
+            "useSsl": parsed.scheme == "https", "urlBase": parsed.path.rstrip("/")}
+
+
+async def _sab_client(target: ArrApp, me: Telegrarr) -> dict:
+    schema = await _request(target, "GET", "/downloadclient/schema")
+    category_field, category = SAB_CATEGORIES[target.app]
+    values = {**_sab_location(me.url), "apiKey": me.apikey, category_field: category}
+    client = _with_fields(_schema_entry(schema, "Sabnzbd"), values)
+    return {**client, "name": REGISTRATION_NAME, "enable": True}
+
+
+async def _register_one(app: str, me: Telegrarr) -> dict:
+    kind = "indexer" if app == "prowlarr" else "download client"
+    result = {"app": app, "kind": kind, "name": REGISTRATION_NAME}
+    try:
+        target = configured(app)
+    except ArrError as e:
+        return {**result, "status": "skipped", "error": str(e)}
+    path = "/indexer" if app == "prowlarr" else "/downloadclient"
+    try:
+        if await _existing(target, path):
+            return {**result, "status": "exists"}
+        body = await (_prowlarr_indexer(target, me) if app == "prowlarr" else _sab_client(target, me))
+        await _request(target, "POST", path, json=body)
+    except ArrError as e:
+        return {**result, "status": "error", "error": str(e)}
+    return {**result, "status": "created"}
+
+
+async def register_all(me: Telegrarr) -> list[dict]:
+    """Register Telegrarr in every configured app; idempotent by name.
+
+    Each result: {"app", "kind", "name", "status": created|exists|skipped|error, "error"?}.
+    """
+    return [await _register_one(app, me) for app in APP_TITLES]

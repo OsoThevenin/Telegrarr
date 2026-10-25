@@ -99,3 +99,122 @@ async def test_connection_test_rejects_unknown_app(arr_app, arrs):
     r = await arr_app.http.post("/api/connect/test", json={"app": "lidarr"})
 
     assert r.status_code == 400
+
+
+# ── one-click registration ────────────────────────────────────────────
+def _statuses(body: dict) -> dict:
+    return {res["app"]: res["status"] for res in body["results"]}
+
+
+@pytest.mark.asyncio
+async def test_register_creates_newznab_indexer_in_prowlarr(arr_app, arrs):
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    assert r.status_code == 200
+    assert _statuses(r.json())["prowlarr"] == "created"
+    [indexer] = arrs.prowlarr.created()
+    assert indexer["name"] == "Telegrarr"
+    assert indexer["implementation"] == "Newznab"
+    assert indexer["configContract"] == "NewznabSettings"
+    assert indexer["definitionName"] == "Generic Newznab"
+    assert indexer["enable"] is True
+    assert indexer["appProfileId"] == 1
+    assert arrs.find_field(indexer, "baseUrl") == "http://telegrarr:8790"
+    assert arrs.find_field(indexer, "apiPath") == "/api/newznab"
+    assert arrs.find_field(indexer, "apiKey") == arr_app.apikey
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("app, category_field, category", [("sonarr", "tvCategory", "tv"),
+                                                           ("radarr", "movieCategory", "movies")])
+async def test_register_creates_sabnzbd_client(arr_app, arrs, app, category_field, category):
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    assert _statuses(r.json())[app] == "created"
+    [client] = getattr(arrs, app).created()
+    assert client["name"] == "Telegrarr"
+    assert client["implementation"] == "Sabnzbd"
+    assert client["configContract"] == "SabnzbdSettings"
+    assert client["enable"] is True
+    assert arrs.find_field(client, "host") == "telegrarr"
+    assert arrs.find_field(client, "port") == 8790
+    assert arrs.find_field(client, "useSsl") is False
+    assert arrs.find_field(client, "urlBase") == ""
+    assert arrs.find_field(client, "apiKey") == arr_app.apikey
+    assert arrs.find_field(client, category_field) == category
+
+
+@pytest.mark.asyncio
+async def test_register_https_telegrarr_url_behind_a_subpath(arr_app, arrs):
+    await arr_app.http.patch("/api/settings", json={
+        **ARR_SETTINGS, "telegrarr_url": "https://tg.example.com/telegrarr"})
+
+    await arr_app.http.post("/api/connect/register")
+
+    [client] = arrs.sonarr.created()
+    assert arrs.find_field(client, "host") == "tg.example.com"
+    assert arrs.find_field(client, "port") == 443
+    assert arrs.find_field(client, "useSsl") is True
+    assert arrs.find_field(client, "urlBase") == "/telegrarr"
+    [indexer] = arrs.prowlarr.created()
+    assert arrs.find_field(indexer, "baseUrl") == "https://tg.example.com/telegrarr"
+
+
+@pytest.mark.asyncio
+async def test_second_register_creates_nothing_new(arr_app, arrs):
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+    await arr_app.http.post("/api/connect/register")
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    assert _statuses(r.json()) == {"prowlarr": "exists", "sonarr": "exists", "radarr": "exists"}
+    assert len(arrs.prowlarr.created()) == 1
+    assert len(arrs.sonarr.created()) == 1
+    assert len(arrs.radarr.created()) == 1
+
+
+@pytest.mark.asyncio
+async def test_register_keeps_existing_client_with_same_name(arr_app, arrs):
+    arrs.sonarr.providers.append({"id": 7, "name": "telegrarr", "implementation": "Sabnzbd", "fields": []})
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    assert _statuses(r.json())["sonarr"] == "exists"
+    assert arrs.sonarr.created() == []
+
+
+@pytest.mark.asyncio
+async def test_register_skips_unconfigured_apps_and_reports_failures(arr_app, arrs):
+    arrs.sonarr.reject_create = "Unable to connect to SABnzbd"
+    await arr_app.http.patch("/api/settings", json={**ARR_SETTINGS, "radarr_url": ""})
+
+    body = (await arr_app.http.post("/api/connect/register")).json()
+
+    assert _statuses(body) == {"prowlarr": "created", "sonarr": "error", "radarr": "skipped"}
+    sonarr = next(res for res in body["results"] if res["app"] == "sonarr")
+    assert "Unable to connect to SABnzbd" in sonarr["error"]
+
+
+@pytest.mark.asyncio
+async def test_register_never_echoes_api_keys(arr_app, arrs):
+    await arr_app.http.patch("/api/settings", json=ARR_SETTINGS)
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    for key in (PROWLARR_KEY, SONARR_KEY, RADARR_KEY, arr_app.apikey):
+        assert key not in r.text
+
+
+@pytest.mark.asyncio
+async def test_register_requires_telegrarr_url(arr_app, arrs):
+    await arr_app.http.patch("/api/settings", json={**ARR_SETTINGS, "telegrarr_url": ""})
+
+    r = await arr_app.http.post("/api/connect/register")
+
+    assert r.status_code == 400
+    assert arrs.prowlarr.requests == []

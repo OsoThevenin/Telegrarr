@@ -519,6 +519,20 @@ async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
     return await connect.check_connection(_arr_app_name(payload))
 
 
+@app.post("/api/connect/register")
+async def api_connect_register(user=Depends(auth.require_user)):
+    me_url = settings.get("telegrarr_url", "")
+    if not me_url:
+        raise HTTPException(400, "Set the Telegrarr URL the *arr apps use to reach Telegrarr first")
+    results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
+    for res in results:
+        if res["status"] == "created":
+            db.log("INFO", f"Connect: registered Telegrarr {res['kind']} in {res['app']}")
+        elif res["status"] == "error":
+            db.log("WARNING", f"Connect: {res['app']} {res['kind']} registration failed: {res['error']}")
+    return {"results": results}
+
+
 @app.post("/api/account/password")
 async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
