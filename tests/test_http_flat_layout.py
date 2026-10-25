@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from fake_tmdb import API_KEY as TMDB_KEY
 from http_harness import eventually
 
 TV_CHAT = -1001000000001
@@ -60,9 +61,11 @@ async def test_tv_grab_lands_in_flat_release_folder(arr_app, library_dirs):
 
 
 @pytest.mark.asyncio
-async def test_movie_grab_lands_in_movies_category_folder(arr_app, library_dirs):
+async def test_movie_grab_lands_in_movies_category_folder(arr_app, library_dirs, fake_tmdb):
     content = b"movie-bytes" * 64
-    await _publish(arr_app, MOVIE_CHAT, "movie", "Pa negre", text="Pa negre 1080p",
+    fake_tmdb.add_movie(50797, titles={"ca-ES": "Pa negre", "en-US": "Pa negre"}, release_date="2010-10-15")
+    (await arr_app.http.patch("/api/settings", json={"tmdb_key": TMDB_KEY})).raise_for_status()
+    await _publish(arr_app, MOVIE_CHAT, "movie", "Pa negre", text="Pa negre (2010) 1080p",
                    file_name="Pa.negre.1080p.mkv", content=content)
     release, url = await _search(arr_app, "movie", "pa negre")
 

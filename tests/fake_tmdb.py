@@ -31,9 +31,25 @@ class FakeSeries:
         return self.titles.get(language) or self.titles.get("en-US") or next(iter(self.titles.values()))
 
 
+@dataclass(frozen=True)
+class FakeMovie:
+    tmdb_id: int
+    titles: dict[str, str]          # language ("ca-ES", "en-US") -> title
+    original_title: str
+    release_date: str = ""
+    imdb_id: str | None = None
+
+    def title_in(self, language: str) -> str:
+        return self.titles.get(language) or self.original_title
+
+    def year(self) -> str:
+        return self.release_date[:4]
+
+
 @dataclass
 class FakeTMDB:
     series: dict[int, FakeSeries] = field(default_factory=dict)
+    movies: dict[int, FakeMovie] = field(default_factory=dict)
     requests: list[httpx.Request] = field(default_factory=list)
 
     def add_series(self, tmdb_id: int, *, titles: dict[str, str], first_air_date: str = "",
@@ -42,6 +58,18 @@ class FakeTMDB:
                           tvdb_id=tvdb_id, imdb_id=imdb_id, poster_path=f"/poster{tmdb_id}.jpg")
         self.series[tmdb_id] = show
         return show
+
+    def add_movie(self, tmdb_id: int, *, titles: dict[str, str], release_date: str = "",
+                  imdb_id: str | None = None, original_title: str | None = None) -> FakeMovie:
+        movie = FakeMovie(tmdb_id=tmdb_id, titles=titles, release_date=release_date, imdb_id=imdb_id,
+                          original_title=original_title or titles.get("en-US") or next(iter(titles.values())))
+        self.movies[tmdb_id] = movie
+        return movie
+
+    def movie_searches(self) -> list[tuple[str, str, str]]:
+        """(query, language, year) of every /search/movie call received, in order."""
+        return [(r.url.params.get("query", ""), r.url.params.get("language", ""), r.url.params.get("year", ""))
+                for r in self.requests if r.url.path == f"{API_PREFIX}/search/movie"]
 
     def searches(self) -> list[tuple[str, str]]:
         """(query, language) of every /search/tv call received, in order."""
@@ -63,6 +91,10 @@ class FakeTMDB:
             return httpx.Response(200, json={"images": {}})
         if parts == ["search", "tv"]:
             return self._search_tv(request.url.params)
+        if parts == ["search", "movie"]:
+            return self._search_movie(request.url.params)
+        if len(parts) == 2 and parts[0] == "movie":
+            return self._movie(int(parts[1]), request.url.params.get("language", "en-US"))
         if len(parts) == 3 and parts[0] == "tv" and parts[2] == "external_ids":
             return self._external_ids(int(parts[1]))
         if len(parts) == 2 and parts[0] == "find":
@@ -76,6 +108,27 @@ class FakeTMDB:
         results = [{"id": s.tmdb_id, "name": s.title_in(language), "original_name": s.title_in("en-US"),
                     "first_air_date": s.first_air_date, "poster_path": s.poster_path} for s in hits]
         return httpx.Response(200, json={"page": 1, "results": results, "total_results": len(results)})
+
+    def _search_movie(self, params) -> httpx.Response:
+        """Title substring in the requested language (or the original title); ``year``
+        filters on the release year, as TMDB does."""
+        query = params.get("query", "").lower()
+        language = params.get("language", "en-US")
+        year = params.get("year", "")
+        hits = [m for m in self.movies.values()
+                if query and (query in m.titles.get(language, "").lower() or query in m.original_title.lower())
+                and (not year or m.year() == year)]
+        results = [{"id": m.tmdb_id, "title": m.title_in(language), "original_title": m.original_title,
+                    "release_date": m.release_date, "poster_path": f"/movie{m.tmdb_id}.jpg"} for m in hits]
+        return httpx.Response(200, json={"page": 1, "results": results, "total_results": len(results)})
+
+    def _movie(self, tmdb_id: int, language: str) -> httpx.Response:
+        movie = self.movies.get(tmdb_id)
+        if not movie:
+            return httpx.Response(404, json={"status_code": 34, "status_message": "Not found"})
+        return httpx.Response(200, json={"id": tmdb_id, "title": movie.title_in(language),
+                                         "original_title": movie.original_title,
+                                         "release_date": movie.release_date, "imdb_id": movie.imdb_id})
 
     def _external_ids(self, tmdb_id: int) -> httpx.Response:
         show = self.series.get(tmdb_id)
@@ -92,4 +145,6 @@ class FakeTMDB:
             return False
         tv = [{"id": s.tmdb_id, "name": s.title_in("en-US"), "first_air_date": s.first_air_date}
               for s in self.series.values() if matches(s)]
-        return httpx.Response(200, json={"tv_results": tv, "movie_results": []})
+        films = [{"id": m.tmdb_id, "title": m.title_in("en-US"), "release_date": m.release_date}
+                 for m in self.movies.values() if source == "imdb_id" and m.imdb_id == external_id]
+        return httpx.Response(200, json={"tv_results": tv, "movie_results": films})

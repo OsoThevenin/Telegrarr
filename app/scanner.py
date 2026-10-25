@@ -9,12 +9,12 @@ import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings, safety
+from . import db, plex, notify, settings, safety, movies
 from .arr import category_for
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
-                    DEFAULT_LANGUAGE)
+                    DEFAULT_LANGUAGE, extract_movie)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
                      MAX_CONCURRENT_DOWNLOADS)
 from .downloader import download_file
@@ -121,15 +121,18 @@ def _is_mapped(channel) -> bool:
     return bool((channel["imdb_id"] or "").strip() or (channel["imdb_title"] or "").strip())
 
 
-def build_release(channel, msg, fn) -> dict:
-    """What a Telegram media message is published as on the Newznab feed.
-
-    Quality precedence: video dimensions > quality tag in the text > the
+def _message_quality(channel, msg, parsed_quality):
+    """Quality precedence: video dimensions > quality tag in the text > the
     channel's fallback quality."""
+    width, height = _video_dims(msg.document or msg.video)
+    return quality_from_dims(width, height, fallback=parsed_quality or channel["fallback_quality"])
+
+
+def build_release(channel, msg, fn) -> dict:
+    """What a Telegram media message is published as on the Newznab feed."""
     info = _parse_episode(msg, fn)
     season, episode = info.get("season") or 0, info.get("episode") or 0
-    width, height = _video_dims(msg.document or msg.video)
-    quality = quality_from_dims(width, height, fallback=info.get("quality") or channel["fallback_quality"])
+    quality = _message_quality(channel, msg, info.get("quality"))
     show = _show_title(channel)
     title = release_name(show, season, episode, quality or "", channel["kind"],
                          language=channel["language"] or DEFAULT_LANGUAGE,
@@ -229,6 +232,26 @@ def _record_release(channel, msg, size, fn, gk):
              rel["quality"], size, int(time.time())))
 
 
+def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
+    """A movie channel message's film: title/year from the caption, else the file name."""
+    caption = msg.message or ""
+    from_caption, from_file = extract_movie(caption), extract_movie(fn or "")
+    candidates = [m for m in (from_caption, from_file) if m.title]
+    movie = next((m for m in candidates if m.year), candidates[0] if candidates else from_file)
+    quality = _message_quality(channel, msg, from_caption.quality or from_file.quality)
+    return movies.PostedFilm(channel_id=channel["id"], message_id=msg.id, group_key=gk, size=size,
+                             file_name=fn, caption=caption, title=movie.title, year=movie.year,
+                             quality=quality)
+
+
+async def _index_release(channel, msg, size, fn, gk) -> bool:
+    """Index a seen media item for Newznab. False when it is not offered (pending review)."""
+    if channel["kind"] == "movie":
+        return await movies.index_message(posted_film(channel, msg, size, fn, gk))
+    _record_release(channel, msg, size, fn, gk)
+    return True
+
+
 async def _enqueue(client, channel, msg, size, fn, gk):
     cid = channel["id"]
     save_path = _resolve_path(channel, msg, fn)
@@ -284,8 +307,8 @@ async def scan_channel(client, channel):
     best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last)
     auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
-        _record_release(channel, msg, size, fn, gk)
-        if auto_download and not _already_have(channel, gk, size):
+        offered = await _index_release(channel, msg, size, fn, gk)
+        if offered and auto_download and not _already_have(channel, gk, size):
             await _enqueue(client, channel, msg, size, fn, gk)
     await _retry_failed(client, channel)   # recover transient download failures
     with db.conn() as c:
@@ -299,8 +322,8 @@ async def backfill_channel(client, channel, full=True):
     auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():
-        _record_release(channel, msg, size, fn, gk)
-        if not auto_download or _already_have(channel, gk, size):
+        offered = await _index_release(channel, msg, size, fn, gk)
+        if not (offered and auto_download) or _already_have(channel, gk, size):
             continue
         await _enqueue(client, channel, msg, size, fn, gk)
         queued += 1

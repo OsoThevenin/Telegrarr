@@ -6,6 +6,7 @@
 import re
 import os
 import json
+import datetime
 import asyncio
 import logging
 import unicodedata
@@ -252,14 +253,14 @@ def _episode_tag(season: int, episode: int, episode_end: int | None) -> str:
 
 def release_name(show_title: str, season: int, episode: int, quality: str = "",
                  kind: str = "tv", language: str = DEFAULT_LANGUAGE,
-                 episode_end: int | None = None) -> str:
+                 episode_end: int | None = None, year: int | None = None) -> str:
     """A scene-style, parser-friendly release title for Newznab consumers:
-    Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR"""
+    Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR, movies Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR"""
     show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
     show = re.sub(r"\s+", ".", show)
     q = _RELEASE_QUALITY.get((quality or "").lower(), _DEFAULT_RELEASE_QUALITY)
     lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
-    tag = _episode_tag(season, episode, episode_end)
+    tag = str(year or "") if kind == "movie" else _episode_tag(season, episode, episode_end)
     parts = [show, tag, lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
     return ".".join(p for p in parts if p)
 
@@ -306,3 +307,52 @@ def flat_save_path(root: str, category: str, release: str, filename: str) -> str
     if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
         raise ValueError(f"release path escapes {root!r}")
     return path
+
+
+# ── movies ────────────────────────────────────────────────────────────
+class MovieInfo(NamedTuple):
+    title: str
+    year: int | None
+    quality: str | None
+
+
+_YEAR_RE = re.compile(r"(?<!\d)(19\d{2}|20\d{2})(?!\d)")
+_FIRST_FILM_YEAR = 1888
+_LATEST_YEAR_AHEAD = 1                    # films announced for next year
+_MOVIE_TAG_RE = re.compile(r"(?<![^\W_])(cat|spa|eng|multi|vose|vo|dual|castell[aà]|catal[aà])(?![^\W_])", re.I)
+
+
+def _plausible_year(year: int) -> bool:
+    return _FIRST_FILM_YEAR <= year <= datetime.date.today().year + _LATEST_YEAR_AHEAD
+
+
+def _movie_year(text: str) -> re.Match | None:
+    """The last plausible release year that is not the start of the text (a title like "2001")."""
+    hits = [m for m in _YEAR_RE.finditer(text) if m.start() > 0 and _plausible_year(int(m.group(1)))]
+    return hits[-1] if hits else None
+
+
+def _clean_movie_title(text: str) -> str:
+    t = _BRACKETED_RE.sub(" ", text)
+    for pat in _JUNK:
+        t = re.sub(pat, " ", t, flags=re.I)
+    t = _MOVIE_TAG_RE.sub(" ", t)
+    t = re.sub(r"[._]+", " ", t)
+    t = re.sub(r"[^\w\s'·&!\-]", " ", t)
+    return re.sub(r"\s+", " ", t).strip(" -'")
+
+
+def extract_movie(text: str) -> MovieInfo:
+    """A film's {title, year, quality} from a caption line or a file name.
+
+    Title is everything before the release year; without a year the whole
+    (cleaned) text is the title and ``year`` is None."""
+    src = _normalise(_EXTENSION_RE.sub("", (text or "").strip()))
+    lines = [ln.strip() for ln in src.split("\n") if ln.strip()]
+    line = next((ln for ln in lines if _movie_year(ln)), lines[0] if lines else "")
+    q = QUALITY_RE.search(line)
+    quality = q.group(1).lower() if q else None
+    year = _movie_year(line)
+    if not year:
+        return MovieInfo(_clean_movie_title(line), None, quality)
+    return MovieInfo(_clean_movie_title(line[:year.start()]), int(year.group(1)), quality)
