@@ -6,10 +6,10 @@ import logging
 from urllib.parse import urlparse
 from telethon import TelegramClient, utils
 from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
+from telethon.tl.functions.messages import CheckChatInviteRequest
 from . import settings
-from .config import API_ID, API_HASH, SESSION_PATH, PROXY
+from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
+                     TG_APP_VERSION, TG_LANG_CODE, TG_SYSTEM_LANG_CODE)
 
 log = logging.getLogger("tg")
 _client: TelegramClient | None = None
@@ -74,12 +74,21 @@ def _build_proxy_kwargs() -> dict:
     return {}
 
 
+def _fingerprint() -> dict:
+    """Desktop-like device identity sent on connect (account safety)."""
+    return {"device_model": TG_DEVICE_MODEL, "system_version": TG_SYSTEM_VERSION,
+            "app_version": TG_APP_VERSION, "lang_code": TG_LANG_CODE,
+            "system_lang_code": TG_SYSTEM_LANG_CODE}
+
+
 def get_client() -> TelegramClient:
+    """The one shared client, always on the single persistent session file."""
     global _client
     if _client is None:
         aid, ahash = _api_creds()
         _client = TelegramClient(
             SESSION_PATH, aid, ahash,
+            **_fingerprint(),
             connection_retries=5,
             retry_delay=2,
             auto_reconnect=True,
@@ -234,7 +243,10 @@ def _invite_hash(q):
 
 
 async def resolve(query):
-    """Resolve a @username / t.me link / invite link / id → chat, joining if needed."""
+    """Resolve a @username / t.me link / invite link / id → chat.
+
+    Account safety: never joins anything automatically. Invite links only resolve
+    for chats the account is already a member of."""
     c = await _ready()
     if not c:
         return {"error": "Telegram not connected"}
@@ -245,14 +257,10 @@ async def resolve(query):
     try:
         ih = _invite_hash(q)
         if ih:
-            try:
-                upd = await c(ImportChatInviteRequest(ih))
-                ent = upd.chats[0]
-            except Exception:
-                chk = await c(CheckChatInviteRequest(ih))   # likely already a member
-                ent = getattr(chk, "chat", None)
-                if ent is None:
-                    raise
+            chk = await c(CheckChatInviteRequest(ih))
+            ent = getattr(chk, "chat", None)
+            if ent is None:
+                return {"error": "Join this chat in your Telegram app first, then add it here"}
         else:
             u = re.sub(r"^https?://t\.me/", "", q).lstrip("@").strip("/")
             if re.fullmatch(r"-?\d+", u):
@@ -260,11 +268,6 @@ async def resolve(query):
                 ent = await c.get_entity(cid if cid < 0 else int(f"-100{u}"))
             else:
                 ent = await c.get_entity(u)
-            try:                                            # join public channels so scans work
-                if getattr(ent, "broadcast", False) or getattr(ent, "megagroup", False):
-                    await c(JoinChannelRequest(ent))
-            except Exception:
-                pass
     except Exception as e:
         return {"error": str(e)}
     if ent is None:

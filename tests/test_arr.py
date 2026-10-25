@@ -8,6 +8,7 @@ def test_release_name_tv():
     assert "720p" in n
     assert n.startswith("The.Traitors")
     assert " " not in n  # scene names use dots
+    assert n == "The.Traitors.2025.S02E01.CAT.720p.WEB-DL.x264-TELEGRARR"
 
 
 def test_release_name_quality_normalization():
@@ -36,7 +37,7 @@ def test_arr_caps_advertises_categories():
     from app import arr
     caps = arr.caps_xml()
     assert 'id="5000"' in caps and 'id="2000"' in caps
-    assert "Telearr" in caps
+    assert '<server title="Telegrarr"' in caps
 
 
 def test_arr_apikey_lifecycle(fresh_db):

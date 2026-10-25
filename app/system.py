@@ -16,7 +16,7 @@ from .config import (DATA_DIR, DB_PATH, TV_DIR, MIN_FREE_SPACE_GB,
 
 START_TIME = time.time()
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-GITHUB_REPO = "Wishaal/Telearr"
+GITHUB_REPO = "OsoThevenin/Telegrarr"
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _BACKUP_RE = re.compile(r"^telearr-backup-[0-9\-]+\.zip$")
 

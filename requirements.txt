@@ -2,7 +2,8 @@
 telethon==1.43.0          # MTProto client; session format stable across 1.4x
 python-socks[asyncio]==2.5.3  # SOCKS5/4 + HTTP proxy support for Telethon (VPN/proxy routing)
 cryptg==0.5.2       # C/AES-NI backend — the big download-speed win
-fastapi==0.117.1
+fastapi==0.162.0
+starlette==1.10.0         # explicit: must stay >= 1.3.1 (security advisories)
 uvicorn[standard]==0.32.1
 jinja2==3.1.6
 python-multipart==0.0.32  # form parsing for /login

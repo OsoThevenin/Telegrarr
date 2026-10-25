@@ -12,9 +12,10 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, __version__
+from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from .tg import get_client
-from .namer import imdb_search
+from .namer import (imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES, DEFAULT_LANGUAGE,
+                    DEFAULT_FALLBACK_QUALITY)
 from .config import summary
 
 logging.basicConfig(level=logging.INFO,
@@ -48,7 +49,7 @@ async def lifespan(app: FastAPI):
         await client.disconnect()
 
 
-app = FastAPI(title="Telearr", version=__version__, lifespan=lifespan)
+app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 
@@ -83,12 +84,12 @@ async def security_headers(request: Request, call_next):
 async def index(request: Request):
     if not auth.cookie_user(request):
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 def _is_secure(request: Request) -> bool:
@@ -172,6 +173,7 @@ def _live_snapshot():
     except Exception:
         total = used = free = 0
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
+            "budget": safety.budget_status(),
             "disk": {"total": total, "used": used, "free": free},
             "speed": round(sum(a.get("speed_mbs") or 0 for a in active), 1)}
 
@@ -222,7 +224,7 @@ async def api_status(user=Depends(auth.require_user)):
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
             "disk": {"total": total, "used": used, "free": free},
-            "stats": stats, "config": summary()}
+            "stats": stats, "config": summary(), "budget": safety.budget_status()}
 
 
 # ── system (status / tasks / backups / updates) ───────────────────────
@@ -303,15 +305,32 @@ def _normalize_chat_id(raw) -> int:
     return cid
 
 
+_CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
+
+
+def _release_fields(payload: dict) -> dict:
+    """Validated language / fallback_quality from a channel payload (only keys present)."""
+    fields = {k: payload[k] for k in _CHANNEL_CHOICES if payload.get(k) is not None}
+    for key, value in fields.items():
+        if value not in _CHANNEL_CHOICES[key]:
+            raise HTTPException(400, f"{key} must be one of: {', '.join(_CHANNEL_CHOICES[key])}")
+    return fields
+
+
 @app.post("/api/channels")
 async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
         raise HTTPException(400, "chat_id is required")
+    release = _release_fields(payload)
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
     weekdays = payload.get("weekdays", "0,1,2,3,4,5,6")
-    poll = int(payload.get("poll_minutes", 10))
+    try:
+        poll = settings.poll_minutes(payload.get("poll_minutes", settings.get_int(
+            "default_poll_minutes", settings.DEFAULTS["default_poll_minutes"])))
+    except settings.SettingRejected as e:
+        raise HTTPException(400, str(e))
     try:
         client = get_client()
         if not client.is_connected():
@@ -323,21 +342,33 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     with db.conn() as c:
         c.execute("""INSERT OR REPLACE INTO channels
            (chat_id,title,kind,weekdays,poll_minutes,enabled,created_at,
-            last_message_id,last_scanned_at,imdb_id,imdb_title)
+            last_message_id,last_scanned_at,imdb_id,imdb_title,
+            language,fallback_quality)
            VALUES(?,?,?,?,?,1,?,
              COALESCE((SELECT last_message_id FROM channels WHERE chat_id=?),0),
              COALESCE((SELECT last_scanned_at FROM channels WHERE chat_id=?),0),
              (SELECT imdb_id FROM channels WHERE chat_id=?),
-             (SELECT imdb_title FROM channels WHERE chat_id=?))""",
+             (SELECT imdb_title FROM channels WHERE chat_id=?),
+             COALESCE(?, (SELECT language FROM channels WHERE chat_id=?), ?),
+             COALESCE(?, (SELECT fallback_quality FROM channels WHERE chat_id=?), ?))""",
            (chat_id, title, kind, weekdays, poll, int(time.time()),
-            chat_id, chat_id, chat_id, chat_id))
+            chat_id, chat_id, chat_id, chat_id,
+            release.get("language"), chat_id, DEFAULT_LANGUAGE,
+            release.get("fallback_quality"), chat_id, DEFAULT_FALLBACK_QUALITY))
         ch = c.execute("SELECT * FROM channels WHERE chat_id=?", (chat_id,)).fetchone()
     return dict(ch)
 
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title"}
+    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title",
+               "language", "fallback_quality"}
+    payload = {**payload, **_release_fields(payload)}
+    if "poll_minutes" in payload:
+        try:
+            payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
+        except settings.SettingRejected as e:
+            raise HTTPException(400, str(e))
     sets = [f"{k}=?" for k in payload if k in allowed]
     vals = [payload[k] for k in payload if k in allowed]
     if not sets:
@@ -522,7 +553,10 @@ async def api_arr_regen(user=Depends(auth.require_user)):
 
 @app.patch("/api/settings")
 async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
-    return {"ok": True, "settings": settings.apply(payload)}
+    try:
+        return {"ok": True, "settings": settings.apply(payload)}
+    except settings.SettingRejected as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/account/password")
@@ -540,7 +574,7 @@ async def api_change_password(payload: dict, user=Depends(auth.require_user)):
 
 
 @app.post("/api/account/username")
-async def api_change_username(payload: dict, user=Depends(auth.require_user)):
+async def api_change_username(request: Request, payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
     new = (payload.get("username") or "").strip()
     if not auth.verify(user, current):
@@ -554,7 +588,8 @@ async def api_change_username(payload: dict, user=Depends(auth.require_user)):
     # username change bumps the session epoch (revokes old cookies) — re-issue ours
     r = JSONResponse({"ok": True, "username": new})
     r.set_cookie("telearr_sess", auth.make_cookie(new),
-                 httponly=True, samesite="lax", max_age=7 * 86400)
+                 httponly=True, samesite="lax", max_age=7 * 86400,
+                 secure=_is_secure(request))
     return r
 
 
