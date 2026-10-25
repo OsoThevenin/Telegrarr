@@ -18,6 +18,10 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 import httpx
+from telethon import utils
+from telethon.errors import FloodWaitError
+from telethon.tl import types
+from telethon.tl.functions.messages import CheckChatInviteRequest
 
 BASE_URL = "http://telegrarr.test"
 POLL_INTERVAL_S = 0.02
@@ -48,12 +52,15 @@ class FakeMessage:
     message: str
     document: FakeDocument | None
     video: None = None
+    entities: tuple = ()
+    reply_markup: Any = None
 
 
 @dataclass
 class FakeChannel:
     chat_id: int
     title: str
+    username: str | None = None
     messages: dict[int, FakeMessage] = field(default_factory=dict)
     payloads: dict[int, bytes] = field(default_factory=dict)
 
@@ -69,6 +76,12 @@ class FakeTelegram:
     def __init__(self) -> None:
         self.channels: dict[int, FakeChannel] = {}
         self.downloaded: list[tuple[int, int]] = []   # (chat_id, message_id) served
+        self.invites: dict[str, int | str] = {}      # invite hash -> member chat_id | title (not a member)
+        self.requests: list[Any] = []                # raw TL requests sent via client(...)
+        self.lookups: list[int | str] = []           # every get_entity() query, in order
+        self.history_reads: list[int] = []           # chat ids whose messages were iterated
+        self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
+        self.flood_seconds = 30
         self._next_doc_id = 1
         self._downloads_open = asyncio.Event()
         self._downloads_open.set()
@@ -81,8 +94,8 @@ class FakeTelegram:
         self._downloads_open.set()
 
     # canned data ---------------------------------------------------------
-    def add_channel(self, chat_id: int, title: str) -> FakeChannel:
-        channel = FakeChannel(chat_id=chat_id, title=title)
+    def add_channel(self, chat_id: int, title: str, *, username: str | None = None) -> FakeChannel:
+        channel = FakeChannel(chat_id=chat_id, title=title, username=username)
         self.channels[chat_id] = channel
         return channel
 
@@ -98,6 +111,34 @@ class FakeTelegram:
         channel.payloads[mid] = content
         return msg
 
+    def post_text(self, chat_id: int, text: str, *, urls: tuple[str, ...] = (),
+                  buttons: tuple[str, ...] = ()) -> FakeMessage:
+        """Post a text-only message. ``urls`` become hidden text-link entities and
+        ``buttons`` inline URL buttons, the two other places Telegram carries links."""
+        channel = self.channels[chat_id]
+        mid = max(channel.messages, default=0) + 1
+        entities = tuple(types.MessageEntityTextUrl(offset=0, length=1, url=u) for u in urls)
+        markup = types.ReplyInlineMarkup(rows=[types.KeyboardButtonRow(
+            buttons=[types.KeyboardButtonUrl(text="open", url=u) for u in buttons])]) if buttons else None
+        msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=None,
+                          entities=entities, reply_markup=markup)
+        channel.messages[mid] = msg
+        return msg
+
+    def add_invite(self, invite_hash: str, *, chat_id: int | None = None, title: str = "") -> None:
+        """An invite link: to ``chat_id`` if the account is a member, else only a title."""
+        self.invites[invite_hash] = chat_id if chat_id is not None else title
+
+    def _entity(self, channel: FakeChannel) -> types.Channel:
+        bare_id, _ = utils.resolve_id(channel.chat_id)
+        return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
+                             broadcast=True, access_hash=1, username=channel.username)
+
+    def _lookup(self, query: int | str) -> None:
+        self.lookups.append(query)
+        if self.flood_after_lookups is not None and len(self.lookups) > self.flood_after_lookups:
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
+
     # Telethon client surface -----------------------------------------------
     def is_connected(self) -> bool:
         return True
@@ -111,12 +152,31 @@ class FakeTelegram:
     async def is_user_authorized(self) -> bool:
         return True
 
-    async def get_entity(self, chat_id: int) -> SimpleNamespace:
-        if chat_id not in self.channels:
-            raise ValueError(f"Cannot find any entity corresponding to {chat_id}")
-        return SimpleNamespace(id=chat_id, title=self.channels[chat_id].title)
+    async def get_entity(self, query: int | str) -> types.Channel:
+        self._lookup(query)
+        if isinstance(query, str):
+            channel = next((c for c in self.channels.values()
+                            if c.username and c.username.lower() == query.lower()), None)
+        else:
+            channel = self.channels.get(query)
+        if channel is None:
+            raise ValueError(f"Cannot find any entity corresponding to {query!r}")
+        return self._entity(channel)
+
+    async def __call__(self, request: Any) -> Any:
+        self.requests.append(request)
+        if not isinstance(request, CheckChatInviteRequest):
+            raise AssertionError(f"unexpected Telegram request {type(request).__name__}")
+        self._lookup(request.hash)
+        target = self.invites.get(request.hash)
+        if target is None:
+            raise ValueError("INVITE_HASH_INVALID")
+        if isinstance(target, str):
+            return types.ChatInvite(title=target, photo=types.PhotoEmpty(id=0), participants_count=0, color=0)
+        return types.ChatInviteAlready(chat=self._entity(self.channels[target]))
 
     async def iter_messages(self, chat_id: int, limit: int | None = None):
+        self.history_reads.append(chat_id)
         msgs = sorted(self.channels[chat_id].messages.values(), key=lambda m: -m.id)
         for msg in msgs[:limit] if limit else msgs:
             yield msg

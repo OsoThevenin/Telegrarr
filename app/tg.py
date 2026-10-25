@@ -202,11 +202,15 @@ async def logout():
         return {"error": str(e)}
 
 
-async def _ready():
+async def authorized_client():
+    """The shared client, connected; None when the account is not signed in."""
     c = get_client()
     if not c.is_connected():
         await c.connect()
     return c if await c.is_user_authorized() else None
+
+
+_ready = authorized_client
 
 
 async def list_dialogs(limit=250):
@@ -242,32 +246,42 @@ def _invite_hash(q):
     return m.group(1) if m else None
 
 
-async def resolve(query):
-    """Resolve a @username / t.me link / invite link / id → chat.
+class NotAMember(Exception):
+    """An invite link to a chat the account has not joined (we never join for it)."""
 
-    Account safety: never joins anything automatically. Invite links only resolve
-    for chats the account is already a member of."""
+
+async def resolve_entity(c, query: str):
+    """Resolve a @username / t.me link / invite link / id to an entity on client `c`.
+
+    Account safety: never joins anything. Invite links only resolve for chats the
+    account is already a member of; others raise NotAMember. Telegram errors
+    (FloodWaitError included) propagate to the caller."""
+    ih = _invite_hash(query)
+    if ih:
+        chk = await c(CheckChatInviteRequest(ih))
+        ent = getattr(chk, "chat", None)
+        if ent is None:
+            raise NotAMember(getattr(chk, "title", "") or "")
+        return ent
+    u = re.sub(r"^https?://t\.me/", "", query).lstrip("@").strip("/")
+    if re.fullmatch(r"-?\d+", u):
+        cid = int(u)
+        return await c.get_entity(cid if cid < 0 else int(f"-100{u}"))
+    return await c.get_entity(u)
+
+
+async def resolve(query):
+    """Resolve a @username / t.me link / invite link / id → chat (never joins)."""
     c = await _ready()
     if not c:
         return {"error": "Telegram not connected"}
     q = (query or "").strip()
     if not q:
         return {"error": "empty"}
-    ent = None
     try:
-        ih = _invite_hash(q)
-        if ih:
-            chk = await c(CheckChatInviteRequest(ih))
-            ent = getattr(chk, "chat", None)
-            if ent is None:
-                return {"error": "Join this chat in your Telegram app first, then add it here"}
-        else:
-            u = re.sub(r"^https?://t\.me/", "", q).lstrip("@").strip("/")
-            if re.fullmatch(r"-?\d+", u):
-                cid = int(u)
-                ent = await c.get_entity(cid if cid < 0 else int(f"-100{u}"))
-            else:
-                ent = await c.get_entity(u)
+        ent = await resolve_entity(c, q)
+    except NotAMember:
+        return {"error": "Join this chat in your Telegram app first, then add it here"}
     except Exception as e:
         return {"error": str(e)}
     if ent is None:

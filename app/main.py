@@ -1,6 +1,5 @@
 # app/main.py — FastAPI app: auth, pages, and the JSON API.
 import os
-import time
 import json
 import asyncio
 import logging
@@ -12,10 +11,9 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, __version__
+from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, __version__
 from .tg import get_client
-from .namer import (imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES, DEFAULT_LANGUAGE,
-                    DEFAULT_FALLBACK_QUALITY)
+from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 
 logging.basicConfig(level=logging.INFO,
@@ -325,10 +323,9 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
-    weekdays = payload.get("weekdays", "0,1,2,3,4,5,6")
+    weekdays = payload.get("weekdays", channels.ALL_WEEKDAYS)
     try:
-        poll = settings.poll_minutes(payload.get("poll_minutes", settings.get_int(
-            "default_poll_minutes", settings.DEFAULTS["default_poll_minutes"])))
+        poll = settings.poll_minutes(payload.get("poll_minutes", channels.default_poll_minutes()))
     except settings.SettingRejected as e:
         raise HTTPException(400, str(e))
     try:
@@ -339,24 +336,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         title = getattr(ent, "title", None) or title
     except Exception as e:
         db.log("WARN", f"get_entity failed for {chat_id}: {e}")
-    with db.conn() as c:
-        c.execute("""INSERT OR REPLACE INTO channels
-           (chat_id,title,kind,weekdays,poll_minutes,enabled,created_at,
-            last_message_id,last_scanned_at,imdb_id,imdb_title,
-            language,fallback_quality)
-           VALUES(?,?,?,?,?,1,?,
-             COALESCE((SELECT last_message_id FROM channels WHERE chat_id=?),0),
-             COALESCE((SELECT last_scanned_at FROM channels WHERE chat_id=?),0),
-             (SELECT imdb_id FROM channels WHERE chat_id=?),
-             (SELECT imdb_title FROM channels WHERE chat_id=?),
-             COALESCE(?, (SELECT language FROM channels WHERE chat_id=?), ?),
-             COALESCE(?, (SELECT fallback_quality FROM channels WHERE chat_id=?), ?))""",
-           (chat_id, title, kind, weekdays, poll, int(time.time()),
-            chat_id, chat_id, chat_id, chat_id,
-            release.get("language"), chat_id, DEFAULT_LANGUAGE,
-            release.get("fallback_quality"), chat_id, DEFAULT_FALLBACK_QUALITY))
-        ch = c.execute("SELECT * FROM channels WHERE chat_id=?", (chat_id,)).fetchone()
-    return dict(ch)
+    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release)
 
 
 @app.patch("/api/channels/{cid}")
@@ -389,16 +369,10 @@ async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user
         if not c.execute("SELECT 1 FROM channels WHERE id=?", (cid,)).fetchone():
             raise HTTPException(404)
     try:
-        ids = await tmdb.series_ids(payload.get("tmdb_id"), payload.get("tvdb_id"))
+        return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
+                                         title=payload.get("title") or "")
     except tmdb.TMDBError as e:
         raise HTTPException(400, str(e))
-    title = (payload.get("title") or "").strip() or ids.title
-    with db.conn() as c:
-        c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?,
-                     imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
-                  (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, title, cid))
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
-    return dict(ch)
 
 
 @app.delete("/api/channels/{cid}")
@@ -672,6 +646,37 @@ async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
 @app.post("/api/integrations/tmdb/test")
 async def api_tmdb_test(payload: dict = None, user=Depends(auth.require_user)):
     return await tmdb.test((payload or {}).get("key") or None)
+
+
+# ── directory channel mass import ────────────────────────────────────
+@app.post("/api/directory/scan")
+async def api_directory_scan(payload: dict, user=Depends(auth.require_user)):
+    chat_id = _normalize_chat_id(payload.get("chat_id"))
+    client = await tg.authorized_client()
+    if not client:
+        raise HTTPException(409, "Telegram not connected")
+    try:
+        return await directory.scan(client, chat_id)
+    except directory.ScanRefused as e:
+        raise HTTPException(429, str(e))
+
+
+def _import_item(raw) -> directory.ImportItem:
+    if not isinstance(raw, dict):
+        raise HTTPException(400, "each channel must be an object")
+    return directory.ImportItem(chat_id=_normalize_chat_id(raw.get("chat_id")), title=str(raw.get("title") or ""),
+                                tmdb_id=raw.get("tmdb_id"), tvdb_id=raw.get("tvdb_id"),
+                                series_title=str(raw.get("series_title") or ""))
+
+
+@app.post("/api/directory/import")
+async def api_directory_import(payload: dict, user=Depends(auth.require_user)):
+    raw = payload.get("channels")
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(400, "channels must be a non-empty list")
+    if len(raw) > directory.MAX_IMPORT_ITEMS:
+        raise HTTPException(400, f"at most {directory.MAX_IMPORT_ITEMS} channels per import")
+    return {"results": await directory.import_channels([_import_item(r) for r in raw])}
 
 
 @app.get("/api/telegram/dialogs")

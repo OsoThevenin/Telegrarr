@@ -11,6 +11,7 @@ const SHELL = [
   "/static/js/icons.js",
   "/static/js/palette.js",
   "/static/js/connect.js",
+  "/static/js/directory.js",
   "/static/manifest.json",
   "/static/favicon.svg",
   "/static/icons/icon-192.png",
