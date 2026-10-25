@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Telearr quick-start: generate .env on first run, then build and launch.
+# Telegrarr quick-start: generate .env on first run, then build and launch.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,12 +16,12 @@ if [ ! -f .env ]; then
 fi
 
 DC="docker compose"; docker compose version >/dev/null 2>&1 || DC="docker-compose"
-echo "==> Building and starting Telearr"
+echo "==> Building and starting Telegrarr"
 $DC up -d --build
 
 echo "==> Waiting for health"
 for _ in $(seq 1 30); do curl -fsS -m3 http://127.0.0.1:8790/healthz >/dev/null 2>&1 && break; sleep 2; done
 $DC ps
 echo
-echo "Telearr is up on port 8790. First-time Telegram login (if no session yet):"
-echo "  $DC run --rm telearr python authorize.py"
+echo "Telegrarr is up on port 8790. First-time Telegram login (if no session yet):"
+echo "  $DC run --rm telegrarr python authorize.py"
