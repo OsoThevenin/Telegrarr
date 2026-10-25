@@ -9,7 +9,7 @@ import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings
+from . import db, plex, notify, settings, safety
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
                     build_save_path, is_uhd, release_name)
@@ -28,6 +28,7 @@ _task_registry = {}                     # download_id -> asyncio.Task
 _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
+_poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
 
 
 def begin_shutdown():
@@ -444,7 +445,7 @@ async def scan_loop():
             for ch in rows:
                 if not channel_should_run_today(ch):
                     continue
-                if now < (ch["last_scanned_at"] or 0) + ch["poll_minutes"] * 60:
+                if not _poll.is_due(ch["id"], ch["last_scanned_at"] or 0, ch["poll_minutes"], now):
                     continue
                 try:
                     await scan_channel(client, ch)

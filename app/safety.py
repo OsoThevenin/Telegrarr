@@ -3,6 +3,7 @@
 # Everything here takes its clock / sleep / randomness as an injectable dependency
 # so the behaviour can be tested with faked time.
 import time
+import random
 import asyncio
 import logging
 from typing import Awaitable, Callable
@@ -67,3 +68,38 @@ class FloodGate:
         if remaining > 0:
             log.info("flood gate: sleeping %.0fs", remaining)
             await self._sleep(remaining)
+
+
+# ── channel polling ───────────────────────────────────────────────────
+POLL_FLOOR_MINUTES = 15
+POLL_JITTER_FRACTION = 0.2          # up to +20% of the interval, so scans never align
+
+
+def effective_poll_minutes(poll_minutes) -> int:
+    """A channel's poll interval with the account-safety floor applied."""
+    try:
+        return max(POLL_FLOOR_MINUTES, int(poll_minutes or 0))
+    except (TypeError, ValueError):
+        return POLL_FLOOR_MINUTES
+
+
+class PollScheduler:
+    """Decides when a channel is due for a scan: floor + one jitter draw per scan."""
+
+    def __init__(self, rng: Callable[[], float] = random.random):
+        self._rng = rng
+        self._jitter: dict[int, tuple[int, float]] = {}   # channel_id -> (last_scanned_at, jitter s)
+
+    def _jitter_for(self, channel_id: int, last_scanned_at: int, interval: float) -> float:
+        known = self._jitter.get(channel_id)
+        if known and known[0] == last_scanned_at:
+            return known[1]
+        jitter = self._rng() * POLL_JITTER_FRACTION * interval
+        self._jitter = {**self._jitter, channel_id: (last_scanned_at, jitter)}
+        return jitter
+
+    def is_due(self, channel_id: int, last_scanned_at: int, poll_minutes, now: float) -> bool:
+        if not last_scanned_at:
+            return True
+        interval = effective_poll_minutes(poll_minutes) * 60
+        return now >= last_scanned_at + interval + self._jitter_for(channel_id, last_scanned_at, interval)
