@@ -250,8 +250,7 @@ async def api_system_scan_all(user=Depends(auth.require_user)):
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    with db.conn() as c:
-        chans = c.execute("SELECT * FROM channels WHERE enabled=1").fetchall()
+    chans = channels.listed(enabled_only=True)
     for ch in chans:
         scanner._spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
@@ -290,8 +289,7 @@ async def api_system_updates(user=Depends(auth.require_user)):
 # ── channels ──────────────────────────────────────────────────────────
 @app.get("/api/channels")
 async def api_channels(user=Depends(auth.require_user)):
-    with db.conn() as c:
-        return [dict(r) for r in c.execute("SELECT * FROM channels ORDER BY id DESC")]
+    return channels.listed()
 
 
 def _normalize_chat_id(raw) -> int:
@@ -345,33 +343,25 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    allowed = {"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id", "imdb_title",
-               "language", "fallback_quality"}
     payload = {**payload, **_release_fields(payload)}
     if "poll_minutes" in payload:
         try:
             payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
         except settings.SettingRejected as e:
             raise _keyed(400, e)
-    sets = [f"{k}=?" for k in payload if k in allowed]
-    vals = [payload[k] for k in payload if k in allowed]
-    if not sets:
+    if not channels.EDITABLE & payload.keys():
         return {"ok": True}
-    vals.append(cid)
-    with db.conn() as c:
-        c.execute(f"UPDATE channels SET {','.join(sets)} WHERE id=?", vals)
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.update(cid, payload)
     if not ch:
         raise HTTPException(404)
-    return dict(ch)
+    return ch
 
 
 @app.put("/api/channels/{cid}/series")
 async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user)):
     """Map a series channel to its TVDB id (+ TMDB/IMDb ids derived via TMDB)."""
-    with db.conn() as c:
-        if not c.execute("SELECT 1 FROM channels WHERE id=?", (cid,)).fetchone():
-            raise HTTPException(404)
+    if not channels.get(cid):
+        raise HTTPException(404)
     try:
         return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
                                          title=payload.get("title") or "")
@@ -381,15 +371,13 @@ async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user
 
 @app.delete("/api/channels/{cid}")
 async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        c.execute("DELETE FROM channels WHERE id=?", (cid,))
+    channels.delete(cid)
     return {"ok": True}
 
 
 @app.post("/api/channels/{cid}/scan")
 async def api_scan(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
     client = get_client()
@@ -401,8 +389,7 @@ async def api_scan(cid: int, user=Depends(auth.require_user)):
 
 @app.post("/api/channels/{cid}/backfill")
 async def api_backfill(cid: int, user=Depends(auth.require_user)):
-    with db.conn() as c:
-        ch = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
     client = get_client()
@@ -636,12 +623,7 @@ async def api_notify_test(user=Depends(auth.require_user)):
 
 @app.get("/api/art")
 async def api_art(imdb: str = "", user=Depends(auth.require_user)):
-    title = ""
-    if imdb:
-        with db.conn() as c:
-            row = c.execute("SELECT imdb_title FROM channels WHERE imdb_id=? LIMIT 1", (imdb,)).fetchone()
-        title = (row["imdb_title"] if row else "") or ""
-    return await tmdb.art(imdb, title)
+    return await tmdb.art(imdb, channels.series_title(imdb) if imdb else "")
 
 
 @app.get("/api/tmdb/search")

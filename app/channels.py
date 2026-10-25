@@ -14,6 +14,47 @@ def default_poll_minutes() -> int:
     return settings.get_int("default_poll_minutes", settings.DEFAULTS["default_poll_minutes"])
 
 
+# Columns a user may edit on an existing channel (PATCH /api/channels/{id}).
+EDITABLE = frozenset({"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id",
+                      "imdb_title", "language", "fallback_quality"})
+
+
+def get(cid: int) -> dict | None:
+    """Channel `cid`'s row, or None when it does not exist."""
+    with db.conn() as c:
+        row = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    return dict(row) if row else None
+
+
+def listed(*, enabled_only: bool = False) -> list[dict]:
+    """Every channel (newest first), or only the enabled ones."""
+    where = " WHERE enabled=1" if enabled_only else ""
+    with db.conn() as c:
+        return [dict(r) for r in c.execute(f"SELECT * FROM channels{where} ORDER BY id DESC")]
+
+
+def update(cid: int, fields: dict) -> dict | None:
+    """Apply the EDITABLE `fields` to channel `cid`; returns its row (None if missing)."""
+    changes = {k: v for k, v in fields.items() if k in EDITABLE}
+    if changes:
+        assignments = ",".join(f"{k}=?" for k in changes)
+        with db.conn() as c:
+            c.execute(f"UPDATE channels SET {assignments} WHERE id=?", (*changes.values(), cid))
+    return get(cid)
+
+
+def delete(cid: int) -> None:
+    with db.conn() as c:
+        c.execute("DELETE FROM channels WHERE id=?", (cid,))
+
+
+def series_title(imdb_id: str) -> str:
+    """The display title stored with a channel mapped to `imdb_id` ('' if none)."""
+    with db.conn() as c:
+        row = c.execute("SELECT imdb_title FROM channels WHERE imdb_id=? LIMIT 1", (imdb_id,)).fetchone()
+    return (row["imdb_title"] if row else "") or ""
+
+
 def existing_chat_ids() -> dict[int, int]:
     """chat_id -> channel id of every source channel already added."""
     with db.conn() as c:
