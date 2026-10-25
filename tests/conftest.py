@@ -102,3 +102,20 @@ async def arr_app(fresh_db, fake_telegram, library_dirs):
         settings = (await http.get("/api/settings")).raise_for_status().json()
         yield ArrApp(http=http, telegram=fake_telegram, apikey=settings["arr"]["apikey"])
         await _drain_background_tasks()
+
+
+# ── fake TMDB (see tests/fake_tmdb.py) ───────────────────────────────
+from fake_tmdb import FakeTMDB
+
+
+@pytest.fixture()
+def fake_tmdb(monkeypatch):
+    """Serve TMDB from a :class:`FakeTMDB` via the app's httpx transport seam.
+
+    The fake only accepts ``fake_tmdb.API_KEY``; tests store it as the
+    ``tmdb_key`` setting (e.g. over HTTP) when they need TMDB to answer."""
+    from app import tmdb
+
+    fake = FakeTMDB()
+    monkeypatch.setattr(tmdb, "transport", fake.transport)
+    return fake

@@ -54,8 +54,8 @@ def caps_xml() -> str:
         # advertise ONLY params we actually honor (advertising ignored params is a
         # spec anti-pattern that can make categorized test searches misbehave)
         '<search available="yes" supportedParams="q"/>'
-        '<tv-search available="yes" supportedParams="q,season,ep,imdbid"/>'
-        '<movie-search available="yes" supportedParams="q,imdbid"/>'
+        '<tv-search available="yes" supportedParams="q,season,ep,tvdbid,tmdbid,imdbid"/>'
+        '<movie-search available="yes" supportedParams="q,tmdbid,imdbid"/>'
         '</searching>'
         '<categories>'
         '<category id="2000" name="Movies">'

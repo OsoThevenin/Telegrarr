@@ -575,6 +575,16 @@ async def api_art(imdb: str = "", user=Depends(auth.require_user)):
     return await tmdb.art(imdb, title)
 
 
+@app.get("/api/tmdb/search")
+async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
+    try:
+        return await tmdb.search_series(q)
+    except tmdb.KeyMissing as e:
+        raise HTTPException(400, str(e))
+    except tmdb.TMDBError as e:
+        raise HTTPException(502, str(e))
+
+
 @app.post("/api/integrations/tmdb/test")
 async def api_tmdb_test(payload: dict = None, user=Depends(auth.require_user)):
     return await tmdb.test((payload or {}).get("key") or None)
