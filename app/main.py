@@ -413,8 +413,11 @@ async def api_backfill(cid: int, user=Depends(auth.require_user)):
 async def api_downloads(limit: int = 100, status: str = "",
                         user=Depends(auth.require_user)):
     limit = max(1, min(limit, 1000))
-    q = ("SELECT d.*, c.title AS channel_title FROM downloads d "
-         "LEFT JOIN channels c ON c.id=d.channel_id")
+    # season/episode as published (a resolved two-part episode carries the
+    # channel's own number in parsed_episode and where it came from in episode_source)
+    q = ("SELECT d.*, c.title AS channel_title, r.season, r.episode, r.parsed_episode, r.episode_source "
+         "FROM downloads d LEFT JOIN channels c ON c.id=d.channel_id "
+         "LEFT JOIN releases r ON r.channel_id=d.channel_id AND r.message_id=d.message_id")
     args = []
     if status:
         q += " WHERE d.status=?"
