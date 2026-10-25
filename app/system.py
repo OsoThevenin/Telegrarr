@@ -146,7 +146,7 @@ def create_backup() -> dict:
         z.write(snap, "telearr.db")
     os.remove(snap)
     _prune()
-    db.log("INFO", f"Backup created: {name}")
+    db.log("INFO", message("event.backup_created", name=name))
     return _entry(path)
 
 
@@ -172,7 +172,7 @@ def delete_backup(name: str) -> bool:
     if not path:
         return False
     os.remove(path)
-    db.log("INFO", f"Backup deleted: {name}")
+    db.log("INFO", message("event.backup_deleted", name=name))
     return True
 
 

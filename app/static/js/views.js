@@ -81,6 +81,7 @@ function activeCard(d, ctx) {
     h("div", { class: "ac-meta" },
       `${d.channel_title || ""} · ${d.file_size ? gb(d.file_size) : "—"} · ` +
       `${d.status === "downloading" ? (d.speed_mbs || 0).toFixed(1) + " MB/s" : t("dl.waiting")}${eta ? " · " + eta : ""} · ${pct}%`),
+    errorNote(d),
     h("div", { class: "bar" }, h("i", { style: `width:${pct}%` })));
 }
 
@@ -309,6 +310,12 @@ function episodeNote(d) {
   return h("span", { class: "ep-note" }, text);
 }
 
+// Why a download failed, was cancelled or is held (keyed; legacy rows keep their text).
+function errorNote(d) {
+  const text = d.error_msg ? msg(d.error_msg) : d.error;
+  return text ? h("span", { class: "err-note" }, text) : null;
+}
+
 function rowsTable(rows, ctx, selectAll = true) {
   const allSel = rows.length && rows.every((d) => ui.sel.has(d.id));
   const head = h("tr", {},
@@ -322,7 +329,7 @@ function rowsTable(rows, ctx, selectAll = true) {
       type: "checkbox", checked: ui.sel.has(d.id), "aria-label": t("dl.select_row"),
       onChange: (e) => { e.target.checked ? ui.sel.add(d.id) : ui.sel.delete(d.id); ctx.rerender(); },
     })),
-    h("td", { title: d.save_path }, base(d.save_path) || d.file_name, episodeNote(d)),
+    h("td", { title: d.save_path }, base(d.save_path) || d.file_name, episodeNote(d), errorNote(d)),
     h("td", {}, d.channel_title || "—"),
     h("td", {}, d.file_size ? gb(d.file_size) : "—"),
     h("td", {}, statusPill(d.status)),
@@ -408,7 +415,7 @@ function logRow(l) {
   const cls = l.level === "ERROR" ? "lg-error" : l.level === "WARN" ? "lg-warn" : "lg-info";
   return h("div", { class: "log-row" },
     h("span", { class: "lg-badge " + cls }, l.level),
-    h("span", { class: "lg-msg" }, l.message,
+    h("span", { class: "lg-msg" }, l.text,
       l.count > 1 ? h("span", { class: "lg-count", title: t("log.times", { n: l.count }) }, "×" + l.count) : null),
     h("span", { class: "lg-time mono", title: fmtDateTime(new Date(l.ts * 1000)) }, fmtWhen(l.ts)));
 }
@@ -420,13 +427,15 @@ export function viewActivity(ctx) {
   async function load() {
     const rows = await api("/api/logs?limit=500"); if (!rows) return;
     const lvl = lvlSel.value, q = search.value.trim().toLowerCase();
-    const filtered = rows.filter((l) => (!lvl || l.level === lvl) && (!q || l.message.toLowerCase().includes(q)));
+    // Keyed rows show in the UI language; rows from older versions keep their stored text.
+    const texts = rows.map((l) => ({ ...l, text: l.msg ? msg(l.msg) : l.message }));
+    const filtered = texts.filter((l) => (!lvl || l.level === lvl) && (!q || l.text.toLowerCase().includes(q)));
     // Collapse consecutive identical entries into one row with a ×N count —
     // otherwise a repeating error (e.g. every 30s) buries everything else.
     const grouped = [];
     for (const l of filtered) {
       const last = grouped[grouped.length - 1];
-      if (last && last.level === l.level && last.message === l.message) { last.count++; last.ts = Math.max(last.ts, l.ts); }
+      if (last && last.level === l.level && last.text === l.text) { last.count++; last.ts = Math.max(last.ts, l.ts); }
       else grouped.push({ ...l, count: 1 });
     }
     mount(list, grouped.length

@@ -52,9 +52,9 @@ async def lifespan(app: FastAPI):
     try:
         await client.connect()
         if not await client.is_user_authorized():
-            db.log("ERROR", "Telegram session not authorized — see README auth step.")
+            db.log("ERROR", i18n.message("event.tg_not_authorized"))
     except Exception as e:
-        db.log("ERROR", f"Telegram connect failed at startup: {e}")
+        db.log("ERROR", i18n.message("event.tg_connect_failed", error=str(e)))
     scanner.start_background()
     yield
     # graceful shutdown: requeue anything in flight so it resumes next boot
@@ -129,14 +129,14 @@ async def do_login(request: Request, username: str = Form(...), password: str = 
 
     wait = auth.throttle_retry_after(key)
     if wait:
-        db.log("WARN", f"Login attempt from {key} rejected — locked out for {wait}s")
+        db.log("WARN", i18n.message("event.login_locked", client=key, seconds=wait))
         return RedirectResponse(
             f"/login?error=throttled&wait={wait}",
             status_code=303)
 
     if not auth.verify(username, password):
         auth.record_failure(key)
-        db.log("WARN", f"Failed login for '{username}' from {key}")
+        db.log("WARN", i18n.message("event.login_failed", user=username, client=key))
         return RedirectResponse("/login?error=invalid", status_code=303)
 
     auth.record_success(key)
@@ -339,7 +339,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         ent = await client.get_entity(chat_id)
         title = getattr(ent, "title", None) or title
     except Exception as e:
-        db.log("WARN", f"get_entity failed for {chat_id}: {e}")
+        db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
     return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release)
 
 
@@ -429,7 +429,7 @@ async def api_downloads(limit: int = 100, status: str = "",
     q += " ORDER BY d.id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:
-        return [dict(r) for r in c.execute(q, args)]
+        return [_with_message(r, "error_key", "error_params", "error_msg") for r in c.execute(q, args)]
 
 
 @app.post("/api/downloads/bulk")
@@ -516,7 +516,13 @@ async def api_logs(limit: int = 200, channel_id: int = None,
     q += " ORDER BY id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:
-        return [dict(r) for r in c.execute(q, args)]
+        return [_with_message(r, "msg_key", "msg_params", "msg") for r in c.execute(q, args)]
+
+
+def _with_message(row, key_col: str, params_col: str, as_name: str) -> dict:
+    """A row as a dict whose stored key/params columns become one {key, params} field."""
+    fields = {k: row[k] for k in row.keys() if k not in (key_col, params_col)}
+    return {**fields, as_name: db.stored_message(row[key_col], row[params_col])}
 
 
 # ── settings ──────────────────────────────────────────────────────────
@@ -528,7 +534,7 @@ async def api_get_settings(user=Depends(auth.require_user)):
 
 @app.post("/api/integrations/arr/regenerate")
 async def api_arr_regen(user=Depends(auth.require_user)):
-    db.log("INFO", "arr API key regenerated")
+    db.log("INFO", i18n.message("event.arr_key_regenerated"))
     return {"apikey": arr.regenerate()}
 
 
@@ -561,9 +567,11 @@ async def api_connect_register(user=Depends(auth.require_user)):
     results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
     for res in results:
         if res["status"] == "created":
-            db.log("INFO", f"Connect: registered Telegrarr {res['kind']} in {res['app']}")
+            db.log("INFO", i18n.message("event.connect_registered", kind=i18n.message(f"connect.kind.{res['kind']}"),
+                                         app=connect.APP_TITLES[res["app"]]))
         elif res["status"] == "error":
-            db.log("WARNING", f"Connect: {res['app']} {res['kind']} registration failed: {res['error']}")
+            db.log("WARN", i18n.message("event.connect_failed", kind=i18n.message(f"connect.kind.{res['kind']}"),
+                                         app=connect.APP_TITLES[res["app"]], error=res["error"]))
     return {"results": results}
 
 
@@ -576,7 +584,7 @@ async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     if len(new) < auth.MIN_PASSWORD_LEN:
         raise _bad(400, "err.account.password_short", min=auth.MIN_PASSWORD_LEN)
     auth.set_password(user, new)
-    db.log("INFO", "Admin password changed")
+    db.log("INFO", i18n.message("event.password_changed"))
     return {"ok": True}
 
 
@@ -591,7 +599,7 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
     if new != user and auth.username_exists(new):
         raise _bad(400, "err.account.username_taken")
     auth.set_username(user, new)
-    db.log("INFO", f"Admin username changed to {new}")
+    db.log("INFO", i18n.message("event.username_changed", user=new))
     # username change bumps the session epoch (revokes old cookies) — re-issue ours
     r = JSONResponse({"ok": True, "username": new})
     r.set_cookie("telearr_sess", auth.make_cookie(new),
@@ -604,14 +612,14 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
 @app.post("/api/queue/pause")
 async def api_pause(user=Depends(auth.require_user)):
     scanner.pause()
-    db.log("INFO", "Downloads paused")
+    db.log("INFO", i18n.message("event.downloads_paused"))
     return {"ok": True, "paused": True}
 
 
 @app.post("/api/queue/resume")
 async def api_resume(user=Depends(auth.require_user)):
     await scanner.resume_all()
-    db.log("INFO", "Downloads resumed")
+    db.log("INFO", i18n.message("event.downloads_resumed"))
     return {"ok": True, "paused": False}
 
 

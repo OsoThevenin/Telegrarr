@@ -11,7 +11,7 @@ import logging
 
 from . import db, plex, notify, settings, safety, resolver, movies
 from .arr import category_for
-from .i18n import translate
+from .i18n import message, translate
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
@@ -33,6 +33,9 @@ _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
 BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
+MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
+CANCELLED_BY_USER = "dl.err.cancelled"
+DOWNLOAD_FAILED = "dl.err.failed"
 
 
 def begin_shutdown():
@@ -230,11 +233,10 @@ def _is_mapped_series(channel) -> bool:
 def _log_resolution(channel, rel: dict, found: "resolver.Resolution") -> None:
     marker = f"S{rel['season']:02d}E{rel['episode']:02d} {rel['episode_title']}"
     if found.source == resolver.KEPT:
-        db.log("WARN", f"Part not matched in TMDB/Sonarr; keeping channel numbering: {marker}",
-               channel_id=channel["id"])
+        db.log("WARN", message("event.part_kept", marker=marker), channel_id=channel["id"])
     elif found.episode != rel["episode"]:
-        db.log("INFO", f"Part resolved: {marker} -> E{found.episode:02d} ({found.source})",
-               channel_id=channel["id"])
+        db.log("INFO", message("event.part_resolved", marker=marker, episode=f"E{found.episode:02d}",
+                               source=found.source), channel_id=channel["id"])
 
 
 async def build_resolved_release(channel, msg, fn) -> dict:
@@ -309,7 +311,7 @@ async def _enqueue(client, channel, msg, size, fn, gk):
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
             VALUES(?,?,?,?,?,?,?,?)""",
             (cid, msg.id, gk, fn, size, save_path, "queued", int(time.time())))
-    db.log("INFO", f"Queued {fn} ({size/1e9:.2f}GB) → {save_path}", channel_id=cid)
+    db.log("INFO", message("event.queued", file=fn, size=f"{size/1e9:.2f}", path=save_path), channel_id=cid)
     _spawn(_run_download(client, cid, msg, save_path, gk))
 
 
@@ -328,16 +330,19 @@ async def _retry_failed(client, channel):
         try:
             msg = await client.get_messages(channel["chat_id"], ids=r["message_id"])
         except Exception as e:
-            db.log("WARN", f"Auto-retry: could not fetch msg {r['message_id']}: {e}", channel_id=cid)
+            db.log("WARN", message("event.retry_fetch_failed", message_id=r["message_id"], error=str(e)),
+                   channel_id=cid)
             continue
         if not msg:
             with db.conn() as c:
-                c.execute("UPDATE downloads SET status='failed', error='message gone' WHERE id=?", (r["id"],))
+                _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
             continue
         with db.conn() as c:
             c.execute("UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
-                      "retry_count=COALESCE(retry_count,0)+1 WHERE id=?", (r["id"],))
-        db.log("INFO", f"Auto-retry {r['rc'] + 1}/{MAX_DOWNLOAD_RETRIES}: {r['file_name']}", channel_id=cid)
+                      "error_key=NULL, error_params=NULL, retry_count=COALESCE(retry_count,0)+1 WHERE id=?",
+                      (r["id"],))
+        db.log("INFO", message("event.auto_retry", n=r["rc"] + 1, max=MAX_DOWNLOAD_RETRIES, file=r["file_name"]),
+               channel_id=cid)
         _spawn(_run_download(client, cid, msg, r["save_path"], r["group_key"]))
 
 
@@ -367,9 +372,23 @@ async def backfill_channel(client, channel, full=True):
             continue
         await _enqueue(client, channel, msg, size, fn, gk)
         queued += 1
-    db.log("INFO", f"[Backfill] {channel['title']}: {len(best)} indexed, {queued} new queued.",
+    db.log("INFO", message("event.backfill_done", channel=channel["title"], indexed=len(best), queued=queued),
            channel_id=cid)
     return queued
+
+
+def _set_error(c, dl_id: int, status: str, reason: dict) -> None:
+    """Set a download's status and its reason, stored as a key the UI translates."""
+    text, key, params = db.keyed(reason)
+    c.execute("UPDATE downloads SET status=?, error=?, error_key=?, error_params=? WHERE id=?",
+              (status, text, key, params, dl_id))
+
+
+def _set_message_error(c, channel_id: int, message_id: int, status: str, reason: dict) -> None:
+    """:func:`_set_error` for the download of one channel message."""
+    text, key, params = db.keyed(reason)
+    c.execute("UPDATE downloads SET status=?, error=?, error_key=?, error_params=? "
+              "WHERE channel_id=? AND message_id=?", (status, text, key, params, channel_id, message_id))
 
 
 async def _wait_for_budget(channel_id, message_id):
@@ -379,8 +398,8 @@ async def _wait_for_budget(channel_id, message_id):
         if not marked:
             resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
             with db.conn() as c:
-                c.execute("UPDATE downloads SET status='queued', error=? WHERE channel_id=? AND message_id=?",
-                          (translate("budget.download_held", resets=resets), channel_id, message_id))
+                _set_message_error(c, channel_id, message_id, "queued",
+                                   message("budget.download_held", resets=resets))
             marked = True
         await asyncio.sleep(BUDGET_RECHECK_SECONDS)
 
@@ -423,11 +442,12 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                     c.execute("""UPDATE downloads SET status='completed', progress=1.0, speed_mbs=0,
                                  finished_at=? WHERE channel_id=? AND message_id=?""",
                               (int(time.time()), channel_id, msg.id))
-                db.log("INFO", f"Already on disk — finalized {os.path.basename(save_path)}", channel_id=channel_id)
+                db.log("INFO", message("event.already_on_disk", file=os.path.basename(save_path)),
+                       channel_id=channel_id)
                 return
             with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='downloading', started_at=?, error=NULL
-                             WHERE channel_id=? AND message_id=?""",
+                c.execute("""UPDATE downloads SET status='downloading', started_at=?, error=NULL,
+                             error_key=NULL, error_params=NULL WHERE channel_id=? AND message_id=?""",
                           (int(time.time()), channel_id, msg.id))
 
             async def pcb(pct, speed):
@@ -444,7 +464,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                              finished_at=? WHERE channel_id=? AND message_id=?""",
                           (int(time.time()), channel_id, msg.id))
             name = os.path.basename(save_path)
-            db.log("INFO", f"✅ Downloaded {name}", channel_id=channel_id)
+            db.log("INFO", message("event.downloaded", file=name), channel_id=channel_id)
             _prune_history(channel_id)
             with db.conn() as c:
                 ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
@@ -459,22 +479,19 @@ async def _run_download(client, channel_id, msg, save_path, gk):
                              WHERE channel_id=? AND message_id=?""", (channel_id, msg.id))
         else:
             with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='cancelled', error='cancelled by user'
-                             WHERE channel_id=? AND message_id=?""", (channel_id, msg.id))
+                _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER))
             tmp = save_path + ".tmp"
             try:
                 if os.path.exists(tmp):
                     os.remove(tmp)
             except Exception:
                 pass
-            db.log("WARN", f"Cancelled {os.path.basename(save_path)}", channel_id=channel_id)
+            db.log("WARN", message("event.cancelled", file=os.path.basename(save_path)), channel_id=channel_id)
         raise
     except Exception as e:
         with db.conn() as c:
-            c.execute("""UPDATE downloads SET status='failed', error=?
-                         WHERE channel_id=? AND message_id=?""",
-                      (str(e), channel_id, msg.id))
-        db.log("ERROR", f"Download failed: {e}", channel_id=channel_id)
+            _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(e)))
+        db.log("ERROR", message("event.download_failed", error=str(e)), channel_id=channel_id)
     finally:
         async with _queue_lock:
             _inflight.discard(key)
@@ -504,7 +521,7 @@ async def grab_message(channel_id, message_id):
     try:
         msg = await client.get_messages(ch["chat_id"], ids=message_id)
     except Exception as e:
-        db.log("ERROR", f"[arr] grab fetch failed: {e}", channel_id=channel_id)
+        db.log("ERROR", message("event.grab_fetch_failed", error=str(e)), channel_id=channel_id)
         return None
     doc = msg.document or msg.video if msg else None
     if not doc:
@@ -519,7 +536,7 @@ async def grab_message(channel_id, message_id):
             (channel_id, msg.id, gk, fn, doc.size, save_path, "queued", int(time.time())))
         row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, msg.id)).fetchone()
-    db.log("INFO", f"[arr] Grab queued {fn}", channel_id=channel_id)
+    db.log("INFO", message("event.grab_queued", file=fn), channel_id=channel_id)
     _spawn(_run_download(client, channel_id, msg, save_path, gk))
     return row["id"] if row else None
 
@@ -541,22 +558,21 @@ async def resume_pending_downloads():
         rows = c.execute("""SELECT d.*, c.chat_id FROM downloads d
                             JOIN channels c ON c.id=d.channel_id
                             WHERE d.status='queued' ORDER BY d.id ASC""").fetchall()
-    db.log("INFO", f"Resuming {len(rows)} queued downloads")
+    db.log("INFO", message("event.resuming", n=len(rows)))
     for r in rows:
         try:
             msg = await client.get_messages(r["chat_id"], ids=r["message_id"])
             if not msg:
                 with db.conn() as c:
-                    c.execute("UPDATE downloads SET status='failed', error='message gone' "
-                              "WHERE id=?", (r["id"],))
+                    _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
                 continue
             _spawn(_run_download(client, r["channel_id"], msg, r["save_path"], r["group_key"]))
         except Exception as e:
-            db.log("ERROR", f"Resume failed for msg {r['message_id']}: {e}")
+            db.log("ERROR", message("event.resume_failed", message_id=r["message_id"], error=str(e)))
 
 
 async def scan_loop():
-    db.log("INFO", "Scanner started")
+    db.log("INFO", message("event.scanner_started"))
     resumed = False
     while True:
         try:
@@ -583,9 +599,9 @@ async def scan_loop():
                 try:
                     await scan_channel(client, ch)
                 except Exception as e:
-                    db.log("ERROR", f"Scan failed for {ch['title']}: {e}", channel_id=ch["id"])
+                    db.log("ERROR", message("event.scan_failed", channel=ch["title"], error=str(e)), channel_id=ch["id"])
         except Exception as e:
-            db.log("ERROR", f"Scan loop error: {e}")
+            db.log("ERROR", message("event.scan_loop_error", error=str(e)))
         await asyncio.sleep(30)
 
 
