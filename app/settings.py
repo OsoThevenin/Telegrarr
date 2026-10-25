@@ -1,5 +1,7 @@
 # app/settings.py — DB-backed runtime settings with env-based defaults.
 # Anything here can be changed from the UI and takes effect live (no rebuild).
+import os
+
 from . import db
 from . import config
 
@@ -41,7 +43,14 @@ DEFAULTS = {
     "tmdb_key": "",                # optional TMDB api key for poster artwork
     "paused": "0",
     "daily_budget_gb": 0,          # account safety: max GB downloaded per day, 0 = unlimited
+    # *arr integration (Telegrarr): "arr" = scans only index releases, Sonarr/Radarr
+    # grab them into the flat downloads layout; "standalone" = upstream auto-download
+    # into the library layout.
+    "operating_mode": "arr",
+    "downloads_dir": config.DOWNLOADS_DIR,
 }
+
+OPERATING_MODES = ("arr", "standalone")
 
 
 def get(key, default=None):
@@ -98,7 +107,37 @@ def public() -> dict:
         "paused": get_bool("paused", False),
         "proxy_set": bool(get("tg_proxy", "")),
         "daily_budget_gb": get_float("daily_budget_gb", 0.0),
+        "operating_mode": operating_mode(),
+        "downloads_dir": get("downloads_dir"),
     }
+
+
+def operating_mode() -> str:
+    mode = get("operating_mode")
+    return mode if mode in OPERATING_MODES else DEFAULTS["operating_mode"]
+
+
+def is_arr_mode() -> bool:
+    return operating_mode() == "arr"
+
+
+def arr_root() -> str:
+    """Where *arr grabs land: <downloads base>/telegram (category folders below)."""
+    return os.path.join(get("downloads_dir"), "telegram")
+
+
+def _coerce_mode(v) -> str:
+    mode = str(v).strip().lower()
+    if mode not in OPERATING_MODES:
+        raise ValueError(f"unknown operating mode {v!r}")
+    return mode
+
+
+def _coerce_abs_dir(v) -> str:
+    path = os.path.normpath(str(v).strip())
+    if not os.path.isabs(path):
+        raise ValueError(f"not an absolute path: {v!r}")
+    return path
 
 
 # keys the UI is allowed to write, with a coercer for each
@@ -115,6 +154,8 @@ WRITABLE = {
     "notify_telegram": lambda v: "1" if str(v).strip().lower() in ("1", "true", "yes", "on") else "0",
     "tmdb_key": lambda v: str(v).strip(),
     "daily_budget_gb": _budget_gb,
+    "operating_mode": _coerce_mode,
+    "downloads_dir": _coerce_abs_dir,
 }
 
 

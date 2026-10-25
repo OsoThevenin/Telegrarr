@@ -10,9 +10,10 @@ import asyncio
 import logging
 
 from . import db, plex, notify, settings, safety
+from .arr import category_for
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
-                    build_save_path, is_uhd, release_name, quality_from_dims,
+                    build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
                      MAX_CONCURRENT_DOWNLOADS)
@@ -203,6 +204,17 @@ async def _iter_best(client, chat_id, *, limit, stop_at=0):
     return best, max_seen
 
 
+def _flat_path(channel, msg, fn):
+    """*arr grab path: <downloads>/telegram/<category>/<release title>/<file>.
+
+    Uses the indexed release title (what Sonarr/Radarr grabbed) when present."""
+    with db.conn() as c:
+        row = c.execute("SELECT title FROM releases WHERE channel_id=? AND message_id=?",
+                        (channel["id"], msg.id)).fetchone()
+    title = row["title"] if row else build_release(channel, msg, fn)["title"]
+    return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
+
+
 def _record_release(channel, msg, size, fn, gk):
     """Index a seen media item so the Newznab endpoint can serve it as a release."""
     rel = build_release(channel, msg, fn)
@@ -270,9 +282,10 @@ async def scan_channel(client, channel):
     cid = channel["id"]
     last = channel["last_message_id"] or 0
     best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last)
+    auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
         _record_release(channel, msg, size, fn, gk)
-        if not _already_have(channel, gk, size):
+        if auto_download and not _already_have(channel, gk, size):
             await _enqueue(client, channel, msg, size, fn, gk)
     await _retry_failed(client, channel)   # recover transient download failures
     with db.conn() as c:
@@ -283,14 +296,16 @@ async def scan_channel(client, channel):
 async def backfill_channel(client, channel, full=True):
     cid = channel["id"]
     best, _ = await _iter_best(client, channel["chat_id"], limit=None)
+    auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():
         _record_release(channel, msg, size, fn, gk)
-        if _already_have(channel, gk, size):
+        if not auto_download or _already_have(channel, gk, size):
             continue
         await _enqueue(client, channel, msg, size, fn, gk)
         queued += 1
-    db.log("INFO", f"[Backfill] {channel['title']}: {queued} new queued.", channel_id=cid)
+    db.log("INFO", f"[Backfill] {channel['title']}: {len(best)} indexed, {queued} new queued.",
+           channel_id=cid)
     return queued
 
 
@@ -433,7 +448,7 @@ async def grab_message(channel_id, message_id):
         return None
     fn = _file_name(doc, msg.id)
     gk = group_key(msg.message or "", fn, msg.id)
-    save_path = _resolve_path(ch, msg, fn)
+    save_path = _flat_path(ch, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT OR IGNORE INTO downloads
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
