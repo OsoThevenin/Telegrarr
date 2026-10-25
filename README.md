@@ -1,32 +1,32 @@
-# Telearr
+# Telegrarr
 
-[![CI](https://github.com/Wishaal/Telearr/actions/workflows/ci.yml/badge.svg)](https://github.com/Wishaal/Telearr/actions/workflows/ci.yml)
+[![CI](https://github.com/OsoThevenin/Telegrarr/actions/workflows/ci.yml/badge.svg)](https://github.com/OsoThevenin/Telegrarr/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/Wishaal/Telearr)](https://github.com/Wishaal/Telearr/releases)
+[![Release](https://img.shields.io/github/v/release/OsoThevenin/Telegrarr)](https://github.com/OsoThevenin/Telegrarr/releases)
 ![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
 
-**Bring Telegram into your \*arr stack.** Telearr watches Telegram channels,
+**Bring Telegram into your \*arr stack.** Telegrarr watches Telegram channels,
 auto-downloads the media they post into a clean, Plex-ready library, and exposes
 those channels to Sonarr, Radarr and Prowlarr as if they were a usenet indexer
 and download client.
 
-Telearr is a self-hosted [FastAPI](https://fastapi.tiangolo.com/) +
+Telegrarr is a self-hosted [FastAPI](https://fastapi.tiangolo.com/) +
 [Telethon](https://docs.telethon.dev/) application (Python 3.13) that ships as a
 single hardened, non-root Docker container.
 
 ---
 
-## Why Telearr
+## Why Telegrarr
 
 Telegram is one of the largest, fastest and most under-used media sources for the
 self-hosting world. The \*arr ecosystem (Sonarr, Radarr, Prowlarr) is brilliant at
 automating usenet and torrents, but it has never had a first-class way to treat a
-Telegram channel as a source. Telearr bridges that gap: it speaks the
+Telegram channel as a source. Telegrarr bridges that gap: it speaks the
 Newznab indexer protocol and the SABnzbd download-client protocol, so your
 existing \*arr apps can search, grab and import from Telegram exactly the way they
 already do from a usenet provider — no new workflow to learn.
 
-Use Telearr standalone with its own web UI, or wire it into your \*arr stack. Both
+Use Telegrarr standalone with its own web UI, or wire it into your \*arr stack. Both
 work, and both share the same fast downloader and library layout.
 
 ---
@@ -47,10 +47,10 @@ work, and both share the same fast downloader and library layout.
 - **In-app Telegram sign-in** — connect your account from the browser: phone →
   login code → optional 2FA password, all in a guided wizard. No terminal, no
   `authorize.py`, no copying session strings.
-- **Pick channels from your chat list** — Telearr reads the channels/groups your
+- **Pick channels from your chat list** — Telegrarr reads the channels/groups your
   account already follows, so you select one from a list instead of hunting for IDs
   in web Telegram. You can still paste a `@username`, `t.me` link, or invite link,
-  and Telearr joins it for you.
+  and Telegrarr joins it for you.
 - **Poster library** — channels render as a poster wall using TMDB art (with an
   optional API key) and a keyless IMDb fallback, so the library looks like Plex, not
   a spreadsheet.
@@ -61,7 +61,7 @@ work, and both share the same fast downloader and library layout.
 - **Command palette (⌘K / Ctrl-K)** — jump to any page or action from the keyboard.
 - **Telegram notifications** — completed downloads are pushed to your Telegram
   Saved Messages with the poster and an "Open in Plex" link.
-- **Installable (PWA)** — add Telearr to your phone's home screen with an app icon
+- **Installable (PWA)** — add Telegrarr to your phone's home screen with an app icon
   and theme color.
 - **System panel** — a Sonarr-style System area with **Status** (health checks +
   app/host info), **Tasks** (per-channel scan schedules with next-run times),
@@ -94,14 +94,14 @@ work, and both share the same fast downloader and library layout.
 
 ## \*arr integration
 
-Telearr can plug straight into your existing automation stack:
+Telegrarr can plug straight into your existing automation stack:
 
-- **As a Newznab indexer** — Telearr serves a Newznab-compatible API at
+- **As a Newznab indexer** — Telegrarr serves a Newznab-compatible API at
   `http://<host>:8790/api/newznab`. Add it to Prowlarr (or directly to Sonarr /
   Radarr) as a Newznab indexer and searches map onto your Telegram channels.
-- **As a SABnzbd download client** — Telearr exposes a SABnzbd-compatible API on
+- **As a SABnzbd download client** — Telegrarr exposes a SABnzbd-compatible API on
   the same host and port. Add it to Sonarr/Radarr as a SABnzbd download client and
-  grabs are handed to Telearr, which downloads from Telegram and drops the finished
+  grabs are handed to Telegrarr, which downloads from Telegram and drops the finished
   file where the \*arr app expects it for import.
 
 The net effect: Sonarr/Radarr treat your Telegram channels as a usenet-like
@@ -135,7 +135,7 @@ Then open **http://\<host\>:8790**, log in with the admin credentials from your
 number → login code → (optional) 2FA password. No terminal step required.
 
 Then **Add channel** (pick one from your Telegram chat list or paste a `@username` /
-`t.me` / invite link), optionally map it to an IMDb title, and Telearr starts
+`t.me` / invite link), optionally map it to an IMDb title, and Telegrarr starts
 watching it.
 
 ### Day-to-day
@@ -155,28 +155,28 @@ Every `v*.*.*` tag publishes a multi-arch image (amd64 + arm64) to the GitHub
 Container Registry:
 
 ```
-ghcr.io/wishaal/telearr:latest        # newest release
-ghcr.io/wishaal/telearr:2.1.0         # pinned version
+ghcr.io/osothevenin/telegrarr:latest        # newest release
+ghcr.io/osothevenin/telegrarr:2.1.0         # pinned version
 ```
 
 To use it instead of building locally, set the image in `docker-compose.yml`
-(replace `build: .` with `image: ghcr.io/wishaal/telearr:latest`) and run
+(replace `build: .` with `image: ghcr.io/osothevenin/telegrarr:latest`) and run
 `docker compose up -d`.
 
 ## HTTPS & installing as an app (PWA)
 
-Telearr is an installable PWA (app icon, standalone window, offline shell). Two
+Telegrarr is an installable PWA (app icon, standalone window, offline shell). Two
 browser features it uses — **service-worker install/offline** and
 **copy-to-clipboard** — require a **secure context**: `https://…` or
 `http://localhost`. Over a plain-HTTP LAN address (`http://192.168.x.x:8790`)
 they're disabled by the browser (iOS "Add to Home Screen" still works, but
-Android's install prompt and offline won't). Put Telearr behind HTTPS to get the
+Android's install prompt and offline won't). Put Telegrarr behind HTTPS to get the
 full experience — two easy options:
 
 **Option A — Tailscale Serve** (simplest; no domain or certs to manage):
 
 ```bash
-# with Telearr running on :8790 and Tailscale installed on the host
+# with Telegrarr running on :8790 and Tailscale installed on the host
 tailscale serve --bg 8790
 # now open https://<your-machine>.<tailnet>.ts.net  (valid cert, PWA installs)
 ```
@@ -185,7 +185,7 @@ tailscale serve --bg 8790
 
 ```caddy
 # Caddyfile
-telearr.example.com {
+telegrarr.example.com {
     reverse_proxy 127.0.0.1:8790
 }
 ```
@@ -194,9 +194,9 @@ telearr.example.com {
 caddy run   # or: docker run -p 443:443 -v $PWD/Caddyfile:/etc/caddy/Caddyfile caddy
 ```
 
-Caddy terminates TLS and forwards to Telearr; the app already reads
+Caddy terminates TLS and forwards to Telegrarr; the app already reads
 `X-Forwarded-Proto`, so it marks the session cookie `Secure` automatically. Then
-open `https://telearr.example.com` and use your browser's **Install app** action
+open `https://telegrarr.example.com` and use your browser's **Install app** action
 (Chrome/Edge address-bar icon, or iOS Share → Add to Home Screen).
 
 ## Proxy / VPN (when Telegram is throttled)
@@ -223,7 +223,7 @@ are unaffected. A bad/unreachable proxy safely falls back to a direct connection
 
 ## Configuration
 
-Telearr is configured in two complementary places.
+Telegrarr is configured in two complementary places.
 
 **`.env` (deploy-time, 12-factor)** — everything the container needs at boot. See
 [`.env.example`](.env.example) for the full list. Key variables:
@@ -233,7 +233,7 @@ Telearr is configured in two complementary places.
 | `TG_API_ID` / `TG_API_HASH` | Telegram API credentials | — (required) |
 | `TELEARR_MEDIA_ROOT` | Host path bind-mounted to `/media` in the container | — (required) |
 | `TELEARR_BIND_ADDR` | Host address the web UI binds to (`127.0.0.1` = local only) | `0.0.0.0` |
-| `PUID` / `PGID` | UID/GID that owns downloaded files | `1000` |
+| `PUID` / `PGID` | UID/GID that owns downloaded files (only if you enable `user:` in compose) | `1000` |
 | `TELEARR_TV_DIR` / `TELEARR_TV_DIR_4K` | TV libraries (1080p / 4K) | `/media/TvShows/…` |
 | `TELEARR_MOVIES_DIR` / `TELEARR_MOVIES_DIR_4K` | Movie libraries (1080p / 4K) | `/media/Movies/…` |
 | `TELEARR_OTHER_DIR` | Fallback library for unparsed media | `/media/Other` |
@@ -257,7 +257,7 @@ whether they are set, never their value.
 
 ## Screenshots
 
-Telearr wears an **Apple-inspired** design language — precision editorial calm
+Telegrarr wears an **Apple-inspired** design language — precision editorial calm
 with generous white space, SF Pro typography, a single restrained blue accent,
 purposeful radii, and softly restrained depth. Light and dark are both
 first-class. Posters and artwork carry the colour; the interface gets out of
@@ -287,8 +287,9 @@ their way.
 
 ## Security
 
-- Telearr runs as an **unprivileged UID** (`PUID`/`PGID`) inside the container, not
-  as root, so downloaded files are owned by your media user.
+- The image runs as an **unprivileged user** (UID/GID `1000`) by itself, never as
+  root, and compose adds `no-new-privileges`. To own downloaded files as a different
+  media user, uncomment `user:` in `docker-compose.yml` and set `PUID`/`PGID`.
 - Secrets (`TG_API_HASH`, `TELEARR_SECRET_KEY`, admin password, Plex token) belong in
   `.env` — which should be `0600` and **never committed**. `.env.example` is the only
   environment file in the repo.
@@ -311,11 +312,11 @@ setup, coding style, and the PR process, and
 
 ## Legal & responsible use
 
-Telearr is an **independent, self-hosted, general-purpose tool** that downloads
+Telegrarr is an **independent, self-hosted, general-purpose tool** that downloads
 files from Telegram channels *you* choose into folders *you* control. It hosts,
 indexes, and ships **no content** of any kind.
 
-- **Not affiliated.** Telearr is **not affiliated with, endorsed by, or sponsored
+- **Not affiliated.** Telegrarr is **not affiliated with, endorsed by, or sponsored
   by** Telegram, the Sonarr/Radarr projects, Plex, or TMDB. All trademarks belong
   to their owners. The app's logo is an original mark.
 - **You are responsible for what you download.** Like a browser or `curl`, the
@@ -330,5 +331,5 @@ responsible-use checklist. *(That document is not legal advice.)*
 
 ## License
 
-Telearr is licensed under the **GNU General Public License v3.0** — matching the
+Telegrarr is licensed under the **GNU General Public License v3.0** — matching the
 \*arr ecosystem it integrates with. See [LICENSE](LICENSE) for the full text.
