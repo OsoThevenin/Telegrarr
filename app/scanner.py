@@ -4,6 +4,7 @@
 # task registry). It is correct ONLY under a single event loop / single uvicorn
 # worker. The container runs `--workers 1`; do not raise that without moving the
 # scanner into its own process.
+import contextlib
 import os
 import time
 import asyncio
@@ -32,6 +33,7 @@ _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
+ON_DISK_RATIO = 0.98                    # a file this complete on disk counts as already downloaded
 BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
 MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
 CANCELLED_BY_USER = "dl.err.cancelled"
@@ -404,20 +406,89 @@ async def _wait_for_budget(channel_id, message_id):
         await asyncio.sleep(BUDGET_RECHECK_SECONDS)
 
 
-async def _run_download(client, channel_id, msg, save_path, gk):
-    key = (channel_id, gk)
+def _update_message(channel_id: int, message_id: int, assignments: str, *values) -> None:
+    """``UPDATE downloads SET <assignments>`` for the download of one channel message."""
+    with db.conn() as c:
+        c.execute(f"UPDATE downloads SET {assignments} WHERE channel_id=? AND message_id=?",
+                  (*values, channel_id, message_id))
+
+
+def _remove_partial(save_path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.remove(save_path + ".tmp")
+
+
+def _finish_if_on_disk(channel_id: int, msg, save_path: str, fsize: int) -> bool:
+    """Mark the download complete when its file is already on disk.
+
+    Covers a file fully downloaded but not finalized before a crash/restart, or
+    grabbed by a sibling source; re-downloading it used to loop forever,
+    re-writing a full .tmp and stalling at the finalize step."""
+    if not (fsize and os.path.exists(save_path) and os.path.getsize(save_path) >= fsize * ON_DISK_RATIO):
+        return False
+    _remove_partial(save_path)
+    _update_message(channel_id, msg.id, "status='completed', progress=1.0, speed_mbs=0, finished_at=?",
+                    int(time.time()))
+    db.log("INFO", message("event.already_on_disk", file=os.path.basename(save_path)), channel_id=channel_id)
+    return True
+
+
+async def _fetch(client, channel_id: int, msg, save_path: str, fsize: int) -> None:
+    """Download the message's file to `save_path`, keeping the row's progress current."""
+    _update_message(channel_id, msg.id, "status='downloading', started_at=?, error=NULL, "
+                    "error_key=NULL, error_params=NULL", int(time.time()))
+
+    async def progress(pct, speed):
+        _update_message(channel_id, msg.id, "progress=?, speed_mbs=?", pct, speed)
+
+    await download_file(client, msg, save_path, progress_cb=progress)
+    safety.record_download(fsize)
+    _update_message(channel_id, msg.id, "status='completed', progress=1.0, finished_at=?", int(time.time()))
+
+
+def _announce_completed(channel_id: int, save_path: str) -> None:
+    """Log the finished file, prune history, refresh Plex and send the notification."""
+    name = os.path.basename(save_path)
+    db.log("INFO", message("event.downloaded", file=name), channel_id=channel_id)
+    _prune_history(channel_id)
+    with db.conn() as c:
+        ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
+    show = (ch["imdb_title"] or ch["title"]) if ch else ""
+    _spawn(plex.refresh_path(os.path.dirname(save_path)))
+    _spawn(notify.send(translate("notify.downloaded"), name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
+
+
+def _on_cancelled(channel_id: int, msg, save_path: str) -> None:
+    if _shutting_down:
+        # process is stopping — leave it queued so it resumes on next boot
+        _update_message(channel_id, msg.id, "status='queued', progress=0, speed_mbs=0")
+        return
+    with db.conn() as c:
+        _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER))
+    _remove_partial(save_path)
+    db.log("WARN", message("event.cancelled", file=os.path.basename(save_path)), channel_id=channel_id)
+
+
+def _on_failed(channel_id: int, msg, error: Exception) -> None:
+    with db.conn() as c:
+        _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(error)))
+    db.log("ERROR", message("event.download_failed", error=str(error)), channel_id=channel_id)
+
+
+def _register_current_task(channel_id: int, message_id: int) -> None:
     with db.conn() as c:
         row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
-                        (channel_id, msg.id)).fetchone()
+                        (channel_id, message_id)).fetchone()
     if row:
         register_task(row["id"], asyncio.current_task())
 
-    if settings.get_bool("paused", False):
-        with db.conn() as c:
-            c.execute("UPDATE downloads SET status='queued' WHERE channel_id=? AND message_id=?",
-                      (channel_id, msg.id))
-        return
 
+async def _run_download(client, channel_id, msg, save_path, gk):
+    key = (channel_id, gk)
+    _register_current_task(channel_id, msg.id)
+    if settings.get_bool("paused", False):
+        _update_message(channel_id, msg.id, "status='queued'")
+        return
     async with _queue_lock:
         if key in _inflight:
             return
@@ -425,73 +496,17 @@ async def _run_download(client, channel_id, msg, save_path, gk):
     try:
         await _wait_for_budget(channel_id, msg.id)
         async with _sem_current():
-            # If the finished file is already on disk — fully downloaded but not
-            # finalized before a crash/restart, or grabbed by a sibling source —
-            # mark it complete instead of re-downloading (which previously looped
-            # forever, re-writing a full .tmp and stalling at the finalize step).
             doc = msg.document or msg.video
             fsize = doc.size if doc else 0
-            if fsize and os.path.exists(save_path) and os.path.getsize(save_path) >= fsize * 0.98:
-                tmp = save_path + ".tmp"
-                if os.path.exists(tmp):
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
-                with db.conn() as c:
-                    c.execute("""UPDATE downloads SET status='completed', progress=1.0, speed_mbs=0,
-                                 finished_at=? WHERE channel_id=? AND message_id=?""",
-                              (int(time.time()), channel_id, msg.id))
-                db.log("INFO", message("event.already_on_disk", file=os.path.basename(save_path)),
-                       channel_id=channel_id)
+            if _finish_if_on_disk(channel_id, msg, save_path, fsize):
                 return
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='downloading', started_at=?, error=NULL,
-                             error_key=NULL, error_params=NULL WHERE channel_id=? AND message_id=?""",
-                          (int(time.time()), channel_id, msg.id))
-
-            async def pcb(pct, speed):
-                with db.conn() as c:
-                    c.execute("""UPDATE downloads SET progress=?, speed_mbs=?
-                                 WHERE channel_id=? AND message_id=?""",
-                              (pct, speed, channel_id, msg.id))
-
-            await download_file(client, msg, save_path, progress_cb=pcb)
-            safety.record_download(fsize)
-
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='completed', progress=1.0,
-                             finished_at=? WHERE channel_id=? AND message_id=?""",
-                          (int(time.time()), channel_id, msg.id))
-            name = os.path.basename(save_path)
-            db.log("INFO", message("event.downloaded", file=name), channel_id=channel_id)
-            _prune_history(channel_id)
-            with db.conn() as c:
-                ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
-            show = (ch["imdb_title"] or ch["title"]) if ch else ""
-            _spawn(plex.refresh_path(os.path.dirname(save_path)))
-            _spawn(notify.send(translate("notify.downloaded"), name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
+            await _fetch(client, channel_id, msg, save_path, fsize)
+            _announce_completed(channel_id, save_path)
     except asyncio.CancelledError:
-        if _shutting_down:
-            # process is stopping — leave it queued so it resumes on next boot
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='queued', progress=0, speed_mbs=0
-                             WHERE channel_id=? AND message_id=?""", (channel_id, msg.id))
-        else:
-            with db.conn() as c:
-                _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER))
-            tmp = save_path + ".tmp"
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except Exception:
-                pass
-            db.log("WARN", message("event.cancelled", file=os.path.basename(save_path)), channel_id=channel_id)
+        _on_cancelled(channel_id, msg, save_path)
         raise
     except Exception as e:
-        with db.conn() as c:
-            _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(e)))
-        db.log("ERROR", message("event.download_failed", error=str(e)), channel_id=channel_id)
+        _on_failed(channel_id, msg, e)
     finally:
         async with _queue_lock:
             _inflight.discard(key)

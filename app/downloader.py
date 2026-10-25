@@ -8,6 +8,7 @@
 # Robustness: if the fast path raises (e.g. a Telethon internal changed after an
 # upgrade), we fall back to the library's built-in sequential download so the app
 # keeps working regardless. That makes the optimisation safe to ship.
+import contextlib
 import os
 import time
 import math
@@ -99,91 +100,108 @@ async def _worker(client, sender, location, fd, parts, part_size, file_size,
         on_bytes(len(data))
 
 
-async def _fast_download(client, message, tmp_path, progress_cb):
+async def _open_preallocated(tmp_path: str, file_size: int) -> int:
+    """Open `tmp_path` for writing, preallocated contiguously to `file_size`.
+
+    Contiguous space avoids HDD fragmentation and per-write extends. Runs in a
+    thread: on a slow/FUSE mount (e.g. ntfs-3g) fallocate/ftruncate can take
+    seconds and would otherwise block the single event loop (freezing the whole
+    app) while it zero-fills."""
+    loop = asyncio.get_running_loop()
+    fd = await loop.run_in_executor(None, os.open, tmp_path, os.O_WRONLY | os.O_CREAT, 0o644)
+
+    def preallocate():
+        try:
+            os.posix_fallocate(fd, 0, file_size)
+        except (AttributeError, OSError):
+            os.ftruncate(fd, file_size)
+
+    try:
+        await loop.run_in_executor(None, preallocate)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _assign_parts(n_parts: int, workers: int) -> list[list[int]]:
+    """A contiguous run of parts per worker: sequential writes, minimal HDD seeking."""
+    per = math.ceil(n_parts / workers)
+    runs = [list(range(i * per, min((i + 1) * per, n_parts))) for i in range(workers)]
+    return [run for run in runs if run]          # small files leave some workers idle
+
+
+async def _report_progress(stop: asyncio.Event, done: dict, file_size: int, interval: float, progress_cb) -> None:
+    """Report progress every `interval` seconds until `stop` is set.
+
+    A dedicated coroutine so progress writes actually land: a fire-and-forget
+    create_task() can be GC'd before it runs, which left the bar stuck at 0%."""
+    start = time.monotonic()
+    while not stop.is_set():
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        if progress_cb:
+            speed = done["n"] / max(1e-6, time.monotonic() - start) / 1024 / 1024
+            await progress_cb(min(1.0, done["n"] / file_size), speed)
+
+
+async def _borrow_senders(client, dc_id: int, count: int) -> list:
+    """One exported sender per worker. Exporting to a remote DC can hang
+    indefinitely (seen with DC5), so it is bounded: the fast path then bails to
+    the sequential fallback instead of freezing the download at 0%."""
+    borrow = getattr(client, "_borrow_exported_sender")
+    try:
+        return [await asyncio.wait_for(borrow(dc_id), timeout=PART_TIMEOUT) for _ in range(count)]
+    except asyncio.TimeoutError:
+        raise RuntimeError(f"sender export to DC{dc_id} timed out")
+
+
+async def _return_senders(client, senders: list) -> None:
+    give_back = getattr(client, "_return_exported_sender")
+    for sender in senders:
+        with contextlib.suppress(Exception):
+            await give_back(sender)
+
+
+async def _download_parts(client, message, fd: int, file_size: int, progress_cb) -> None:
+    """Fetch every part of the message's file into `fd` with parallel workers."""
     doc = _doc_of(message)
-    file_size = doc.size
-    dc_id = doc.dc_id
     n_parts = max(1, math.ceil(file_size / PART))
     workers = max(1, min(settings.get_int("dl_workers", DL_WORKERS), n_parts))
     interval = settings.get_float("progress_interval", PROGRESS_MIN_INTERVAL)
+    location = _location(doc)
+    done = {"n": 0}
+
+    def on_bytes(n):
+        done["n"] += n
 
     async def refresh():
         fresh = await client.get_messages(message.chat_id, ids=message.id)
         return _location(_doc_of(fresh))
 
-    location = _location(doc)
-
-    # preallocate contiguously to avoid HDD fragmentation and per-write extends.
-    # Run it in a thread — on a slow/FUSE mount (e.g. ntfs-3g) fallocate/ftruncate
-    # can take seconds and would otherwise block the single event loop (freezing
-    # the whole app) while it zero-fills.
-    loop = asyncio.get_event_loop()
-    fd = await loop.run_in_executor(None, os.open, tmp_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    assignments = _assign_parts(n_parts, workers)
+    senders = await _borrow_senders(client, doc.dc_id, len(assignments))
+    stop = asyncio.Event()
+    reporter = asyncio.create_task(_report_progress(stop, done, file_size, interval, progress_cb))
     try:
-        def _preallocate():
-            try:
-                os.posix_fallocate(fd, 0, file_size)
-            except (AttributeError, OSError):
-                os.ftruncate(fd, file_size)
-        await loop.run_in_executor(None, _preallocate)
+        await asyncio.gather(*[
+            _worker(client, sender, location, fd, parts, PART, file_size, on_bytes, refresh)
+            for sender, parts in zip(senders, assignments)
+        ])
+    finally:
+        stop.set()
+        with contextlib.suppress(Exception):
+            await reporter
+        await _return_senders(client, senders)
 
-        done = {"n": 0}
-        start = time.monotonic()
-        stop = asyncio.Event()
 
-        def on_bytes(n):
-            done["n"] += n
-
-        async def reporter():
-            # dedicated coroutine so progress writes actually land — a fire-and-forget
-            # create_task() can be GC'd before it runs, which left the bar stuck at 0%.
-            while not stop.is_set():
-                try:
-                    await asyncio.wait_for(stop.wait(), timeout=interval)
-                except asyncio.TimeoutError:
-                    pass
-                if progress_cb:
-                    el = time.monotonic() - start
-                    speed = done["n"] / max(1e-6, el) / 1024 / 1024
-                    await progress_cb(min(1.0, done["n"] / file_size), speed)
-
-        # contiguous region per worker → sequential writes, minimal HDD seeking
-        per = math.ceil(n_parts / workers)
-        assignments = [list(range(i * per, min((i + 1) * per, n_parts)))
-                       for i in range(workers)]
-        assignments = [a for a in assignments if a]   # drop empties (small files)
-
-        borrow = getattr(client, "_borrow_exported_sender")
-        ret = getattr(client, "_return_exported_sender")
-        # Borrowing/exporting a sender to a remote DC can hang indefinitely
-        # (seen with DC5); bound it so the fast path bails to the sequential
-        # fallback instead of freezing the download forever at 0%.
-        try:
-            senders = [await asyncio.wait_for(borrow(dc_id), timeout=PART_TIMEOUT)
-                       for _ in assignments]
-        except asyncio.TimeoutError:
-            raise RuntimeError(f"sender export to DC{dc_id} timed out")
-        rep = asyncio.create_task(reporter())
-        try:
-            await asyncio.gather(*[
-                _worker(client, senders[i], location, fd, assignments[i],
-                        PART, file_size, on_bytes, refresh)
-                for i in range(len(assignments))
-            ])
-        finally:
-            stop.set()
-            try:
-                await rep
-            except Exception:
-                pass
-            for s in senders:
-                try:
-                    await ret(s)
-                except Exception:
-                    pass
+async def _fast_download(client, message, tmp_path, progress_cb):
+    file_size = _doc_of(message).size
+    fd = await _open_preallocated(tmp_path, file_size)
+    try:
+        await _download_parts(client, message, fd, file_size, progress_cb)
     finally:
         os.close(fd)
-
     actual = os.path.getsize(tmp_path)
     if actual != file_size:
         raise RuntimeError(f"size mismatch: {actual} vs {file_size}")
