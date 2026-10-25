@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import httpx
 
 from . import settings
+from .i18n import KeyedError
 
 transport: httpx.AsyncBaseTransport | None = None
 
@@ -19,7 +20,7 @@ APP_TITLES = {"prowlarr": "Prowlarr", "sonarr": "Sonarr", "radarr": "Radarr"}
 API_ROOTS = {"prowlarr": "/api/v1", "sonarr": "/api/v3", "radarr": "/api/v3"}
 
 
-class ArrError(Exception):
+class ArrError(KeyedError):
     """A user-presentable failure talking to an *arr app (never contains the key)."""
 
 
@@ -45,7 +46,7 @@ def configured(app: str) -> ArrApp:
         raise ValueError(f"unknown app: {app}")
     url, key = settings.get(f"{app}_url", ""), settings.get(f"{app}_key", "")
     if not url or not key:
-        raise ArrError(f"{APP_TITLES[app]} URL and API key are not set")
+        raise ArrError("err.arr.not_set", app=APP_TITLES[app])
     return ArrApp(app, url, key)
 
 
@@ -58,15 +59,15 @@ async def _request(target: ArrApp, method: str, path: str, *, params: dict | Non
             r = await client.request(method, url, params=params, json=json,
                                      headers={"X-Api-Key": target.key})
     except httpx.HTTPError as e:
-        raise ArrError(f"Cannot reach {target.title} at {target.url}: {type(e).__name__}") from e
+        raise ArrError("err.arr.unreachable", app=target.title, url=target.url, error=type(e).__name__) from e
     if r.status_code == 401:
-        raise ArrError(f"{target.title} rejected the API key")
+        raise ArrError("err.arr.bad_key", app=target.title)
     if r.status_code >= 400:
-        raise ArrError(f"{target.title} answered HTTP {r.status_code}{_validation_detail(r)}")
+        raise ArrError("err.arr.http", app=target.title, status=r.status_code, detail=_validation_detail(r))
     try:
         return r.json()
     except ValueError as e:
-        raise ArrError(f"{target.title} at {target.url} did not answer with JSON") from e
+        raise ArrError("err.arr.not_json", app=target.title, url=target.url) from e
 
 
 def _validation_detail(r: httpx.Response) -> str:
@@ -88,7 +89,7 @@ async def check_connection(app: str) -> dict:
     try:
         status = await _request(configured(app), "GET", "/system/status")
     except ArrError as e:
-        return {"app": app, "ok": False, "error": str(e)}
+        return {"app": app, "ok": False, "error": e.message()}
     return {"app": app, "ok": True, "version": str(status.get("version", "?"))}
 
 
@@ -123,7 +124,7 @@ def _schema_entry(schema: list, implementation: str, preferred_name: str | None 
     matches = [s for s in schema if s.get("implementation") == implementation]
     preferred = [s for s in matches if preferred_name in (s.get("definitionName"), s.get("name"))]
     if not matches:
-        raise ArrError(f"no {implementation} template in the provider schema")
+        raise ArrError("err.arr.no_template", impl=implementation)
     return (preferred or matches)[0]
 
 
@@ -151,12 +152,12 @@ async def _sab_client(target: ArrApp, me: Telegrarr) -> dict:
 
 
 async def _register_one(app: str, me: Telegrarr) -> dict:
-    kind = "indexer" if app == "prowlarr" else "download client"
+    kind = "indexer" if app == "prowlarr" else "download_client"
     result = {"app": app, "kind": kind, "name": REGISTRATION_NAME}
     try:
         target = configured(app)
     except ArrError as e:
-        return {**result, "status": "skipped", "error": str(e)}
+        return {**result, "status": "skipped", "error": e.message()}
     path = "/indexer" if app == "prowlarr" else "/downloadclient"
     try:
         if await _existing(target, path):
@@ -164,7 +165,7 @@ async def _register_one(app: str, me: Telegrarr) -> dict:
         body = await (_prowlarr_indexer(target, me) if app == "prowlarr" else _sab_client(target, me))
         await _request(target, "POST", path, json=body)
     except ArrError as e:
-        return {**result, "status": "error", "error": str(e)}
+        return {**result, "status": "error", "error": e.message()}
     return {**result, "status": "created"}
 
 

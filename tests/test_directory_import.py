@@ -91,7 +91,7 @@ async def test_scan_without_tmdb_key_still_lists_channels_and_says_a_key_is_need
     scan = await _scan(arr_app)
 
     assert [(e["title"], e["suggestion"]) for e in scan["links"]] == [("Merlí [CAT] 1080p", None)]
-    assert "TMDB API key is required" in scan["tmdb_error"]
+    assert scan["tmdb_error"]["key"] == "err.tmdb.key_missing"
     assert fake_tmdb.requests == []
 
 
@@ -122,7 +122,7 @@ async def test_invite_links_resolve_only_for_joined_channels_and_never_join(arr_
     assert (joined["resolved"], joined["chat_id"], joined["title"]) == (True, PRIVATE, "Sèrie privada CAT")
     stranger = links["https://t.me/+StrangerInviteHash"]
     assert stranger["resolved"] is False and stranger["chat_id"] is None
-    assert "join" in stranger["error"].lower()
+    assert stranger["error"]["key"] == "err.directory.not_a_member"
     assert not any(isinstance(r, (JoinChannelRequest, ImportChatInviteRequest)) for r in tg.requests)
 
 
@@ -191,13 +191,13 @@ async def test_a_floodwait_mid_scan_stops_resolving_and_closes_the_gate(arr_app)
 
     assert [(e["link"], e["resolved"]) for e in scan["links"]] == [
         ("https://t.me/merli_cat", True), ("https://t.me/jocdetrons_cat", False), ("https://t.me/third_one", False)]
-    assert "slow down" in scan["links"][1]["error"]
+    assert scan["links"][1]["error"]["key"] == "err.directory.rate_limited"
     assert tg.lookups[-1] == "jocdetrons_cat"        # nothing tried after the FloodWait
 
     again = await arr_app.http.post("/api/directory/scan", json={"chat_id": DIRECTORY})
 
     assert again.status_code == 429
-    assert "rate limit" in again.json()["detail"]
+    assert again.json()["detail"]["key"] == "err.directory.rate_limit_active"
     assert len(tg.history_reads) == 1
 
 
@@ -275,7 +275,7 @@ async def test_import_does_not_create_a_channel_whose_ids_cannot_be_derived(arr_
                             {"chat_id": MERLI, "title": "Merlí", "tmdb_id": 61662})
 
     assert results[PRIVATE]["status"] == "failed"
-    assert "TVDB id" in results[PRIVATE]["detail"]
+    assert results[PRIVATE]["detail"]["key"] == "err.tmdb.series_without_tvdb"
     assert results[MERLI]["status"] == "added"
     assert set(await _channels(arr_app)) == {MERLI}
 

@@ -4,10 +4,10 @@ import os
 
 from . import db
 from . import config
+from .i18n import DEFAULT_LANG, LANGS, KeyedError
 
 
-
-class SettingRejected(ValueError):
+class SettingRejected(KeyedError, ValueError):
     """A settings value the user must fix (reported as HTTP 400), not silently clamped."""
 
 
@@ -16,16 +16,16 @@ def poll_minutes(v) -> int:
     try:
         minutes = int(float(v))
     except (TypeError, ValueError):
-        raise SettingRejected("poll interval must be a number of minutes")
+        raise SettingRejected("err.settings.poll_number")
     if minutes < config.POLL_FLOOR_MINUTES:
-        raise SettingRejected(f"poll interval must be at least {config.POLL_FLOOR_MINUTES} minutes")
+        raise SettingRejected("err.settings.poll_floor", floor=config.POLL_FLOOR_MINUTES)
     return minutes
 
 
 def _budget_gb(v) -> str:
     gb = float(v)
     if gb < 0:
-        raise SettingRejected("daily budget must be 0 (unlimited) or more GB")
+        raise SettingRejected("err.settings.budget")
     return str(gb)
 
 
@@ -42,6 +42,7 @@ DEFAULTS = {
     "history_limit_per_show": 0,   # 0 = keep every completed record
     "tmdb_key": "",                # optional TMDB api key for poster artwork
     "paused": "0",
+    "ui_lang": DEFAULT_LANG,       # UI + notification language: "ca" or "en"
     "daily_budget_gb": 0,          # account safety: max GB downloaded per day, 0 = unlimited
     # *arr integration (Telegrarr): "arr" = scans only index releases, Sonarr/Radarr
     # grab them into the flat downloads layout; "standalone" = upstream auto-download
@@ -114,12 +115,25 @@ def public() -> dict:
         "notify_webhook": get("notify_webhook", DEFAULTS["notify_webhook"]),
         "notify_telegram": get_bool("notify_telegram", False),
         "paused": get_bool("paused", False),
+        "ui_lang": ui_lang(),
         "proxy_set": bool(get("tg_proxy", "")),
         "daily_budget_gb": get_float("daily_budget_gb", 0.0),
         "operating_mode": operating_mode(),
         "downloads_dir": get("downloads_dir"),
         **_arr_public(),
     }
+
+
+def ui_lang() -> str:
+    lang = get("ui_lang")
+    return lang if lang in LANGS else DEFAULT_LANG
+
+
+def _coerce_lang(v) -> str:
+    lang = str(v).strip().lower()
+    if lang not in LANGS:
+        raise SettingRejected("err.settings.ui_lang")
+    return lang
 
 
 def operating_mode() -> str:
@@ -162,7 +176,7 @@ def _http_url(value) -> str:
     """Normalise a base URL; empty clears it, anything but http(s) is rejected (HTTP 400)."""
     url = str(value).strip().rstrip("/")
     if url and not url.lower().startswith(("http://", "https://")):
-        raise SettingRejected("URLs must start with http:// or https://")
+        raise SettingRejected("err.settings.url_scheme")
     return url
 
 
@@ -181,6 +195,7 @@ WRITABLE = {
     "tmdb_key": lambda v: str(v).strip(),
     "daily_budget_gb": _budget_gb,
     "operating_mode": _coerce_mode,
+    "ui_lang": _coerce_lang,
     "downloads_dir": _coerce_abs_dir,
     # Connect page
     "telegrarr_url": _http_url,

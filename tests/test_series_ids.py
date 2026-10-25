@@ -62,7 +62,7 @@ async def test_tmdb_search_without_key_says_a_key_is_required(arr_app, fake_tmdb
     r = await arr_app.http.get("/api/tmdb/search", params={"q": "merlí"})
 
     assert r.status_code == 400
-    assert "TMDB API key is required" in r.json()["detail"]
+    assert r.json()["detail"]["key"] == "err.tmdb.key_missing"
     assert fake_tmdb.requests == []
 
 
@@ -71,7 +71,7 @@ async def test_tmdb_connection_test_without_key_reports_it_is_required(arr_app, 
     r = await arr_app.http.post("/api/integrations/tmdb/test", json={})
 
     assert r.json()["ok"] is False
-    assert "required" in r.json()["detail"]
+    assert r.json()["detail"]["key"] == "tmdb.test.no_key"
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_mapping_without_tmdb_key_is_blocked_with_a_clear_message(arr_app,
     r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 1399})
 
     assert r.status_code == 400
-    assert "TMDB API key is required" in r.json()["detail"]
+    assert r.json()["detail"]["key"] == "err.tmdb.key_missing"
     stored = next(c for c in (await arr_app.http.get("/api/channels")).json() if c["id"] == channel["id"])
     assert stored["tvdb_id"] is None
 
@@ -148,7 +148,7 @@ async def test_mapping_a_series_tmdb_has_no_tvdb_id_for_asks_for_one(arr_app, fa
     r = await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 5000})
 
     assert r.status_code == 400
-    assert "TVDB id" in r.json()["detail"]
+    assert r.json()["detail"]["key"] == "err.tmdb.series_without_tvdb"
 
 
 async def _two_mapped_series(arr_app, fake_tmdb):

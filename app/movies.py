@@ -9,20 +9,23 @@ import time
 from dataclasses import dataclass
 
 from . import db, tmdb
+from .i18n import KeyedError, translate
 from .namer import release_name, DEFAULT_LANGUAGE
 
-REASON_NO_YEAR = "No year in the title"
-REASON_NO_MATCH = "No confident TMDB match"
+# pending_review.reason holds a dictionary key; the UI translates it.
+REASON_NO_YEAR = "review.reason.no_year"
+REASON_NO_MATCH = "review.reason.no_match"
+REASON_LOOKUP_FAILED = "review.reason.lookup_failed"
 STATUS_PENDING, STATUS_DISCARDED = "pending", "discarded"
 
 
-class ReviewError(Exception):
-    """A review action could not be applied; the message is safe to show."""
+class ReviewError(KeyedError):
+    """A review action could not be applied; the keyed message is safe to show."""
 
 
 class NotPending(ReviewError):
     def __init__(self):
-        super().__init__("This message is not waiting for review")
+        super().__init__("err.review.not_pending")
 
 
 @dataclass(frozen=True)
@@ -77,7 +80,7 @@ def _hold(posted: PostedFilm, reason: str) -> None:
             (posted.channel_id, posted.message_id, posted.title, posted.year, posted.quality,
              posted.file_name, posted.caption, posted.size, posted.group_key, reason,
              STATUS_PENDING, int(time.time())))
-    db.log("INFO", f"Pending review: {posted.file_name} ({reason})", channel_id=posted.channel_id)
+    db.log("INFO", f"Pending review: {posted.file_name} ({translate(reason, 'en')})", channel_id=posted.channel_id)
 
 
 async def _lookup(posted: PostedFilm) -> tuple[tmdb.Film | None, str]:
@@ -85,8 +88,11 @@ async def _lookup(posted: PostedFilm) -> tuple[tmdb.Film | None, str]:
         return None, REASON_NO_YEAR
     try:
         film = await tmdb.match_film(posted.title, posted.year)
+    except tmdb.KeyMissing as e:
+        return None, e.key
     except tmdb.TMDBError as e:
-        return None, f"TMDB lookup failed: {e}"
+        db.log("WARN", f"TMDB lookup failed for {posted.file_name}: {e}", channel_id=posted.channel_id)
+        return None, REASON_LOOKUP_FAILED
     return film, REASON_NO_MATCH
 
 
@@ -130,7 +136,7 @@ async def _film_for(tmdb_id=None, imdb_id=None) -> tmdb.Film:
         return await tmdb.film(tmdb_id)
     if imdb_id not in (None, ""):
         return await tmdb.film_for_imdb(imdb_id)
-    raise ReviewError("Pick a film from the TMDB search or enter its TMDB or IMDb id")
+    raise ReviewError("err.review.pick_film")
 
 
 async def assign(channel_id: int, message_id: int, tmdb_id=None, imdb_id=None) -> dict:
@@ -140,7 +146,7 @@ async def assign(channel_id: int, message_id: int, tmdb_id=None, imdb_id=None) -
     try:
         film = await _film_for(tmdb_id, imdb_id)
     except tmdb.TMDBError as e:
-        raise ReviewError(str(e)) from e
+        raise ReviewError(e.key, **e.params) from e
     with db.conn() as c:
         row = _pending_row(c, channel_id, message_id)
         title = _index_film(c, _channel(c, channel_id), (channel_id, message_id), row["group_key"],

@@ -81,9 +81,9 @@ async def _review(arr_app) -> list[dict]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text, file_name, reason", [
-    ("La teoria del tot", "La.teoria.del.tot.1080p.mkv", "No year"),           # no year → no lookup
-    ("La teoria del tot (1999)", "film.mkv", "No confident TMDB match"),       # wrong year
-    ("Una pel·lícula que no existeix (2014)", "x.mkv", "No confident TMDB match"),
+    ("La teoria del tot", "La.teoria.del.tot.1080p.mkv", "review.reason.no_year"),           # no year → no lookup
+    ("La teoria del tot (1999)", "film.mkv", "review.reason.no_match"),       # wrong year
+    ("Una pel·lícula que no existeix (2014)", "x.mkv", "review.reason.no_match"),
 ])
 async def test_an_unmatched_film_waits_in_pending_review_and_is_not_offered(arr_app, films, text, file_name,
                                                                              reason):
@@ -97,7 +97,7 @@ async def test_an_unmatched_film_waits_in_pending_review_and_is_not_offered(arr_
     assert (entry["channel_id"], entry["message_id"]) == (channel["id"], msg.id)
     assert entry["channel_title"] == "Pel·lícules en català"
     assert entry["file_name"] == file_name
-    assert reason in entry["reason"]
+    assert entry["reason"] == reason
 
 
 @pytest.mark.asyncio
@@ -119,7 +119,7 @@ async def test_without_a_tmdb_key_films_wait_for_review(arr_app, films):
     await arr_app.scan(channel["id"])
 
     [entry] = await _review(arr_app)
-    assert "TMDB API key is required" in entry["reason"]
+    assert entry["reason"] == "err.tmdb.key_missing"
     assert await _movie_search(arr_app) == []
 
 
@@ -177,7 +177,7 @@ async def test_assigning_an_unknown_film_is_rejected_and_stays_pending(arr_app, 
     r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign", json={"imdb_id": "tt0000001"})
 
     assert r.status_code == 400
-    assert "no film" in r.json()["detail"]
+    assert r.json()["detail"] == {"key": "err.tmdb.no_film_imdb", "params": {"imdb": "tt0000001"}}
     assert len(await _review(arr_app)) == 1
 
 

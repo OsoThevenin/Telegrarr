@@ -1,6 +1,7 @@
 // main.js — app bootstrap: shell, router, polling, theme.
 import { h, mount, qs, api } from "./core.js";
 import { icon } from "./icons.js";
+import { t, fmtTime } from "./i18n.js";
 import { viewDashboard, viewChannels, viewDownloads, viewActivity, viewSystem, viewSettings, openChannelModal, openTelegramConnect, liveActive, liveDashboard, ui } from "./views.js";
 import { initPalette, openCommandPalette } from "./palette.js";
 import { viewConnect } from "./connect.js";
@@ -8,14 +9,14 @@ import { openDirectoryImport } from "./directory.js";
 import { viewReview } from "./review.js";
 
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard", view: viewDashboard },
-  { id: "channels", label: "Channels", icon: "channels", view: viewChannels },
-  { id: "downloads", label: "Downloads", icon: "downloads", view: viewDownloads },
-  { id: "activity", label: "Activity", icon: "activity", view: viewActivity },
-  { id: "review", label: "Review", icon: "film", view: viewReview },
-  { id: "connect", label: "Connect", icon: "link", view: viewConnect },
-  { id: "system", label: "System", icon: "system", view: viewSystem },
-  { id: "settings", label: "Settings", icon: "settings", view: viewSettings },
+  { id: "dashboard", label: t("nav.dashboard"), icon: "dashboard", view: viewDashboard },
+  { id: "channels", label: t("nav.channels"), icon: "channels", view: viewChannels },
+  { id: "downloads", label: t("nav.downloads"), icon: "downloads", view: viewDownloads },
+  { id: "activity", label: t("nav.activity"), icon: "activity", view: viewActivity },
+  { id: "review", label: t("nav.review"), icon: "film", view: viewReview },
+  { id: "connect", label: t("nav.connect"), icon: "link", view: viewConnect },
+  { id: "system", label: t("nav.system"), icon: "system", view: viewSystem },
+  { id: "settings", label: t("nav.settings"), icon: "settings", view: viewSettings },
 ];
 const TITLE = Object.fromEntries(NAV.map((n) => [n.id, n.label]));
 const LOGO = '<svg viewBox="0 0 64 64" width="27" height="27" aria-hidden="true">'
@@ -57,21 +58,21 @@ function buildShell() {
     h("div", { class: "side-foot" },
       h("div", { id: "tg-status", class: "tg-status" }, "…"),
       h("button", { id: "pause-toggle", class: "btn ghost block", onClick: togglePause }, "…"),
-      h("a", { class: "logout", href: "/logout" }, "Sign out")));
+      h("a", { class: "logout", href: "/logout" }, t("shell.sign_out"))));
   const topbar = h("header", { class: "topbar" },
     h("h1", { id: "view-title" }, TITLE[active]),
     h("span", { id: "tg-dot", class: "dot", title: "Telegram" }),
     h("div", { class: "topbar-actions" },
-      h("button", { class: "btn ghost cmdk-btn", title: "Command palette", "aria-label": "Open command palette (Ctrl/Cmd K)", onClick: openCommandPalette }, h("span", { html: icon("search") }), h("kbd", {}, "⌘K")),
-      h("button", { id: "theme-toggle", class: "btn ghost icon", title: "Theme", "aria-label": "Toggle theme (auto/light/dark)", onClick: cycleTheme }, h("span", { html: icon("sun") })),
+      h("button", { class: "btn ghost cmdk-btn", title: t("shell.cmdk_title"), "aria-label": t("shell.cmdk_aria"), onClick: openCommandPalette }, h("span", { html: icon("search") }), h("kbd", {}, "⌘K")),
+      h("button", { id: "theme-toggle", class: "btn ghost icon", title: t("shell.theme"), "aria-label": t("shell.theme_aria"), onClick: cycleTheme }, h("span", { html: icon("sun") })),
       h("div", { id: "ctx-actions" })));
   // Mobile bottom nav is capped at 5 (iOS/Android guidance). Activity stays in
   // the desktop sidebar and the ⌘K palette; Connect and Review are reached from the sidebar.
   const BOTTOM_NAV = NAV.filter((n) => !["activity", "connect", "review"].includes(n.id));
   const bottomNav = h("nav", { class: "bottom-nav" }, ...BOTTOM_NAV.map((n) => navBtn(n, "bnav-item")));
   const banner = h("div", { id: "tg-banner", class: "tg-banner", hidden: true },
-    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telegrarr can’t download until you sign in."),
-    h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, "Connect Telegram"));
+    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " " + t("banner.tg_offline")),
+    h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, t("banner.connect_telegram")));
   // account safety: shown while the daily download budget is used up
   const budgetBanner = h("div", { id: "budget-banner", class: "tg-banner", hidden: true },
     h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), h("span", { id: "budget-text" })));
@@ -83,28 +84,28 @@ function buildShell() {
 
 function syncNav() {
   document.querySelectorAll(".nav-item,.bnav-item").forEach((b) => b.classList.toggle("on", b.dataset.view === active));
-  const t = qs("#view-title"); if (t) t.textContent = TITLE[active];
+  const titleEl = qs("#view-title"); if (titleEl) titleEl.textContent = TITLE[active];
   document.title = active === "dashboard" ? "Telegrarr" : `${TITLE[active]} · Telegrarr`;
   const ca = qs("#ctx-actions");
   if (ca) mount(ca, active === "channels"
-    ? [h("button", { class: "btn ghost", onClick: () => openDirectoryImport(ctx) }, h("span", { html: icon("link") }), "Import directory"),
-      h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), "Add channel")]
+    ? [h("button", { class: "btn ghost", onClick: () => openDirectoryImport(ctx) }, h("span", { html: icon("link") }), t("shell.import_directory")),
+      h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), t("shell.add_channel"))]
     : []);
 }
 function syncThemeBtn() { const b = qs("#theme-toggle"); if (b) mount(b, h("span", { html: icon(getTheme() === "dark" ? "moon" : getTheme() === "light" ? "sun" : "wifi") })); }
 
 function updateShell() {
   const s = DATA.status; if (!s) return;
-  const dot = qs("#tg-dot"); if (dot) { dot.className = "dot " + (s.authorized ? "ok" : "bad"); dot.title = s.authorized ? "Telegram connected" : "Telegram offline"; }
-  const tg = qs("#tg-status"); if (tg) mount(tg, h("span", { class: "dot " + (s.authorized ? "ok" : "bad") }), s.authorized ? "Telegram connected" : "Telegram offline");
-  const pt = qs("#pause-toggle"); if (pt) mount(pt, h("span", { html: icon(s.paused ? "play" : "pause") }), s.paused ? "Resume downloads" : "Pause downloads");
+  const dot = qs("#tg-dot"); if (dot) { dot.className = "dot " + (s.authorized ? "ok" : "bad"); dot.title = s.authorized ? t("shell.tg_connected") : t("shell.tg_offline"); }
+  const tg = qs("#tg-status"); if (tg) mount(tg, h("span", { class: "dot " + (s.authorized ? "ok" : "bad") }), s.authorized ? t("shell.tg_connected") : t("shell.tg_offline"));
+  const pt = qs("#pause-toggle"); if (pt) mount(pt, h("span", { html: icon(s.paused ? "play" : "pause") }), s.paused ? t("shell.resume") : t("shell.pause"));
   const banner = qs("#tg-banner"); if (banner) banner.hidden = s.authorized !== false;
   const bb = qs("#budget-banner"), b = s.budget;
   if (bb) {
     bb.hidden = !(b && b.exhausted);
     if (b && b.exhausted) {
-      const at = new Date(b.resets_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      qs("#budget-text").textContent = ` Daily download budget of ${b.limit_gb} GB reached — downloads resume at ${at}.`;
+      const at = fmtTime(new Date(b.resets_at * 1000));
+      qs("#budget-text").textContent = " " + t("budget.banner", { limit: b.limit_gb, at });
     }
   }
 }
@@ -164,15 +165,15 @@ function connectSSE() {
 }
 
 function getCommands() {
-  const cmds = NAV.map((n) => ({ label: "Go to " + n.label, icon: n.icon, hint: "view", run: () => go(n.id) }));
+  const cmds = NAV.map((n) => ({ label: t("cmd.go_to", { view: n.label }), icon: n.icon, hint: t("cmd.hint_view"), run: () => go(n.id) }));
   const paused = DATA.status && DATA.status.paused;
-  cmds.push({ label: "Add channel", icon: "plus", run: () => openChannelModal(ctx, null) });
-  cmds.push({ label: "Import channels from a directory", icon: "link", run: () => openDirectoryImport(ctx) });
-  cmds.push({ label: paused ? "Resume downloads" : "Pause downloads", icon: paused ? "play" : "pause", run: togglePause });
-  cmds.push({ label: "Scan all channels", icon: "scan", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/scan`, { method: "POST" }); } });
-  cmds.push({ label: "Backfill all channels", icon: "refresh", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/backfill`, { method: "POST" }); } });
-  cmds.push({ label: "Toggle theme", icon: "sun", run: cycleTheme });
-  cmds.push({ label: "Sign out", icon: "logout", run: () => { location.href = "/logout"; } });
+  cmds.push({ label: t("shell.add_channel"), icon: "plus", run: () => openChannelModal(ctx, null) });
+  cmds.push({ label: t("cmd.import_directory"), icon: "link", run: () => openDirectoryImport(ctx) });
+  cmds.push({ label: paused ? t("shell.resume") : t("shell.pause"), icon: paused ? "play" : "pause", run: togglePause });
+  cmds.push({ label: t("cmd.scan_all"), icon: "scan", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/scan`, { method: "POST" }); } });
+  cmds.push({ label: t("cmd.backfill_all"), icon: "refresh", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/backfill`, { method: "POST" }); } });
+  cmds.push({ label: t("cmd.toggle_theme"), icon: "sun", run: cycleTheme });
+  cmds.push({ label: t("shell.sign_out"), icon: "logout", run: () => { location.href = "/logout"; } });
   return cmds;
 }
 

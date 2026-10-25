@@ -8,6 +8,7 @@ from telethon import TelegramClient, utils
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.messages import CheckChatInviteRequest
 from . import settings
+from .i18n import message
 from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
                      TG_APP_VERSION, TG_LANG_CODE, TG_SYSTEM_LANG_CODE)
 
@@ -110,7 +111,7 @@ async def set_proxy(url):
         authed = await c.is_user_authorized()
         return {"ok": True, "proxy": proxy_display(), "authorized": authed}
     except Exception as e:
-        return {"error": f"Could not connect through proxy: {e}"}
+        return {"error": message("err.tg.proxy", error=str(e))}
 
 
 async def reset_client():
@@ -127,6 +128,11 @@ async def reset_client():
 
 
 # ── interactive sign-in (web wizard) ──────────────────────────────────
+def _failed(e: Exception) -> dict:
+    """A Telegram error for the UI: translated frame, Telegram's own text as the param."""
+    return {"error": message("err.tg.failed", error=str(e))}
+
+
 async def auth_status():
     aid, ahash = _api_creds()
     api_ready = bool(aid and ahash)
@@ -146,7 +152,7 @@ async def set_api(api_id, api_hash):
     try:
         settings.set("tg_api_id", str(int(str(api_id).strip())))
     except (TypeError, ValueError):
-        return {"error": "API ID must be a number"}
+        return {"error": message("err.tg.api_id_number")}
     settings.set("tg_api_hash", str(api_hash).strip())
     await reset_client()
     return {"ok": True}
@@ -154,7 +160,7 @@ async def set_api(api_id, api_hash):
 
 async def send_code(phone):
     if not phone:
-        return {"error": "Enter your phone number (with country code)"}
+        return {"error": message("err.tg.phone_required")}
     try:
         c = get_client()
         if not c.is_connected():
@@ -163,12 +169,12 @@ async def send_code(phone):
         _login.update(phone=phone.strip(), hash=res.phone_code_hash)
         return {"ok": True}
     except Exception as e:
-        return {"error": str(e)}
+        return _failed(e)
 
 
 async def sign_in_code(code):
     if not _login.get("phone"):
-        return {"error": "Request a code first"}
+        return {"error": message("err.tg.code_first")}
     try:
         c = get_client()
         await c.sign_in(phone=_login["phone"], code=str(code).strip(), phone_code_hash=_login["hash"])
@@ -177,7 +183,7 @@ async def sign_in_code(code):
     except SessionPasswordNeededError:
         return {"need_password": True}
     except Exception as e:
-        return {"error": str(e)}
+        return _failed(e)
 
 
 async def sign_in_password(password):
@@ -187,7 +193,7 @@ async def sign_in_password(password):
         _login.clear()
         return {"ok": True}
     except Exception as e:
-        return {"error": str(e)}
+        return _failed(e)
 
 
 async def logout():
@@ -199,7 +205,7 @@ async def logout():
         await reset_client()
         return {"ok": True}
     except Exception as e:
-        return {"error": str(e)}
+        return _failed(e)
 
 
 async def authorized_client():
@@ -274,18 +280,18 @@ async def resolve(query):
     """Resolve a @username / t.me link / invite link / id → chat (never joins)."""
     c = await _ready()
     if not c:
-        return {"error": "Telegram not connected"}
+        return {"error": message("err.tg.not_connected")}
     q = (query or "").strip()
     if not q:
-        return {"error": "empty"}
+        return {"error": message("err.tg.empty_query")}
     try:
         ent = await resolve_entity(c, q)
     except NotAMember:
-        return {"error": "Join this chat in your Telegram app first, then add it here"}
+        return {"error": message("err.tg.not_a_member")}
     except Exception as e:
-        return {"error": str(e)}
+        return _failed(e)
     if ent is None:
-        return {"error": "could not resolve"}
+        return {"error": message("err.tg.unresolved")}
     _dialogs_cache["ts"] = 0   # invalidate so the new channel shows in the picker
     return {"chat_id": utils.get_peer_id(ent), "title": getattr(ent, "title", "") or "",
             "username": getattr(ent, "username", None) or ""}

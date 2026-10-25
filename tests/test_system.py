@@ -9,16 +9,18 @@ def test_status_shape(fresh_db, monkeypatch):
     s = system.status(authorized=True, scanner_alive=True)
     assert s["version"] and s["python"]
     assert isinstance(s["uptime_seconds"], int)
-    names = {h["name"] for h in s["health"]}
-    assert {"Telegram", "Scanner", "Disk space", "Database"} <= names
-    assert next(h for h in s["health"] if h["name"] == "Telegram")["ok"] is True
+    ids = {h["id"] for h in s["health"]}
+    assert {"telegram", "scanner", "disk", "queue", "database"} <= ids
+    telegram = next(h for h in s["health"] if h["id"] == "telegram")
+    assert telegram["ok"] is True
+    assert telegram["message"] == {"key": "health.telegram.ok", "params": {}}
 
 
 def test_status_flags_unauthorized(fresh_db, monkeypatch):
     monkeypatch.setattr(system, "DB_PATH", fresh_db, raising=False)
     s = system.status(authorized=False, scanner_alive=False)
-    tg = next(h for h in s["health"] if h["name"] == "Telegram")
-    sc = next(h for h in s["health"] if h["name"] == "Scanner")
+    tg = next(h for h in s["health"] if h["id"] == "telegram")
+    sc = next(h for h in s["health"] if h["id"] == "scanner")
     assert tg["ok"] is False and tg["level"] == "error"
     assert sc["ok"] is False
 
@@ -33,9 +35,9 @@ def test_tasks_from_channels(fresh_db):
     tasks = system.tasks()
     assert len(tasks) == 1
     t = tasks[0]
-    assert t["name"] == "Scan · My Show"
-    assert t["interval"] == "Every 15 min"
-    assert t["days"] == "Every day"
+    assert t["title"] == "My Show"
+    assert t["poll_minutes"] == 15
+    assert t["weekdays"] == [0, 1, 2, 3, 4, 5, 6]
     assert t["enabled"] is True
     assert t["next_run"] is not None
 

@@ -60,8 +60,9 @@ def _location(doc):
 
 async def _notify_long_flood(seconds: float) -> None:
     from . import notify
-    await notify.send("Telegram FloodWait",
-                      f"Downloads paused for {seconds / 60:.0f} min to protect the account.")
+    from .i18n import translate
+    await notify.send(translate("notify.flood.title"),
+                      translate("notify.flood.detail", minutes=f"{seconds / 60:.0f}"))
 
 
 flood_gate = FloodGate(notifier=_notify_long_flood)   # global gate shared by all senders

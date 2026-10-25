@@ -82,6 +82,7 @@ class FakeTelegram:
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
+        self.saved_messages: list[str] = []          # texts sent to the account's Saved Messages
         self._next_doc_id = 1
         self._downloads_open = asyncio.Event()
         self._downloads_open.set()
@@ -180,6 +181,10 @@ class FakeTelegram:
         msgs = sorted(self.channels[chat_id].messages.values(), key=lambda m: -m.id)
         for msg in msgs[:limit] if limit else msgs:
             yield msg
+
+    async def send_message(self, entity: str, text: str) -> None:
+        assert entity == "me", "notifications only ever go to Saved Messages"
+        self.saved_messages.append(text)
 
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
         return self.channels[chat_id].messages.get(ids)

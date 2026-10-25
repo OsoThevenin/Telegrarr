@@ -67,7 +67,7 @@ def _channel(poll=30):
 async def test_patch_settings_below_floor_is_400(api):
     r = await api.patch("/api/settings", json={"default_poll_minutes": 5})
     assert r.status_code == 400
-    assert "15" in r.json()["detail"]
+    assert r.json()["detail"] == {"key": "err.settings.poll_floor", "params": {"floor": 15}}
 
 
 @pytest.mark.asyncio

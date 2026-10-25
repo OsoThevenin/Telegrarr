@@ -12,13 +12,13 @@ from difflib import SequenceMatcher
 
 import httpx
 from . import settings
+from .i18n import KeyedError, message
 
 log = logging.getLogger("art")
 API = "https://api.themoviedb.org/3"
 IMG = "https://image.tmdb.org/t/p/"
 TIMEOUT_S = 10
 SEARCH_LANGUAGES = ("ca-ES", "en-US")   # Catalan titles first, English as fallback
-KEY_REQUIRED = "A TMDB API key is required to map channels. Add it in Settings → Integrations → Artwork (TMDB)."
 
 # HTTP seam: every outbound request of this module goes through http(). Tests set
 # `transport` to an httpx.MockTransport to fake TMDB at the wire level.
@@ -104,25 +104,25 @@ async def test(key=None):
     # tests the passed-in key if given (so users can verify before saving), else the stored one
     k = (key or settings.get("tmdb_key", "")).strip()
     if not k:
-        return {"ok": False, "detail": "No key entered — a TMDB key is required to map channels to their ids."}
+        return {"ok": False, "detail": message("tmdb.test.no_key")}
     try:
         async with http() as client:
             r = await client.get(f"{API}/configuration", params={"api_key": k})
         if r.status_code < 400:
-            return {"ok": True, "detail": "Connected to TMDB ✓"}
-        return {"ok": False, "detail": f"Invalid key (HTTP {r.status_code})"}
+            return {"ok": True, "detail": message("tmdb.test.ok")}
+        return {"ok": False, "detail": message("tmdb.test.invalid_key", status=r.status_code)}
     except Exception as e:
-        return {"ok": False, "detail": str(e)}
+        return {"ok": False, "detail": message("err.tmdb.unreachable", error=str(e))}
 
 
 # ── series identity (search + id derivation) ─────────────────────────
-class TMDBError(Exception):
-    """TMDB could not answer; the message is safe to show to the user."""
+class TMDBError(KeyedError):
+    """TMDB could not answer; the keyed message is safe to show to the user."""
 
 
 class KeyMissing(TMDBError):
     def __init__(self):
-        super().__init__(KEY_REQUIRED)
+        super().__init__("err.tmdb.key_missing")
 
 
 def _require_key() -> str:
@@ -139,11 +139,11 @@ async def _get(path: str, **params) -> dict:
             r = await client.get(f"{API}{path}", params={"api_key": key, **params})
     except httpx.HTTPError as e:
         log.warning("tmdb %s failed: %s", path, e)
-        raise TMDBError(f"Could not reach TMDB: {e}") from e
+        raise TMDBError("err.tmdb.unreachable", error=str(e)) from e
     if r.status_code == 401:
-        raise TMDBError("TMDB rejected the API key (HTTP 401). Check it in Settings.")
+        raise TMDBError("err.tmdb.rejected_key")
     if r.status_code >= 400:
-        raise TMDBError(f"TMDB request failed (HTTP {r.status_code})")
+        raise TMDBError("err.tmdb.http", status=r.status_code)
     return r.json()
 
 
@@ -184,9 +184,9 @@ def _as_id(value, name: str) -> int | None:
     try:
         n = int(str(value).strip())
     except ValueError:
-        raise TMDBError(f"{name} must be a number") from None
+        raise TMDBError("err.tmdb.id_not_number", source=name) from None
     if n <= 0:
-        raise TMDBError(f"{name} must be a positive number")
+        raise TMDBError("err.tmdb.id_not_positive", source=name)
     return n
 
 
@@ -194,7 +194,7 @@ async def _tmdb_id_for_tvdb(tvdb_id: int) -> tuple[int, str]:
     j = await _get(f"/find/{tvdb_id}", external_source="tvdb_id")
     hits = j.get("tv_results") or []
     if not hits:
-        raise TMDBError(f"TMDB has no series with TVDB id {tvdb_id}")
+        raise TMDBError("err.tmdb.no_series_tvdb", tvdb_id=tvdb_id)
     return hits[0]["id"], hits[0].get("name") or ""
 
 
@@ -202,16 +202,16 @@ async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
     """Resolve a series' TVDB/TMDB/IMDb ids from a picked TMDB id and/or a typed
     TVDB id. A typed TVDB id always wins over the one TMDB derives."""
     _require_key()
-    tmdb_n, tvdb_n = _as_id(tmdb_id, "TMDB id"), _as_id(tvdb_id, "TVDB id")
+    tmdb_n, tvdb_n = _as_id(tmdb_id, "TMDB"), _as_id(tvdb_id, "TVDB")
     if tmdb_n is None and tvdb_n is None:
-        raise TMDBError("Pick a series from the TMDB search or enter its TVDB id")
+        raise TMDBError("err.tmdb.pick_series")
     title = ""
     if tmdb_n is None:
         tmdb_n, title = await _tmdb_id_for_tvdb(tvdb_n)
     ext = await _get(f"/tv/{tmdb_n}/external_ids")
     tvdb_n = tvdb_n or ext.get("tvdb_id")
     if not tvdb_n:
-        raise TMDBError("TMDB has no TVDB id for this series. Enter the TVDB id manually.")
+        raise TMDBError("err.tmdb.series_without_tvdb")
     return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None, title=title)
 
 
@@ -280,9 +280,9 @@ def _is_confident(hit: dict, title: str, year: int) -> bool:
 
 async def film(tmdb_id) -> Film:
     """A film's ids, English title and year from its TMDB id."""
-    tmdb_n = _as_id(tmdb_id, "TMDB id")
+    tmdb_n = _as_id(tmdb_id, "TMDB")
     if tmdb_n is None:
-        raise TMDBError("TMDB id is required")
+        raise TMDBError("err.tmdb.id_required")
     j = await _get(f"/movie/{tmdb_n}", language=RELEASE_TITLE_LANGUAGE)
     return Film(tmdb_id=tmdb_n, imdb_id=j.get("imdb_id") or None,
                 title=j.get("title") or j.get("original_title") or "", year=_year_of(j.get("release_date")))
@@ -291,11 +291,11 @@ async def film(tmdb_id) -> Film:
 async def film_for_imdb(imdb_id) -> Film:
     imdb = "tt" + str(imdb_id).strip().lower().lstrip("t")
     if not imdb[2:].isdigit():
-        raise TMDBError("IMDb id must look like tt1234567")
+        raise TMDBError("err.tmdb.imdb_format")
     j = await _get(f"/find/{imdb}", external_source="imdb_id")
     hits = j.get("movie_results") or []
     if not hits:
-        raise TMDBError(f"TMDB has no film with IMDb id {imdb}")
+        raise TMDBError("err.tmdb.no_film_imdb", imdb=imdb)
     return await film(hits[0]["id"])
 
 
