@@ -4,12 +4,19 @@ Run interactively:  docker compose run --rm telegrarr python authorize.py
 It writes /data/session.session, after which the service runs unattended.
 """
 import asyncio
-from app.config import API_ID, API_HASH, SESSION_PATH
-from telethon import TelegramClient
+
+from app import db, tg
+
+
+def build_client():
+    """The service's own client: same session file, API creds, proxy and device
+    fingerprint, so this login registers the device the service later presents."""
+    db.init()
+    return tg.get_client()
 
 
 async def main():
-    client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
+    client = build_client()
     await client.start()  # prompts for phone + login code (+ 2FA) on first run
     me = await client.get_me()
     print("Authorized as:", me.first_name, f"(id={me.id})")
