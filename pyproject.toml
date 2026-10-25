@@ -1,4 +1,4 @@
-# Tooling config for Telearr (the app ships via Docker, not pip — this is for dev tools).
+# Tooling config for Telegrarr (the app ships via Docker, not pip — this is for dev tools).
 [tool.ruff]
 line-length = 120
 target-version = "py313"

@@ -1,5 +1,81 @@
 # Changelog
 
+## 1.0.0 — Telegrarr: Catalan content for the \*arr stack (2026-10-25)
+
+First Telegrarr release. Telegrarr is a fork of
+[Wishaal/Telearr](https://github.com/Wishaal/Telearr) v2.3.3 and restarts
+versioning at 1.0.0. Changes against upstream v2.3.3:
+
+### Branding and delivery
+- User-facing name is **Telegrarr** (web UI, notifications, Newznab caps/feed,
+  update check against `OsoThevenin/Telegrarr`). Internal identifiers stay as
+  upstream: `TELEARR_*` env vars, the `telearr_sess` cookie, `telearr.db`, module
+  names and the `telearr` NZB/nzo prefixes.
+- CI publishes `ghcr.io/osothevenin/telegrarr` on `v*` tags after the tests pass,
+  and runs `pip-audit`.
+- README in Catalan (`README.ca.md`) and English (`README.md`).
+
+### \*arr mode (the supported path)
+- New `operating_mode` setting: `arr` (default) indexes channels for
+  Sonarr/Radarr and downloads only what they grab; `standalone` keeps the upstream
+  auto-download into the library (unsupported).
+- Flat download layout `/downloads/telegram/<tv|movies>/<release name>/<file>`
+  (base from `TELEARR_DOWNLOADS_DIR` or Settings, host path `PATH_TO_DOWNLOADS`), so
+  Telegrarr, Sonarr and Radarr see the same path and no remote path mapping is
+  needed. SABnzbd queue/history report the release folder; categories `tv`/`movies`.
+- **Connect page**: save Prowlarr, Sonarr and Radarr URLs and API keys, test them,
+  and register Telegrarr as a Newznab indexer (Prowlarr) and SABnzbd download
+  client (Sonarr, Radarr) in one click. Idempotent by name. Manual path in
+  `docs/CONNECT.md`.
+
+### Identity mapping
+- Series channels map to a TVDB id through a TMDB search (Catalan titles first,
+  English fallback) or an editable TVDB id; TMDB and IMDb ids are derived. A TMDB
+  API key is now required for mapping.
+- Newznab caps advertise `tvdbid`, `tmdbid` and `imdbid`; search honours them and
+  feed items carry the id attributes.
+- **Movie channels**: each message's title and year are matched on TMDB (`ca-ES`,
+  then `en-US`). Unconfident matches go to a new **Review** queue where you pick
+  the film or discard the message.
+- **Directory channels**: scan a channel that posts `t.me` links and import the
+  linked series channels in one go, with a suggested TMDB match per channel.
+
+### Catalan parsing and release naming
+- Episode markers anywhere in the text: `NxNN`, `T3C13`, `T03E13`,
+  `Temporada N` + `Capítol N`, `Cap. N`, `Cap N`, `C13`, `Episodi N`, `Ep. N`, plus
+  the English forms; double episodes `1x01-02` and `1x01-1x02`; underscores are
+  read as spaces.
+- The episode title is the text after the marker; `(1a Part)`/`(2a Part)` is kept
+  and resolved to the real episode number from TMDB `ca-ES`, then `en-US`, then
+  Sonarr's episode list (accent-insensitive fuzzy match).
+- Quality comes from the Telegram video dimensions (SDTV / 720p / 1080p / 2160p),
+  with a per-channel fallback quality.
+- Per-channel audio language (`cat` default, `es`, `en`, `multi`) is written as a
+  `CAT`/`SPA`/`ENG`/`MULTI` token, and the release group is `TELEGRARR`:
+  `Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR`,
+  `Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR`.
+
+### Account safety
+- Desktop client fingerprint (`TELEARR_TG_DEVICE_MODEL`,
+  `TELEARR_TG_SYSTEM_VERSION`, `TELEARR_TG_APP_VERSION`).
+- Defaults: 4 senders per file, 2 concurrent files.
+- Channel polling has a 15-minute floor (lower values are rejected) plus random
+  jitter.
+- Optional daily download budget in GB (0 = unlimited) that pauses downloads until
+  the next day.
+- Global FloodWait gate with exponential back-off and a notification when a single
+  wait exceeds 10 minutes.
+- Telegrarr no longer joins channels automatically.
+
+### Interface
+- Catalan UI by default with an English switch (Settings → Account →
+  Appearance). UI strings, API errors and notifications are translated.
+
+### Hardening
+- FastAPI bumped so Starlette ≥ 1.3.1 (PYSEC advisories).
+- The image runs as non-root UID/GID 1000 by itself (`USER` in the Dockerfile).
+- The session cookie reissued after a username change keeps the `Secure` flag.
+
 ## 2.3.3 — Proxy / VPN support (2026-09-26)
 - **Route Telegram through a proxy/VPN** to get past ISP throttling or blocking of
   Telegram data centers (the cause of downloads that stall on one DC while the

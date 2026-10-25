@@ -1,6 +1,6 @@
-# Telearr Architecture
+# Telegrarr Architecture
 
-Telearr is a single-process FastAPI application (Python 3.13) built on the
+Telegrarr is a single-process FastAPI application (Python 3.13) built on the
 [Telethon](https://docs.telethon.dev/) MTProto client. One uvicorn worker serves
 the web UI and JSON API **and** runs the background scanner in the same event loop.
 
@@ -125,13 +125,13 @@ The integration reuses the existing scanner/downloader pipeline and adds a thin
 protocol-translation layer (`app/arr.py`) with three parts:
 
 1. **Newznab indexer** — `GET /api/newznab` implements the Newznab `caps`, `search`,
-   `tvsearch`, and `movie` functions. Telearr maps its watched channels and their
+   `tvsearch`, and `movie` functions. Telegrarr maps its watched channels and their
    discovered media into Newznab release entries (categories `5000` = TV,
    `2000` = Movies), so Prowlarr/Sonarr/Radarr can search Telegram like any usenet
    indexer. Each release carries a GUID that resolves to a `releases` row.
 2. **SABnzbd shim** — a SABnzbd-compatible API on the same host/port. Sonarr/Radarr
-   add Telearr as a SABnzbd download client; when they grab a release they call the
-   shim's `addurl`/`addfile` mode, which Telearr resolves (via the release GUID) to
+   add Telegrarr as a SABnzbd download client; when they grab a release they call the
+   shim's `addurl`/`addfile` mode, which Telegrarr resolves (via the release GUID) to
    a Telegram message and hands to the scanner's download path. Queue/history
    endpoints report status back to the \*arr app so it can track and import.
 3. **On-demand grab** — a grab enqueues into the same `_run_download` pipeline as an

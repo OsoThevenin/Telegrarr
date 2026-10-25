@@ -1,6 +1,6 @@
 # Verified *arr Compatibility
 
-Telearr's *arr integration has been tested against **live** *arr instances (not mocks),
+Telegrarr's *arr integration has been tested against **live** *arr instances (not mocks),
 using each app's own `/test` validators (which build the request from the app's schema,
 so the payloads are exactly what the app itself sends).
 
@@ -28,10 +28,10 @@ history (this consistency is the single most common shim failure — verified co
 
 ## Operational notes (important for real use)
 
-1. **Cross-container paths / Remote Path Mapping.** Telearr reports the container-internal
+1. **Cross-container paths / Remote Path Mapping.** Telegrarr reports the container-internal
    `storage` path (e.g. `/media/TvShows/1080p/Show/…`). If Sonarr/Radarr mount the library
-   at a different path, add a **Remote Path Mapping** in the *arr app: Host = Telearr's host,
-   Remote Path = Telearr's path prefix (`/media`), Local Path = the *arr app's mount. If both
+   at a different path, add a **Remote Path Mapping** in the *arr app: Host = Telegrarr's host,
+   Remote Path = Telegrarr's path prefix (`/media`), Local Path = the *arr app's mount. If both
    share the same host paths, no mapping is needed.
 2. **History retention vs import timing.** Sonarr imports by polling `history`. Keep
    `Settings → Keep per show` at **0 (keep all)** — or comfortably high — when using the
@@ -39,7 +39,7 @@ history (this consistency is the single most common shim failure — verified co
 3. **Movie search returns nothing until you add a `movie`-kind channel.** Radarr's indexer
    test wants ≥1 result in category 2000; that's content, not a protocol issue.
 4. **API key** is shared with the *arr apps (Settings → Sonarr/Radarr/Prowlarr card). It is
-   embedded in feed URLs, so run Telearr on a trusted LAN or behind TLS.
+   embedded in feed URLs, so run Telegrarr on a trusted LAN or behind TLS.
 
 ## How to wire it up
 
