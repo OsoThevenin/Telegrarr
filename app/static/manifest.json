@@ -1,6 +1,6 @@
 {
-  "name": "Telearr",
-  "short_name": "Telearr",
+  "name": "Telegrarr",
+  "short_name": "Telegrarr",
   "description": "Bring Telegram into your *arr stack — auto-download channel media into a Plex-ready library.",
   "start_url": "/",
   "scope": "/",

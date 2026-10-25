@@ -523,7 +523,7 @@ async function sysBackup(root) {
       : [h("tr", {}, h("td", { colspan: 4 }, h("div", { class: "empty" }, "No backups yet.")))]))));
   const note = card("Restore",
     h("p", { class: "muted small", style: "margin:0;line-height:1.6" },
-      "To restore: download a backup, stop Telearr, unzip telearr.db into your data directory, and start again. Restoring replaces all channels, history, and settings."));
+      "To restore: download a backup, stop Telegrarr, unzip telearr.db into your data directory, and start again. Restoring replaces all channels, history, and settings."));
   mount(root, head, table, note);
 }
 
@@ -615,7 +615,7 @@ export function viewSettings(ctx) {
     const keyInp = inp("arr-key", arrKey); keyInp.readOnly = true;
     const nzInp = inp("arr-nzb", `${location.origin}/api/newznab`); nzInp.readOnly = true;
     const arr = card("Sonarr / Radarr / Prowlarr",
-      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Add Telearr as a Newznab indexer and a SABnzbd download client. See docs/ARR_INTEGRATION.md."),
+      h("div", { class: "muted small", style: "margin-bottom:10px" }, "Add Telegrarr as a Newznab indexer and a SABnzbd download client. See docs/ARR_INTEGRATION.md."),
       row("Newznab URL", nzInp),
       row("SABnzbd host / port", (() => { const i = inp("arr-sab", `${location.hostname} : ${location.port || 8790}`); i.readOnly = true; return i; })()),
       row("API key", keyInp),
@@ -630,8 +630,8 @@ export function viewSettings(ctx) {
     const tgAuth = (await api("/api/telegram/auth")) || {};
     const tgCard = card("Telegram account",
       h("div", { class: "muted small", style: "margin-bottom:10px" }, tgAuth.authorized
-        ? "Connected — Telearr is signed in to your Telegram account."
-        : "Not connected. Connect your account so Telearr can read your channels."),
+        ? "Connected — Telegrarr is signed in to your Telegram account."
+        : "Not connected. Connect your account so Telegrarr can read your channels."),
       h("div", { class: "set-actions" }, tgAuth.authorized
         ? h("button", { class: "btn ghost sm", onClick: async () => { if (confirm("Disconnect Telegram? Downloads stop until you reconnect.")) { await api("/api/telegram/auth/logout", { method: "POST" }); toast("Telegram disconnected", "ok"); ctx.rerender(); } } }, "Disconnect")
         : h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, h("span", { html: icon("telegram") }), "Connect Telegram")));
@@ -720,7 +720,7 @@ export function openTelegramConnect(ctx) {
       mount(body, h("div", { class: "tg-done" },
         h("span", { class: "tg-check", html: icon("check") }),
         h("h3", {}, "Telegram connected"),
-        h("p", { class: "muted small" }, "Telearr is signed in and can now watch your channels."),
+        h("p", { class: "muted small" }, "Telegrarr is signed in and can now watch your channels."),
         h("button", { class: "btn primary block", onClick: close }, "Done")));
     }
   };

@@ -87,7 +87,7 @@ async def test():
         except Exception:
             poster = ""
     link = _plex_link(show)
-    text = "✅ Telearr test notification" + (f"\n▶ Open in Plex: {link}" if link else "")
+    text = "✅ Telegrarr test notification" + (f"\n▶ Open in Plex: {link}" if link else "")
     results, ok = [], True
     w = await _webhook(text)
     if w is not None:

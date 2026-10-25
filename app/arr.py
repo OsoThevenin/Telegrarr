@@ -1,7 +1,7 @@
 # app/arr.py — *arr stack integration: Newznab indexer + SABnzbd download client.
 #
-# Sonarr/Radarr/Prowlarr add Telearr as a Newznab indexer (search Telegram channels
-# as "releases") and as a SABnzbd download client (hand grabs to Telearr, which
+# Sonarr/Radarr/Prowlarr add Telegrarr as a Newznab indexer (search Telegram channels
+# as "releases") and as a SABnzbd download client (hand grabs to Telegrarr, which
 # downloads from Telegram and reports the finished path back for import).
 import time
 import html
@@ -47,7 +47,7 @@ def caps_xml() -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<caps>'
-        f'<server title="Telearr" version="{VERSION}"/>'
+        f'<server title="Telegrarr" version="{VERSION}"/>'
         '<limits max="100" default="100"/>'
         '<retention days="9999"/>'
         '<searching>'
@@ -124,7 +124,7 @@ def feed_xml(base: str, releases) -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">'
-        '<channel><title>Telearr</title><description>Telegram releases</description>'
+        '<channel><title>Telegrarr</title><description>Telegram releases</description>'
         f'<newznab:response offset="0" total="{len(items)}"/>'
         f'{"".join(items)}</channel></rss>')
 
