@@ -98,7 +98,18 @@ def extract_episode(text: str) -> dict:
 
 _EXTENSION_RE = re.compile(r"\.(mp4|mkv|avi|mov|webm|m4v|flv|wmv|ts|3gp)\s*$", re.I | re.M)
 # A "(1a Part)" / "(2a Part)" suffix is part of the episode title, not noise.
-_PART_RE = re.compile(r"\(\s*\d+\s*[aª]?\s*part\s*\)", re.I)
+_PART_RE = re.compile(r"\(\s*(\d+)\s*[aª]?\s*part\s*\)", re.I)
+
+
+def part_number(text: str) -> int | None:
+    """N of a "(Na Part)" marker in a caption, file name or episode title."""
+    m = _PART_RE.search(_normalise(text or ""))
+    return int(m.group(1)) if m else None
+
+
+def strip_part(text: str) -> str:
+    """``text`` without its "(Na Part)" marker."""
+    return re.sub(r"\s+", " ", _PART_RE.sub(" ", text or "")).strip()
 _BRACKETED_RE = re.compile(r"[\[\(\{][^\]\)\}]{0,80}[\]\)\}]")
 _LABEL_LINE_RE = re.compile(r"^(title|file|name|size|quality|audio|video|language|season|"
                             r"episode|ep)\s*[:：\-]?\s*$", re.I)
@@ -176,7 +187,9 @@ def group_key(msg_text: str, filename: str, message_id: int) -> str:
         info = extract_episode(msg_text or "")
     if info.get("season") and info.get("episode"):
         key = f"S{info['season']:02d}E{info['episode']:02d}"
-        return f"{key}E{info['episode_end']:02d}" if info.get("episode_end") else key
+        key = f"{key}E{info['episode_end']:02d}" if info.get("episode_end") else key
+        part = part_number(filename) or part_number(msg_text)   # parts of one episode are distinct files
+        return f"{key}P{part}" if part else key
     if info.get("episode"):
         return f"E{info['episode']:03d}"
     if info.get("date"):
