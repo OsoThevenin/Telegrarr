@@ -11,11 +11,13 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, movies, __version__
+from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from . import i18n
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
+from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
+from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -23,20 +25,6 @@ log = logging.getLogger("main")
 
 HERE = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(HERE, "templates"))
-
-
-def _bad(status: int, key: str, **params) -> HTTPException:
-    """An HTTP error whose detail is an i18n message the UI translates."""
-    return HTTPException(status, i18n.message(key, **params))
-
-
-def _keyed(status: int, e: i18n.KeyedError) -> HTTPException:
-    return HTTPException(status, e.message())
-
-
-def _tmdb_failed(e: tmdb.TMDBError) -> HTTPException:
-    """TMDB itself failing is a bad gateway; a missing key or an unusable id is the request's fault."""
-    return _keyed(502 if isinstance(e, tmdb.TMDBUnavailable) else 400, e)
 
 
 def _page_ctx(lang: str, **extra) -> dict:
@@ -69,6 +57,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
+for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes):
+    app.include_router(_router.router)
 
 
 # The UI is entirely first-party: templates, /static assets and inline handlers,
@@ -292,19 +282,6 @@ async def api_channels(user=Depends(auth.require_user)):
     return channels.listed()
 
 
-def _normalize_chat_id(raw) -> int:
-    """Accept -100… , bare channel ids, or @usernames-as-int; return -100 form."""
-    try:
-        cid = int(raw)
-    except (TypeError, ValueError):
-        raise _bad(400, "err.channel.chat_id_numeric")
-    if cid > 0 and not str(cid).startswith("100"):
-        return int(f"-100{cid}")
-    if cid > 0:
-        return -cid
-    return cid
-
-
 _CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
 
 
@@ -355,18 +332,6 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     if not ch:
         raise HTTPException(404)
     return ch
-
-
-@app.put("/api/channels/{cid}/series")
-async def api_map_series(cid: int, payload: dict, user=Depends(auth.require_user)):
-    """Map a series channel to its TVDB id (+ TMDB/IMDb ids derived via TMDB)."""
-    if not channels.get(cid):
-        raise HTTPException(404)
-    try:
-        return await channels.map_series(cid, tmdb_id=payload.get("tmdb_id"), tvdb_id=payload.get("tvdb_id"),
-                                         title=payload.get("title") or "")
-    except tmdb.TMDBError as e:
-        raise _tmdb_failed(e)
 
 
 @app.delete("/api/channels/{cid}")
@@ -533,35 +498,6 @@ async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
         raise _keyed(400, e)
 
 
-# ── Connect page: Prowlarr / Sonarr / Radarr ──────────────────────────
-def _arr_app_name(payload: dict) -> str:
-    app_name = str(payload.get("app", ""))
-    if app_name not in connect.APP_TITLES:
-        raise _bad(400, "err.connect.unknown_app")
-    return app_name
-
-
-@app.post("/api/connect/test")
-async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
-    return await connect.check_connection(_arr_app_name(payload))
-
-
-@app.post("/api/connect/register")
-async def api_connect_register(user=Depends(auth.require_user)):
-    me_url = settings.get("telegrarr_url", "")
-    if not me_url:
-        raise _bad(400, "err.connect.own_url_missing")
-    results = await connect.register_all(connect.Telegrarr(url=me_url, apikey=arr.apikey()))
-    for res in results:
-        if res["status"] == "created":
-            db.log("INFO", i18n.message("event.connect_registered", kind=i18n.message(f"connect.kind.{res['kind']}"),
-                                         app=connect.APP_TITLES[res["app"]]))
-        elif res["status"] == "error":
-            db.log("WARN", i18n.message("event.connect_failed", kind=i18n.message(f"connect.kind.{res['kind']}"),
-                                         app=connect.APP_TITLES[res["app"]], error=res["error"]))
-    return {"results": results}
-
-
 @app.post("/api/account/password")
 async def api_change_password(payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
@@ -624,83 +560,6 @@ async def api_notify_test(user=Depends(auth.require_user)):
 @app.get("/api/art")
 async def api_art(imdb: str = "", user=Depends(auth.require_user)):
     return await tmdb.art(imdb, channels.series_title(imdb) if imdb else "")
-
-
-@app.get("/api/tmdb/search")
-async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
-    try:
-        return await tmdb.search_series(q)
-    except tmdb.TMDBError as e:
-        raise _tmdb_failed(e)
-
-
-@app.get("/api/tmdb/movies")
-async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(auth.require_user)):
-    try:
-        return await tmdb.search_movies(q, year)
-    except tmdb.TMDBError as e:
-        raise _tmdb_failed(e)
-
-
-# ── movie channels: Pending review ────────────────────────────────────
-@app.get("/api/review")
-async def api_review(user=Depends(auth.require_user)):
-    return movies.pending()
-
-
-@app.post("/api/review/{cid}/{mid}/assign")
-async def api_review_assign(cid: int, mid: int, payload: dict, user=Depends(auth.require_user)):
-    try:
-        return await movies.assign(cid, mid, payload.get("tmdb_id"), payload.get("imdb_id"))
-    except movies.NotPending as e:
-        raise _keyed(404, e)
-    except movies.ReviewError as e:
-        raise _keyed(400, e)
-
-
-@app.post("/api/review/{cid}/{mid}/discard")
-async def api_review_discard(cid: int, mid: int, user=Depends(auth.require_user)):
-    try:
-        movies.discard(cid, mid)
-    except movies.NotPending as e:
-        raise _keyed(404, e)
-    return {"ok": True}
-
-
-@app.post("/api/integrations/tmdb/test")
-async def api_tmdb_test(payload: dict = None, user=Depends(auth.require_user)):
-    return await tmdb.test((payload or {}).get("key") or None)
-
-
-# ── directory channel mass import ────────────────────────────────────
-@app.post("/api/directory/scan")
-async def api_directory_scan(payload: dict, user=Depends(auth.require_user)):
-    chat_id = _normalize_chat_id(payload.get("chat_id"))
-    client = await tg.authorized_client()
-    if not client:
-        raise _bad(409, "err.tg.not_connected")
-    try:
-        return await directory.scan(client, chat_id)
-    except directory.ScanRefused as e:
-        raise _keyed(429, e)
-
-
-def _import_item(raw) -> directory.ImportItem:
-    if not isinstance(raw, dict):
-        raise _bad(400, "err.directory.import_item")
-    return directory.ImportItem(chat_id=_normalize_chat_id(raw.get("chat_id")), title=str(raw.get("title") or ""),
-                                tmdb_id=raw.get("tmdb_id"), tvdb_id=raw.get("tvdb_id"),
-                                series_title=str(raw.get("series_title") or ""))
-
-
-@app.post("/api/directory/import")
-async def api_directory_import(payload: dict, user=Depends(auth.require_user)):
-    raw = payload.get("channels")
-    if not isinstance(raw, list) or not raw:
-        raise _bad(400, "err.directory.import_empty")
-    if len(raw) > directory.MAX_IMPORT_ITEMS:
-        raise _bad(400, "err.directory.import_too_many", max=directory.MAX_IMPORT_ITEMS)
-    return {"results": await directory.import_channels([_import_item(r) for r in raw])}
 
 
 @app.get("/api/telegram/dialogs")

@@ -79,6 +79,17 @@ async def test_empty_directory_import_is_a_keyed_400(arr_app):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("path, body, field", [
+    ("/api/directory/import", {"channels": ["x"]}, "channels.0"),
+    ("/api/connect/test", {"app": ["sonarr"]}, "app"),
+])
+async def test_a_malformed_request_body_is_a_keyed_400_naming_the_field(arr_app, path, body, field):
+    r = await arr_app.http.post(path, json=body)
+    assert r.status_code == 400
+    assert _detail(r) == {"key": "err.request.invalid", "params": {"field": field}}
+
+
+@pytest.mark.asyncio
 async def test_telegram_setup_errors_carry_keys(arr_app):
     r = await arr_app.http.post("/api/telegram/auth/api", json={"api_id": "not-a-number", "api_hash": "x"})
     assert r.json()["error"] == {"key": "err.tg.api_id_number", "params": {}}
