@@ -26,6 +26,8 @@ class FakeSeries:
     tvdb_id: int | None = None
     imdb_id: str | None = None
     poster_path: str | None = None
+    # season number -> episode number -> {language: episode name}
+    seasons: dict[int, dict[int, dict[str, str]]] = field(default_factory=dict)
 
     def title_in(self, language: str) -> str:
         return self.titles.get(language) or self.titles.get("en-US") or next(iter(self.titles.values()))
@@ -71,6 +73,16 @@ class FakeTMDB:
         return [(r.url.params.get("query", ""), r.url.params.get("language", ""), r.url.params.get("year", ""))
                 for r in self.requests if r.url.path == f"{API_PREFIX}/search/movie"]
 
+    def add_season(self, tmdb_id: int, season: int, episodes: dict[int, dict[str, str]]) -> None:
+        """Episode names of ``season`` per language; a language missing from an
+        episode's dict answers an empty name, as TMDB does for untranslated episodes."""
+        self.series[tmdb_id].seasons[season] = episodes
+
+    def season_requests(self) -> list[tuple[str, str]]:
+        """(path, language) of every /tv/{id}/season/{n} call received, in order."""
+        return [(r.url.path.removeprefix(API_PREFIX), r.url.params.get("language", ""))
+                for r in self.requests if "/season/" in r.url.path]
+
     def searches(self) -> list[tuple[str, str]]:
         """(query, language) of every /search/tv call received, in order."""
         return [(r.url.params.get("query", ""), r.url.params.get("language", ""))
@@ -97,6 +109,8 @@ class FakeTMDB:
             return self._movie(int(parts[1]), request.url.params.get("language", "en-US"))
         if len(parts) == 3 and parts[0] == "tv" and parts[2] == "external_ids":
             return self._external_ids(int(parts[1]))
+        if len(parts) == 4 and parts[0] == "tv" and parts[2] == "season":
+            return self._season(int(parts[1]), int(parts[3]), request.url.params.get("language", "en-US"))
         if len(parts) == 2 and parts[0] == "find":
             return self._find(parts[1], request.url.params.get("external_source", ""))
         return httpx.Response(404, json={"status_code": 34, "status_message": "Not found"})
@@ -135,6 +149,14 @@ class FakeTMDB:
         if not show:
             return httpx.Response(404, json={"status_code": 34})
         return httpx.Response(200, json={"id": tmdb_id, "tvdb_id": show.tvdb_id, "imdb_id": show.imdb_id})
+
+    def _season(self, tmdb_id: int, season: int, language: str) -> httpx.Response:
+        show = self.series.get(tmdb_id)
+        if not show or season not in show.seasons:
+            return httpx.Response(404, json={"status_code": 34, "status_message": "Not found"})
+        episodes = [{"season_number": season, "episode_number": n, "name": names.get(language, "")}
+                    for n, names in sorted(show.seasons[season].items())]
+        return httpx.Response(200, json={"season_number": season, "episodes": episodes})
 
     def _find(self, external_id: str, source: str) -> httpx.Response:
         def matches(s: FakeSeries) -> bool:

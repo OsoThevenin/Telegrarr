@@ -9,7 +9,7 @@ import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings, safety, movies
+from . import db, plex, notify, settings, safety, resolver, movies
 from .arr import category_for
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
@@ -128,9 +128,13 @@ def _message_quality(channel, msg, parsed_quality):
     return quality_from_dims(width, height, fallback=parsed_quality or channel["fallback_quality"])
 
 
-def build_release(channel, msg, fn) -> dict:
-    """What a Telegram media message is published as on the Newznab feed."""
+def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
+    """What a Telegram media message is published as on the Newznab feed.
+
+    ``episode`` overrides the parsed episode number (a resolved two-part episode)."""
     info = _parse_episode(msg, fn)
+    if episode is not None:
+        info = {**info, "episode": episode}
     season, episode = info.get("season") or 0, info.get("episode") or 0
     quality = _message_quality(channel, msg, info.get("quality"))
     show = _show_title(channel)
@@ -218,18 +222,53 @@ def _flat_path(channel, msg, fn):
     return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
 
 
-def _record_release(channel, msg, size, fn, gk):
+def _is_mapped_series(channel) -> bool:
+    return (channel["kind"] or "tv") == "tv" and bool(channel["tmdb_id"] or channel["tvdb_id"])
+
+
+def _log_resolution(channel, rel: dict, found: "resolver.Resolution") -> None:
+    marker = f"S{rel['season']:02d}E{rel['episode']:02d} {rel['episode_title']}"
+    if found.source == resolver.KEPT:
+        db.log("WARN", f"Part not matched in TMDB/Sonarr; keeping channel numbering: {marker}",
+               channel_id=channel["id"])
+    elif found.episode != rel["episode"]:
+        db.log("INFO", f"Part resolved: {marker} -> E{found.episode:02d} ({found.source})",
+               channel_id=channel["id"])
+
+
+async def build_resolved_release(channel, msg, fn) -> dict:
+    """``build_release`` with a "(Na Part)" episode resolved to TVDB's numbering
+    on series channels mapped to TMDB/TVDB ids.
+
+    Adds ``parsed_episode`` (the channel's number) and ``episode_source`` (where
+    the published number came from); both None when nothing was resolved."""
+    rel = {**build_release(channel, msg, fn), "parsed_episode": None, "episode_source": None}
+    if not _is_mapped_series(channel):
+        return rel
+    found = await resolver.resolve_part(tmdb_id=channel["tmdb_id"], tvdb_id=channel["tvdb_id"],
+                                        season=rel["season"], episode=rel["episode"],
+                                        episode_title=rel["episode_title"])
+    if found is None:
+        return rel
+    _log_resolution(channel, rel, found)
+    resolved = rel if found.episode == rel["episode"] else build_release(channel, msg, fn, episode=found.episode)
+    return {**resolved, "parsed_episode": rel["episode"], "episode_source": found.source}
+
+
+async def _record_release(channel, msg, size, fn, gk):
     """Index a seen media item so the Newznab endpoint can serve it as a release."""
-    rel = build_release(channel, msg, fn)
+    rel = await build_resolved_release(channel, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT INTO releases
-            (channel_id,message_id,group_key,title,season,episode,quality,size,added_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            (channel_id,message_id,group_key,title,season,episode,quality,size,added_at,
+             parsed_episode,episode_source)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(channel_id,message_id) DO UPDATE SET
               title=excluded.title, season=excluded.season, episode=excluded.episode,
-              quality=excluded.quality, size=excluded.size""",
+              quality=excluded.quality, size=excluded.size,
+              parsed_episode=excluded.parsed_episode, episode_source=excluded.episode_source""",
             (channel["id"], msg.id, gk, rel["title"], rel["season"], rel["episode"],
-             rel["quality"], size, int(time.time())))
+             rel["quality"], size, int(time.time()), rel["parsed_episode"], rel["episode_source"]))
 
 
 def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
@@ -248,7 +287,7 @@ async def _index_release(channel, msg, size, fn, gk) -> bool:
     """Index a seen media item for Newznab. False when it is not offered (pending review)."""
     if channel["kind"] == "movie":
         return await movies.index_message(posted_film(channel, msg, size, fn, gk))
-    _record_release(channel, msg, size, fn, gk)
+    await _record_release(channel, msg, size, fn, gk)
     return True
 
 

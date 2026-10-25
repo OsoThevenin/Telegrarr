@@ -131,6 +131,8 @@ COLUMN_MIGRATIONS = (
     ("channels", "fallback_quality", "TEXT NOT NULL DEFAULT '1080p'"),
     ("channels", "tvdb_id", "INTEGER"),      # series channels: Sonarr matches by TVDB id
     ("channels", "tmdb_id", "INTEGER"),
+    ("releases", "parsed_episode", "INTEGER"),   # channel's own number when a part was resolved
+    ("releases", "episode_source", "TEXT"),      # tmdb-ca | tmdb-en | sonarr | channel (kept)
     ("releases", "movie_tmdb_id", "INTEGER"),  # movie channels: ids per message, not per channel
     ("releases", "movie_imdb_id", "TEXT"),
     ("releases", "year", "INTEGER"),
