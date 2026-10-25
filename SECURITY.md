@@ -1,19 +1,18 @@
 # Security Policy
 
-Telearr handles Telegram API credentials, a live Telegram session, and login
+Telegrarr handles Telegram API credentials, a live Telegram session, and login
 credentials, and it downloads and writes files to your media library. We take
 security seriously and appreciate responsible disclosure.
 
 ## Supported versions
 
-Telearr is pre-1.0 and moves quickly. Security fixes are applied to the latest
-released minor version only; please upgrade before reporting.
+Telegrarr moves quickly. Security fixes are applied to the latest released minor
+version only; please upgrade before reporting.
 
 | Version | Supported |
 | --- | --- |
-| 2.1.x | ✅ |
-| 2.0.x | ⚠️ Best-effort — please upgrade to 2.1.x |
-| < 2.0 | ❌ |
+| 1.0.x | ✅ |
+| Upstream Telearr | ❌ — report to [Wishaal/Telearr](https://github.com/Wishaal/Telearr) |
 
 ## Reporting a vulnerability
 
@@ -56,18 +55,18 @@ In scope:
 - Path handling in the namer/downloader (e.g. path traversal into unintended
   directories).
 - Secret handling and exposure via the API/UI.
-- Dependency vulnerabilities that are exploitable in Telearr's configuration.
+- Dependency vulnerabilities that are exploitable in Telegrarr's configuration.
 
 Out of scope:
 
 - Issues that require an already-compromised host or root access.
-- Exposing Telearr directly to the internet without a reverse proxy/TLS — this is
+- Exposing Telegrarr directly to the internet without a reverse proxy/TLS — this is
   explicitly discouraged (see below); harden your deployment first.
 - Denial of service from self-inflicted misconfiguration.
 
 ## Deployment hardening
 
-Telearr is designed to run behind your own network boundary:
+Telegrarr is designed to run behind your own network boundary:
 
 - Run it as the intended unprivileged UID (`PUID`/`PGID`), not root.
 - Keep `.env` at mode `0600` and never commit it.
@@ -77,4 +76,4 @@ Telearr is designed to run behind your own network boundary:
   additional authentication layer.
 - Treat the Newznab/SABnzbd API key like a password.
 
-Thank you for helping keep Telearr and its users safe.
+Thank you for helping keep Telegrarr and its users safe.

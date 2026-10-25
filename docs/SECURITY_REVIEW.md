@@ -1,5 +1,11 @@
 # Telearr Security Review
 
+> **Telegrarr note (v1.0.0).** This review was written against upstream Telearr and is
+> kept for history. Since then the `Dockerfile` sets `USER` (UID/GID 1000), so the image
+> runs as non-root even with a bare `docker run`; compose adds `no-new-privileges`; and the
+> channel-supplied filename is basename-sanitized before it becomes a save path. The
+> "Container hardening" row and the matching checklist items below are resolved.
+
 Scope: `app/main.py`, `app/arr.py`, `app/auth.py`, `app/scanner.py`, `app/downloader.py`,
 `app/settings.py`, `app/db.py`, `app/namer.py`, `app/config.py`, `app/plex.py`,
 `app/notify.py`, `app/tg.py`, `docker-compose.yml`, `Dockerfile`.

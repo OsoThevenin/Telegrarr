@@ -1,6 +1,6 @@
-# Contributing to Telearr
+# Contributing to Telegrarr
 
-Thanks for your interest in improving Telearr! This guide covers local development,
+Thanks for your interest in improving Telegrarr! This guide covers local development,
 coding style, and the pull-request process. By contributing you agree that your
 work is licensed under the project's [GPL-3.0](LICENSE) license.
 
@@ -14,7 +14,7 @@ work is licensed under the project's [GPL-3.0](LICENSE) license.
 
 ## Project overview
 
-Telearr is a [FastAPI](https://fastapi.tiangolo.com/) +
+Telegrarr is a [FastAPI](https://fastapi.tiangolo.com/) +
 [Telethon](https://docs.telethon.dev/) app targeting **Python 3.13**. It ships as a
 single Docker container that runs one uvicorn worker. The scanner keeps
 process-wide asyncio state, so it is correct **only** under a single event
