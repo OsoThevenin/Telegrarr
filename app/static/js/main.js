@@ -3,12 +3,14 @@ import { h, mount, qs, api } from "./core.js";
 import { icon } from "./icons.js";
 import { viewDashboard, viewChannels, viewDownloads, viewActivity, viewSystem, viewSettings, openChannelModal, openTelegramConnect, liveActive, liveDashboard, ui } from "./views.js";
 import { initPalette, openCommandPalette } from "./palette.js";
+import { viewConnect } from "./connect.js";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard", view: viewDashboard },
   { id: "channels", label: "Channels", icon: "channels", view: viewChannels },
   { id: "downloads", label: "Downloads", icon: "downloads", view: viewDownloads },
   { id: "activity", label: "Activity", icon: "activity", view: viewActivity },
+  { id: "connect", label: "Connect", icon: "link", view: viewConnect },
   { id: "system", label: "System", icon: "system", view: viewSystem },
   { id: "settings", label: "Settings", icon: "settings", view: viewSettings },
 ];
@@ -61,8 +63,8 @@ function buildShell() {
       h("button", { id: "theme-toggle", class: "btn ghost icon", title: "Theme", "aria-label": "Toggle theme (auto/light/dark)", onClick: cycleTheme }, h("span", { html: icon("sun") })),
       h("div", { id: "ctx-actions" })));
   // Mobile bottom nav is capped at 5 (iOS/Android guidance). Activity stays in
-  // the desktop sidebar and the ⌘K palette.
-  const BOTTOM_NAV = NAV.filter((n) => n.id !== "activity");
+  // the desktop sidebar and the ⌘K palette; Connect is reached from the sidebar.
+  const BOTTOM_NAV = NAV.filter((n) => n.id !== "activity" && n.id !== "connect");
   const bottomNav = h("nav", { class: "bottom-nav" }, ...BOTTOM_NAV.map((n) => navBtn(n, "bnav-item")));
   const banner = h("div", { id: "tg-banner", class: "tg-banner", hidden: true },
     h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telearr can’t download until you sign in."),
