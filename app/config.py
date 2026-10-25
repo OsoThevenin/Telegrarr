@@ -29,6 +29,9 @@ TV_DIR_4K = os.getenv("TELEARR_TV_DIR_4K", "/media/TvShows/4K")
 MOVIES_DIR = os.getenv("TELEARR_MOVIES_DIR", "/media/Movies/1080p")
 MOVIES_DIR_4K = os.getenv("TELEARR_MOVIES_DIR_4K", "/media/Movies/4K")
 OTHER_DIR = os.getenv("TELEARR_OTHER_DIR", "/media/Other")
+# *arr mode: grabs land in <DOWNLOADS_DIR>/telegram/<category>/<release>/<file>,
+# the same path Sonarr/Radarr see (mount the same volume at /downloads in all).
+DOWNLOADS_DIR = os.getenv("TELEARR_DOWNLOADS_DIR", "/downloads")
 
 MIN_FREE_SPACE_GB = _i("TELEARR_MIN_FREE_GB", 50)
 

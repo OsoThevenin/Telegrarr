@@ -61,5 +61,5 @@ async def test_sab_grab_goes_through_queue_to_completed_history(arr_app):
     assert added["status"] is True
     assert [s["nzo_id"] for s in queue["queue"]["slots"]] == added["nzo_ids"]
     assert slot["status"] == "Completed"
-    with open(slot["storage"], "rb") as fh:
+    with open(f"{slot['storage']}/The.Show.S01E02.1080p.mkv", "rb") as fh:   # flat release folder
         assert fh.read() == content

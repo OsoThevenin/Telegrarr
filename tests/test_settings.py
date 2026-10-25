@@ -126,3 +126,18 @@ def test_public_never_leaks_plex_token(fresh_db):
 def test_public_token_not_set_reports_false(fresh_db):
     pub = settings.public()
     assert pub["plex_token_set"] is False
+
+
+# --------------------------------------------------------------------------
+# *arr layout defaults: homelab /downloads/telegram, *arr mode
+# --------------------------------------------------------------------------
+def test_arr_layout_defaults_to_downloads_telegram_in_arr_mode(fresh_db):
+    public = settings.public()
+
+    assert public["downloads_dir"] == "/downloads"
+    assert settings.arr_root() == "/downloads/telegram"
+    assert public["operating_mode"] == "arr"
+
+
+def test_unknown_operating_mode_is_rejected(fresh_db):
+    assert settings.apply({"operating_mode": "bogus"})["operating_mode"] == "arr"

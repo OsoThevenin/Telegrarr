@@ -3,6 +3,7 @@
 # Sonarr/Radarr/Prowlarr add Telearr as a Newznab indexer (search Telegram channels
 # as "releases") and as a SABnzbd download client (hand grabs to Telearr, which
 # downloads from Telegram and reports the finished path back for import).
+import os
 import time
 import html
 import re
@@ -155,8 +156,20 @@ def _mb(b):
     return round((b or 0) / 1e6, 2)
 
 
-def _cat(kind):
+def category_for(kind) -> str:
+    """SAB category (and *arr download folder) for a channel kind."""
     return "movies" if kind == "movie" else "tv"
+
+
+def storage_path(save_path) -> str:
+    """What SAB reports as a job's storage: the release folder for flat *arr grabs
+    (Sonarr/Radarr import the folder), the file itself for library-layout downloads
+    (whose folder holds other episodes)."""
+    save_path = save_path or ""
+    root = os.path.realpath(settings.arr_root())
+    if save_path and os.path.commonpath([root, os.path.realpath(save_path)]) == root:
+        return os.path.dirname(save_path)
+    return save_path
 
 
 def sab_version():
@@ -170,7 +183,7 @@ def sab_config():
              "newzbin": "", "priority": 0}
             for i, n in enumerate(sab_categories())]
     return {"config": {
-        "misc": {"complete_dir": "/media", "pre_check": 0, "history_retention": "",
+        "misc": {"complete_dir": settings.arr_root(), "pre_check": 0, "history_retention": "",
                  "enable_tv_sorting": 0, "enable_movie_sorting": 0, "enable_date_sorting": 0},
         "categories": cats,
         "sorters": [],
@@ -189,7 +202,8 @@ def sab_queue():
         slots.append({
             "nzo_id": f"telearr{r['id']}",
             "filename": (r["save_path"] or r["file_name"] or "").split("/")[-1],
-            "cat": _cat(r["kind"]),
+            "cat": category_for(r["kind"]),
+            "storage": storage_path(r["save_path"]),
             "status": "Downloading" if r["status"] == "downloading" else "Queued",
             "index": len(slots), "percentage": str(int(prog * 100)),
             "mb": str(_mb(size)), "mbleft": str(_mb(left)),
@@ -209,13 +223,14 @@ def sab_history(limit=100):
     slots = []
     for r in rows:
         ok = r["status"] == "completed"
+        storage = storage_path(r["save_path"])
         name = (r["save_path"] or r["file_name"] or "").split("/")[-1]
         slots.append({
             "nzo_id": f"telearr{r['id']}",
             "name": name, "nzb_name": r["file_name"] or name,
-            "category": _cat(r["kind"]),
+            "category": category_for(r["kind"]),
             "status": "Completed" if ok else "Failed",
-            "storage": r["save_path"] or "", "path": r["save_path"] or "",
+            "storage": storage, "path": storage,
             "bytes": r["file_size"] or 0,
             "fail_message": "" if ok else (r["error"] or "failed"),
             "download_time": 0, "postproc_time": 0, "action_line": "",

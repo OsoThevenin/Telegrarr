@@ -188,3 +188,24 @@ def build_save_path(base_dir: str, show_title: str, season: int, episode: int,
     if safe_ep:
         base = f"{base} - {safe_ep}"
     return f"{folder}/{base}{ext}"
+
+
+def _safe_component(name: str, fallback: str) -> str:
+    """One filesystem-safe path component: no separators, no leading dots
+    (so never "." / ".." / a hidden file), never empty."""
+    last = os.path.basename((name or "").replace("\\", "/"))
+    safe = _sanitize(last).lstrip(". ").rstrip(" ")
+    return safe or fallback
+
+
+def flat_save_path(root: str, category: str, release: str, filename: str) -> str:
+    """*arr layout: <root>/<category>/<release>/<file>.
+
+    Every component is sanitized and the result is checked to stay inside
+    ``root``, so channel-supplied release or file names can never escape it."""
+    path = os.path.join(root, _safe_component(category, "other"),
+                        _safe_component(release, "Unknown"), _safe_component(filename, "file"))
+    real_root = os.path.realpath(root)
+    if os.path.commonpath([real_root, os.path.realpath(path)]) != real_root:
+        raise ValueError(f"release path escapes {root!r}")
+    return path
