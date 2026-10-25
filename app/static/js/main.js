@@ -45,7 +45,7 @@ const ctx = {
 
 // ── shell ──
 function buildShell() {
-  const brand = h("div", { class: "brand" }, h("span", { class: "logo", html: LOGO }), h("span", {}, "Tele", h("b", {}, "arr")));
+  const brand = h("div", { class: "brand" }, h("span", { class: "logo", html: LOGO }), h("span", {}, "Telegr", h("b", {}, "arr")));
   const navBtn = (n, cls) => h("button", { class: `${cls} ${active === n.id ? "on" : ""}`, dataset: { view: n.id }, onClick: () => go(n.id) },
     h("span", { class: "ni", html: icon(n.icon) }), h("span", { class: "nl" }, n.label));
   const sidebar = h("aside", { class: "sidebar" },
@@ -67,18 +67,21 @@ function buildShell() {
   const BOTTOM_NAV = NAV.filter((n) => n.id !== "activity" && n.id !== "connect");
   const bottomNav = h("nav", { class: "bottom-nav" }, ...BOTTOM_NAV.map((n) => navBtn(n, "bnav-item")));
   const banner = h("div", { id: "tg-banner", class: "tg-banner", hidden: true },
-    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telearr can’t download until you sign in."),
+    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telegrarr can’t download until you sign in."),
     h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, "Connect Telegram"));
+  // account safety: shown while the daily download budget is used up
+  const budgetBanner = h("div", { id: "budget-banner", class: "tg-banner", hidden: true },
+    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), h("span", { id: "budget-text" })));
   mount(qs("#app"),
     sidebar,
-    h("main", { class: "main" }, topbar, banner, h("div", { class: "view", id: "view-root" })),
+    h("main", { class: "main" }, topbar, banner, budgetBanner, h("div", { class: "view", id: "view-root" })),
     bottomNav);
 }
 
 function syncNav() {
   document.querySelectorAll(".nav-item,.bnav-item").forEach((b) => b.classList.toggle("on", b.dataset.view === active));
   const t = qs("#view-title"); if (t) t.textContent = TITLE[active];
-  document.title = active === "dashboard" ? "Telearr" : `${TITLE[active]} · Telearr`;
+  document.title = active === "dashboard" ? "Telegrarr" : `${TITLE[active]} · Telegrarr`;
   const ca = qs("#ctx-actions");
   if (ca) mount(ca, active === "channels"
     ? h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), "Add channel")
@@ -92,6 +95,14 @@ function updateShell() {
   const tg = qs("#tg-status"); if (tg) mount(tg, h("span", { class: "dot " + (s.authorized ? "ok" : "bad") }), s.authorized ? "Telegram connected" : "Telegram offline");
   const pt = qs("#pause-toggle"); if (pt) mount(pt, h("span", { html: icon(s.paused ? "play" : "pause") }), s.paused ? "Resume downloads" : "Pause downloads");
   const banner = qs("#tg-banner"); if (banner) banner.hidden = s.authorized !== false;
+  const bb = qs("#budget-banner"), b = s.budget;
+  if (bb) {
+    bb.hidden = !(b && b.exhausted);
+    if (b && b.exhausted) {
+      const at = new Date(b.resets_at * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      qs("#budget-text").textContent = ` Daily download budget of ${b.limit_gb} GB reached — downloads resume at ${at}.`;
+    }
+  }
 }
 
 async function togglePause() {
@@ -137,7 +148,7 @@ function connectSSE() {
   _es.onmessage = (e) => {
     let d; try { d = JSON.parse(e.data); } catch { return; }
     _lastSSE = Date.now();
-    DATA.status = { ...(DATA.status || {}), stats: d.stats, paused: d.paused, disk: d.disk, speed: d.speed };
+    DATA.status = { ...(DATA.status || {}), stats: d.stats, paused: d.paused, disk: d.disk, speed: d.speed, budget: d.budget };
     const others = DATA.downloads.filter((x) => !["downloading", "queued"].includes(x.status));
     DATA.downloads = [...d.active, ...others];
     updateShell();
@@ -179,6 +190,6 @@ setInterval(async () => {
     await fetchForView(); render();
   } else {
     const s = await api("/api/status");
-    if (s) { DATA.status = { ...(DATA.status || {}), authorized: s.authorized, disk: s.disk, stats: s.stats, paused: s.paused }; updateShell(); }
+    if (s) { DATA.status = { ...(DATA.status || {}), authorized: s.authorized, disk: s.disk, stats: s.stats, paused: s.paused, budget: s.budget }; updateShell(); }
   }
 }, 6000);

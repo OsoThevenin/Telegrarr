@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """One-off Telegram login — only needed if you DON'T import an existing session.
-Run interactively:  docker compose run --rm telearr python authorize.py
+Run interactively:  docker compose run --rm telegrarr python authorize.py
 It writes /data/session.session, after which the service runs unattended.
 """
 import asyncio

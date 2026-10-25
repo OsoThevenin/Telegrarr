@@ -3,6 +3,30 @@
 from . import db
 from . import config
 
+
+
+class SettingRejected(ValueError):
+    """A settings value the user must fix (reported as HTTP 400), not silently clamped."""
+
+
+def poll_minutes(v) -> int:
+    """Validate a channel poll interval against the account-safety floor."""
+    try:
+        minutes = int(float(v))
+    except (TypeError, ValueError):
+        raise SettingRejected("poll interval must be a number of minutes")
+    if minutes < config.POLL_FLOOR_MINUTES:
+        raise SettingRejected(f"poll interval must be at least {config.POLL_FLOOR_MINUTES} minutes")
+    return minutes
+
+
+def _budget_gb(v) -> str:
+    gb = float(v)
+    if gb < 0:
+        raise SettingRejected("daily budget must be 0 (unlimited) or more GB")
+    return str(gb)
+
+
 DEFAULTS = {
     "dl_workers": config.DL_WORKERS,
     "max_concurrent": config.MAX_CONCURRENT_DOWNLOADS,
@@ -12,10 +36,11 @@ DEFAULTS = {
     "plex_token": config.PLEX_TOKEN,
     "notify_webhook": config.NOTIFY_WEBHOOK,
     "notify_telegram": "0",        # DM completed downloads to the account's Saved Messages
-    "default_poll_minutes": 10,
+    "default_poll_minutes": config.POLL_FLOOR_MINUTES,
     "history_limit_per_show": 0,   # 0 = keep every completed record
     "tmdb_key": "",                # optional TMDB api key for poster artwork
     "paused": "0",
+    "daily_budget_gb": 0,          # account safety: max GB downloaded per day, 0 = unlimited
     # Connect page (*arr registration). Keys are secrets: exposed only as *_key_set.
     "prowlarr_url": "",
     "prowlarr_key": "",
@@ -71,7 +96,9 @@ def public() -> dict:
         "max_concurrent": get_int("max_concurrent", DEFAULTS["max_concurrent"]),
         "min_free_gb": get_int("min_free_gb", DEFAULTS["min_free_gb"]),
         "progress_interval": get_float("progress_interval", DEFAULTS["progress_interval"]),
-        "default_poll_minutes": get_int("default_poll_minutes", 10),
+        "default_poll_minutes": max(config.POLL_FLOOR_MINUTES,
+                                    get_int("default_poll_minutes", config.POLL_FLOOR_MINUTES)),
+        "poll_floor_minutes": config.POLL_FLOOR_MINUTES,
         "history_limit_per_show": get_int("history_limit_per_show", 0),
         "plex_url": get("plex_url", DEFAULTS["plex_url"]),
         "plex_token_set": bool(get("plex_token", "")),
@@ -80,6 +107,7 @@ def public() -> dict:
         "notify_telegram": get_bool("notify_telegram", False),
         "paused": get_bool("paused", False),
         "proxy_set": bool(get("tg_proxy", "")),
+        "daily_budget_gb": get_float("daily_budget_gb", 0.0),
         **_arr_public(),
     }
 
@@ -106,13 +134,14 @@ WRITABLE = {
     "max_concurrent": lambda v: str(max(1, min(8, int(float(v))))),
     "min_free_gb": lambda v: str(max(0, int(float(v)))),
     "progress_interval": lambda v: str(max(0.25, min(10.0, float(v)))),
-    "default_poll_minutes": lambda v: str(max(1, int(float(v)))),
+    "default_poll_minutes": lambda v: str(poll_minutes(v)),
     "history_limit_per_show": lambda v: str(max(0, int(float(v)))),
     "plex_url": lambda v: str(v).rstrip("/"),
     "plex_token": lambda v: str(v),
     "notify_webhook": lambda v: str(v),
     "notify_telegram": lambda v: "1" if str(v).strip().lower() in ("1", "true", "yes", "on") else "0",
     "tmdb_key": lambda v: str(v).strip(),
+    "daily_budget_gb": _budget_gb,
     # Connect page
     "telegrarr_url": _http_url,
     "prowlarr_url": _http_url,
@@ -125,11 +154,19 @@ WRITABLE = {
 
 
 def apply(payload: dict) -> dict:
-    """Validate + persist a settings patch; returns the new public view."""
+    """Validate + persist a settings patch; returns the new public view.
+
+    Malformed values are skipped, but a SettingRejected aborts the whole patch
+    (nothing is persisted) so the UI can show the reason."""
+    coerced = {}
     for k, v in payload.items():
         if k in WRITABLE and v is not None:
             try:
-                set(k, WRITABLE[k](v))
+                coerced[k] = WRITABLE[k](v)
+            except SettingRejected:
+                raise
             except (TypeError, ValueError):
                 pass
+    for k, v in coerced.items():
+        set(k, v)
     return public()
