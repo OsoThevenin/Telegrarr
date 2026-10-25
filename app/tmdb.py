@@ -102,7 +102,7 @@ async def test(key=None):
     # tests the passed-in key if given (so users can verify before saving), else the stored one
     k = (key or settings.get("tmdb_key", "")).strip()
     if not k:
-        return {"ok": True, "detail": "No key entered — posters load from IMDb automatically. A TMDB key adds HD art + backdrops."}
+        return {"ok": False, "detail": "No key entered — a TMDB key is required to map channels to their ids."}
     try:
         async with http() as client:
             r = await client.get(f"{API}/configuration", params={"api_key": k})

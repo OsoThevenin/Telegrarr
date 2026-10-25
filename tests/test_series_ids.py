@@ -66,6 +66,21 @@ async def test_tmdb_search_without_key_says_a_key_is_required(arr_app, fake_tmdb
     assert fake_tmdb.requests == []
 
 
+@pytest.mark.asyncio
+async def test_tmdb_connection_test_without_key_reports_it_is_required(arr_app, fake_tmdb):
+    r = await arr_app.http.post("/api/integrations/tmdb/test", json={})
+
+    assert r.json()["ok"] is False
+    assert "required" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_tmdb_connection_test_accepts_a_valid_key(arr_app, fake_tmdb):
+    r = await arr_app.http.post("/api/integrations/tmdb/test", json={"key": API_KEY})
+
+    assert r.json()["ok"] is True
+
+
 async def _series_channel(arr_app, chat_id=SHOW_CHAT, title="Joc de trons CAT"):
     arr_app.telegram.add_channel(chat_id, title)
     return await arr_app.add_channel(chat_id, kind="tv")
