@@ -121,10 +121,10 @@ def _arr_public() -> dict:
 
 
 def _http_url(value) -> str:
-    """Normalise a base URL; empty clears it, anything but http(s) is rejected."""
+    """Normalise a base URL; empty clears it, anything but http(s) is rejected (HTTP 400)."""
     url = str(value).strip().rstrip("/")
     if url and not url.lower().startswith(("http://", "https://")):
-        raise ValueError(f"not an http(s) URL: {url!r}")
+        raise SettingRejected("URLs must start with http:// or https://")
     return url
 
 

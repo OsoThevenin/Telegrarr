@@ -36,8 +36,10 @@ async def test_arr_urls_persist_and_keys_are_never_echoed(arr_app):
 
 @pytest.mark.asyncio
 async def test_non_http_arr_url_is_rejected(arr_app):
-    await arr_app.http.patch("/api/settings", json={"sonarr_url": "javascript:alert(1)"})
+    r = await arr_app.http.patch("/api/settings", json={"sonarr_url": "javascript:alert(1)"})
 
+    assert r.status_code == 400
+    assert "http" in r.json()["detail"]
     s = (await arr_app.http.get("/api/settings")).json()["settings"]
     assert s["sonarr_url"] == ""
 
