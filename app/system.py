@@ -21,15 +21,24 @@ GITHUB_REPO = "OsoThevenin/Telegrarr"
 _BACKUP_RE = re.compile(r"^telearr-backup-[0-9\-]+\.zip$")
 
 
-def _disk():
-    root = TV_DIR
-    for _ in range(4):
+_PARENT_LOOKUPS = 4   # walk up this many levels to find an existing dir to measure
+
+
+def disk_root() -> str:
+    """Where downloads land: the *arr downloads base, or the TV library in standalone mode."""
+    return settings.get("downloads_dir") if settings.is_arr_mode() else TV_DIR
+
+
+def disk_usage() -> dict:
+    """Total / used / free bytes of the disk downloads land on (zeros if unmeasurable)."""
+    root = disk_root()
+    for _ in range(_PARENT_LOOKUPS):
         if os.path.exists(root):
             break
         root = os.path.dirname(root)
     try:
         total, used, free = shutil.disk_usage(root if os.path.exists(root) else "/")
-    except Exception:
+    except OSError:
         total = used = free = 0
     return {"total": total, "used": used, "free": free}
 
@@ -40,7 +49,7 @@ def _check(check_id: str, ok, bad_level: str, msg: dict) -> dict:
 
 
 def status(authorized: bool, scanner_alive: bool) -> dict:
-    disk = _disk()
+    disk = disk_usage()
     db_size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     free_gb = disk["free"] / 1e9
     paused = settings.get_bool("paused", False)

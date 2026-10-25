@@ -171,8 +171,6 @@ async def service_worker():
 
 
 def _live_snapshot():
-    import shutil
-    from .config import TV_DIR
     with db.conn() as c:
         stats = {k: c.execute(q).fetchone()[0] for k, q in {
             "channels": "SELECT COUNT(*) FROM channels",
@@ -187,18 +185,9 @@ def _live_snapshot():
             "SELECT d.*, ch.title AS channel_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
             "WHERE d.status IN ('downloading','queued') ORDER BY d.id")]
-    root = TV_DIR
-    for _ in range(4):
-        if os.path.exists(root):
-            break
-        root = os.path.dirname(root)
-    try:
-        total, used, free = shutil.disk_usage(root if os.path.exists(root) else "/")
-    except Exception:
-        total = used = free = 0
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
             "budget": safety.budget_status(),
-            "disk": {"total": total, "used": used, "free": free},
+            "disk": system.disk_usage(),
             "speed": round(sum(a.get("speed_mbs") or 0 for a in active), 1)}
 
 
@@ -220,17 +209,6 @@ async def api_events(request: Request, user=Depends(auth.require_user)):
 # ── status ────────────────────────────────────────────────────────────
 @app.get("/api/status")
 async def api_status(user=Depends(auth.require_user)):
-    import shutil
-    from .config import TV_DIR
-    root = TV_DIR
-    for _ in range(4):
-        if os.path.ismount(root) or os.path.exists(root):
-            break
-        root = os.path.dirname(root)
-    try:
-        total, used, free = shutil.disk_usage(root if os.path.exists(root) else "/")
-    except Exception:
-        total = used = free = 0
     client = get_client()
     try:
         authed = client.is_connected() and await client.is_user_authorized()
@@ -247,7 +225,7 @@ async def api_status(user=Depends(auth.require_user)):
         stats["total_size"] = c.execute(
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
-            "disk": {"total": total, "used": used, "free": free},
+            "disk": system.disk_usage(),
             "stats": stats, "config": summary(), "budget": safety.budget_status()}
 
 
