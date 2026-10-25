@@ -8,6 +8,7 @@ import logging
 import contextlib
 from .config import DB_PATH, POLL_FLOOR_MINUTES
 from .i18n import translate
+from .namer import DEFAULT_FALLBACK_QUALITY
 
 _logger = logging.getLogger("db")
 
@@ -130,7 +131,7 @@ def conn():
 COLUMN_MIGRATIONS = (
     ("downloads", "retry_count", "INTEGER DEFAULT 0"),
     ("channels", "language", "TEXT NOT NULL DEFAULT 'cat'"),
-    ("channels", "fallback_quality", "TEXT NOT NULL DEFAULT '1080p'"),
+    ("channels", "fallback_quality", f"TEXT NOT NULL DEFAULT '{DEFAULT_FALLBACK_QUALITY}'"),
     ("channels", "tvdb_id", "INTEGER"),      # series channels: Sonarr matches by TVDB id
     ("channels", "tmdb_id", "INTEGER"),
     ("releases", "parsed_episode", "INTEGER"),   # channel's own number when a part was resolved

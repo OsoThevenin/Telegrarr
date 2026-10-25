@@ -9,6 +9,7 @@ import html
 import re
 import secrets
 from . import db, settings, __version__ as VERSION
+from .namer import is_uhd
 
 SAB_VERSION = "4.2.0"        # advertise a modern SABnzbd to the *arr clients
 
@@ -37,7 +38,7 @@ def _parent_cat(kind) -> int:
 
 
 def _subcat(kind, quality) -> int:
-    uhd = str(quality or "").lower() in ("2160p", "4k", "uhd")
+    uhd = is_uhd(str(quality or ""))
     if kind == "movie":
         return 2045 if uhd else 2040
     return 5045 if uhd else 5040

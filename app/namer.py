@@ -34,7 +34,17 @@ DATE_RE = re.compile(r"(20\d{2})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})")
 # underscore/dot are word chars, so \b fails around them — use explicit boundaries
 QUALITY_RE = re.compile(r"(?<![a-z0-9])(2160p|1440p|1080p|720p|480p|4k|uhd)(?![a-z0-9])", re.I)
 
-_UHD = {"2160p", "4k", "uhd"}
+# Quality tiers: the one source of truth for a channel's fallback choices, the
+# DB default, release-name tokens and UHD detection.
+QUALITY_SD, QUALITY_720, QUALITY_1080, QUALITY_2160 = "SDTV", "720p", "1080p", "2160p"
+CHANNEL_QUALITIES = (QUALITY_SD, QUALITY_720, QUALITY_1080, QUALITY_2160)
+DEFAULT_FALLBACK_QUALITY = QUALITY_1080
+_UHD = {QUALITY_2160.lower(), "4k", "uhd"}
+_SD_RELEASE_TOKEN = "480p"
+# any quality spelling -> the token a release name carries
+_RELEASE_QUALITY = {**{alias: QUALITY_2160 for alias in _UHD}, QUALITY_1080: QUALITY_1080,
+                    QUALITY_720: QUALITY_720, _SD_RELEASE_TOKEN: _SD_RELEASE_TOKEN,
+                    QUALITY_SD.lower(): _SD_RELEASE_TOKEN}
 
 
 def is_uhd(quality: str | None) -> bool:
@@ -230,13 +240,10 @@ def _sanitize(name: str) -> str:
 # Minimum (width, height) for each quality; a video qualifies on either axis so
 # scope-cropped (1920x800) or pillar-boxed (1440x1080) encodes keep their tier.
 _QUALITY_FLOORS = (
-    ("2160p", 3200, 2000),
-    ("1080p", 1800, 1000),
-    ("720p", 1200, 700),
+    (QUALITY_2160, 3200, 2000),
+    (QUALITY_1080, 1800, 1000),
+    (QUALITY_720, 1200, 700),
 )
-QUALITY_SD = "SDTV"
-CHANNEL_QUALITIES = (QUALITY_SD, "720p", "1080p", "2160p")
-DEFAULT_FALLBACK_QUALITY = "1080p"   # keep in sync with db.COLUMN_MIGRATIONS default
 
 
 def quality_from_dims(width: int | None, height: int | None, fallback: str | None = None) -> str | None:
@@ -252,9 +259,6 @@ def quality_from_dims(width: int | None, height: int | None, fallback: str | Non
 LANGUAGE_TOKENS = {"cat": "CAT", "es": "SPA", "en": "ENG", "multi": "MULTI"}
 DEFAULT_LANGUAGE = "cat"
 RELEASE_GROUP = "TELEGRARR"
-_RELEASE_QUALITY = {"2160p": "2160p", "4k": "2160p", "uhd": "2160p", "1080p": "1080p",
-                    "720p": "720p", "480p": "480p", "sdtv": "480p"}
-_DEFAULT_RELEASE_QUALITY = "1080p"
 
 
 def _episode_tag(season: int, episode: int, episode_end: int | None) -> str:
@@ -271,7 +275,7 @@ def release_name(show_title: str, season: int, episode: int, quality: str = "",
     Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR, movies Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR"""
     show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
     show = re.sub(r"\s+", ".", show)
-    q = _RELEASE_QUALITY.get((quality or "").lower(), _DEFAULT_RELEASE_QUALITY)
+    q = _RELEASE_QUALITY.get((quality or "").lower(), DEFAULT_FALLBACK_QUALITY)
     lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
     tag = str(year or "") if kind == "movie" else _episode_tag(season, episode, episode_end)
     parts = [show, tag, lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
