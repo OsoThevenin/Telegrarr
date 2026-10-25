@@ -12,7 +12,8 @@ import logging
 from . import db, plex, notify, settings
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
-                    build_save_path, is_uhd, release_name)
+                    build_save_path, is_uhd, release_name, quality_from_dims,
+                    DEFAULT_LANGUAGE)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
                      MAX_CONCURRENT_DOWNLOADS)
 from .downloader import download_file
@@ -92,14 +93,57 @@ def _file_name(doc, msg_id):
     return f"file_{msg_id}.mp4"
 
 
-def _resolve_path(channel, msg, fn):
+def _video_dims(doc) -> tuple[int | None, int | None]:
+    """Width/height from Telegram's DocumentAttributeVideo, if the upload has one."""
+    for attr in getattr(doc, "attributes", []) or []:
+        w, h = getattr(attr, "w", None), getattr(attr, "h", None)
+        if isinstance(w, int) and isinstance(h, int):
+            return w, h
+    return None, None
+
+
+def _parse_episode(msg, fn) -> dict:
+    """Episode info from the file name, falling back to the caption."""
     info = extract_episode(fn) if fn else {}
     if not info.get("season"):
         info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
+    return info
+
+
+def _show_title(channel) -> str:
+    return channel["imdb_title"] or channel["title"]
+
+
+def _is_mapped(channel) -> bool:
+    return bool((channel["imdb_id"] or "").strip() or (channel["imdb_title"] or "").strip())
+
+
+def build_release(channel, msg, fn) -> dict:
+    """What a Telegram media message is published as on the Newznab feed.
+
+    Quality precedence: video dimensions > quality tag in the text > the
+    channel's fallback quality."""
+    info = _parse_episode(msg, fn)
+    season, episode = info.get("season") or 0, info.get("episode") or 0
+    width, height = _video_dims(msg.document or msg.video)
+    quality = quality_from_dims(width, height, fallback=info.get("quality") or channel["fallback_quality"])
+    show = _show_title(channel)
+    title = release_name(show, season, episode, quality or "", channel["kind"],
+                         language=channel["language"] or DEFAULT_LANGUAGE,
+                         episode_end=info.get("episode_end"))
+    episode_title = extract_episode_title(msg.message or "", fn, season, episode,
+                                          show_title=show, mapped=_is_mapped(channel))
+    return {"title": title, "season": info.get("season"), "episode": info.get("episode"),
+            "episode_end": info.get("episode_end"), "quality": quality, "episode_title": episode_title}
+
+
+def _resolve_path(channel, msg, fn):
+    info = _parse_episode(msg, fn)
+    show = _show_title(channel)
     ep_title = extract_episode_title(msg.message or "", fn,
                                      info.get("season") or 0,
-                                     info.get("episode") or 0, show_title=show)
+                                     info.get("episode") or 0, show_title=show,
+                                     mapped=_is_mapped(channel))
     base = base_dir_for(channel, info.get("quality"))
     return build_save_path(base, show, info.get("season") or 0,
                            info.get("episode") or 0, fn, ep_title)
@@ -159,12 +203,7 @@ async def _iter_best(client, chat_id, *, limit, stop_at=0):
 
 def _record_release(channel, msg, size, fn, gk):
     """Index a seen media item so the Newznab endpoint can serve it as a release."""
-    info = extract_episode(fn) if fn else {}
-    if not info.get("season"):
-        info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
-    title = release_name(show, info.get("season") or 0, info.get("episode") or 0,
-                         info.get("quality") or "", channel["kind"])
+    rel = build_release(channel, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT INTO releases
             (channel_id,message_id,group_key,title,season,episode,quality,size,added_at)
@@ -172,8 +211,8 @@ def _record_release(channel, msg, size, fn, gk):
             ON CONFLICT(channel_id,message_id) DO UPDATE SET
               title=excluded.title, season=excluded.season, episode=excluded.episode,
               quality=excluded.quality, size=excluded.size""",
-            (channel["id"], msg.id, gk, title, info.get("season"), info.get("episode"),
-             info.get("quality"), size, int(time.time())))
+            (channel["id"], msg.id, gk, rel["title"], rel["season"], rel["episode"],
+             rel["quality"], size, int(time.time())))
 
 
 async def _enqueue(client, channel, msg, size, fn, gk):
