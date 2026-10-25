@@ -123,3 +123,56 @@ def test_other_brackets_are_still_stripped():
     title = namer.extract_episode_title("3x13 Un viatge [WEB] (2023) (2a Part)", "", 3, 13, mapped=True)
 
     assert title == "Un viatge (2a Part)"
+
+
+# --------------------------------------------------------------------------
+# Quality from Telegram video dimensions
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("width, height, expected", [
+    (1920, 1080, "1080p"),
+    (1280, 720, "720p"),
+    (3840, 2160, "2160p"),
+    (1920, 800, "1080p"),   # scope-cropped 1080p
+    (960, 540, "SDTV"),
+    (720, 576, "SDTV"),
+])
+def test_quality_from_dimensions(width, height, expected):
+    assert namer.quality_from_dims(width, height, fallback="720p") == expected
+
+
+@pytest.mark.parametrize("width, height", [(None, None), (0, 0), (1920, None)])
+def test_quality_from_missing_dimensions_uses_fallback(width, height):
+    assert namer.quality_from_dims(width, height, fallback="720p") == "720p"
+
+
+# --------------------------------------------------------------------------
+# Release name: language token + TELEGRARR group
+# --------------------------------------------------------------------------
+def test_release_name_spec_format():
+    name = namer.release_name("Show", 3, 13, "1080p", "tv", language="cat")
+
+    assert name == "Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR"
+    assert CATALAN_TITLE_FORMAT.search(name)
+
+
+@pytest.mark.parametrize("language, token", [
+    ("cat", "CAT"), ("es", "SPA"), ("en", "ENG"), ("multi", "MULTI"),
+])
+def test_release_name_language_token(language, token):
+    name = namer.release_name("Show", 1, 2, "720p", language=language)
+
+    assert name == f"Show.S01E02.{token}.720p.WEB-DL.x264-TELEGRARR"
+
+
+def test_release_name_defaults_to_catalan():
+    assert ".CAT." in namer.release_name("Show", 1, 2, "720p")
+
+
+def test_release_name_sdtv_maps_to_480p():
+    assert namer.release_name("Show", 1, 2, "SDTV") == "Show.S01E02.CAT.480p.WEB-DL.x264-TELEGRARR"
+
+
+def test_release_name_double_episode():
+    name = namer.release_name("Show", 1, 1, "1080p", episode_end=2)
+
+    assert name == "Show.S01E01E02.CAT.1080p.WEB-DL.x264-TELEGRARR"

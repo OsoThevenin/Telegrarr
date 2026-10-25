@@ -213,21 +213,53 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[\\/:*?\"<>|]", "_", name).strip()
 
 
+# Minimum (width, height) for each quality; a video qualifies on either axis so
+# scope-cropped (1920x800) or pillar-boxed (1440x1080) encodes keep their tier.
+_QUALITY_FLOORS = (
+    ("2160p", 3200, 2000),
+    ("1080p", 1800, 1000),
+    ("720p", 1200, 700),
+)
+QUALITY_SD = "SDTV"
+CHANNEL_QUALITIES = (QUALITY_SD, "720p", "1080p", "2160p")
+
+
+def quality_from_dims(width: int | None, height: int | None, fallback: str | None = None) -> str | None:
+    """Quality tier from the width/height Telegram attaches to a video; fallback when absent."""
+    if not width or not height:
+        return fallback
+    for quality, min_w, min_h in _QUALITY_FLOORS:
+        if width >= min_w or height >= min_h:
+            return quality
+    return QUALITY_SD
+
+
+LANGUAGE_TOKENS = {"cat": "CAT", "es": "SPA", "en": "ENG", "multi": "MULTI"}
+DEFAULT_LANGUAGE = "cat"
+RELEASE_GROUP = "TELEGRARR"
+_RELEASE_QUALITY = {"2160p": "2160p", "4k": "2160p", "uhd": "2160p", "1080p": "1080p",
+                    "720p": "720p", "480p": "480p", "sdtv": "480p"}
+_DEFAULT_RELEASE_QUALITY = "1080p"
+
+
+def _episode_tag(season: int, episode: int, episode_end: int | None) -> str:
+    if not episode:
+        return ""
+    tag = f"S{int(season or 1):02d}E{int(episode):02d}"
+    return f"{tag}E{int(episode_end):02d}" if episode_end else tag
+
+
 def release_name(show_title: str, season: int, episode: int, quality: str = "",
-                 kind: str = "tv") -> str:
-    """A scene-style, parser-friendly release title for Newznab consumers."""
+                 kind: str = "tv", language: str = DEFAULT_LANGUAGE,
+                 episode_end: int | None = None) -> str:
+    """A scene-style, parser-friendly release title for Newznab consumers:
+    Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR"""
     show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
     show = re.sub(r"\s+", ".", show)
-    q = (quality or "1080p").upper().replace("2160P", "2160p").replace("1080P", "1080p") \
-        .replace("720P", "720p").replace("480P", "480p").replace("4K", "2160p").replace("UHD", "2160p")
-    q = q if q in ("2160p", "1080p", "720p", "480p") else "1080p"
-    if season and episode:
-        tag = f"S{int(season):02d}E{int(episode):02d}"
-    elif episode:
-        tag = f"S01E{int(episode):02d}"
-    else:
-        tag = ""
-    parts = [show] + ([tag] if tag else []) + [q, "WEB-DL", "x264-TELEARR"]
+    q = _RELEASE_QUALITY.get((quality or "").lower(), _DEFAULT_RELEASE_QUALITY)
+    lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
+    tag = _episode_tag(season, episode, episode_end)
+    parts = [show, tag, lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
     return ".".join(p for p in parts if p)
 
 
