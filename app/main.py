@@ -12,7 +12,7 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, __version__
+from . import db, auth, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, __version__
 from .tg import get_client
 from .namer import imdb_search
 from .config import summary
@@ -504,6 +504,19 @@ async def api_arr_regen(user=Depends(auth.require_user)):
 @app.patch("/api/settings")
 async def api_patch_settings(payload: dict, user=Depends(auth.require_user)):
     return {"ok": True, "settings": settings.apply(payload)}
+
+
+# ── Connect page: Prowlarr / Sonarr / Radarr ──────────────────────────
+def _arr_app_name(payload: dict) -> str:
+    app_name = str(payload.get("app", ""))
+    if app_name not in connect.APP_TITLES:
+        raise HTTPException(400, "app must be one of prowlarr, sonarr, radarr")
+    return app_name
+
+
+@app.post("/api/connect/test")
+async def api_connect_test(payload: dict, user=Depends(auth.require_user)):
+    return await connect.check_connection(_arr_app_name(payload))
 
 
 @app.post("/api/account/password")

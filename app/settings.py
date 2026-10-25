@@ -16,7 +16,17 @@ DEFAULTS = {
     "history_limit_per_show": 0,   # 0 = keep every completed record
     "tmdb_key": "",                # optional TMDB api key for poster artwork
     "paused": "0",
+    # Connect page (*arr registration). Keys are secrets: exposed only as *_key_set.
+    "prowlarr_url": "",
+    "prowlarr_key": "",
+    "sonarr_url": "",
+    "sonarr_key": "",
+    "radarr_url": "",
+    "radarr_key": "",
+    "telegrarr_url": "",           # how Prowlarr/Sonarr/Radarr reach Telegrarr, e.g. http://telegrarr:8790
 }
+
+ARR_APPS = ("prowlarr", "sonarr", "radarr")
 
 
 def get(key, default=None):
@@ -70,7 +80,24 @@ def public() -> dict:
         "notify_telegram": get_bool("notify_telegram", False),
         "paused": get_bool("paused", False),
         "proxy_set": bool(get("tg_proxy", "")),
+        **_arr_public(),
     }
+
+
+def _arr_public() -> dict:
+    view = {"telegrarr_url": get("telegrarr_url", "")}
+    for name in ARR_APPS:
+        view[f"{name}_url"] = get(f"{name}_url", "")
+        view[f"{name}_key_set"] = bool(get(f"{name}_key", ""))
+    return view
+
+
+def _http_url(value) -> str:
+    """Normalise a base URL; empty clears it, anything but http(s) is rejected."""
+    url = str(value).strip().rstrip("/")
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise ValueError(f"not an http(s) URL: {url!r}")
+    return url
 
 
 # keys the UI is allowed to write, with a coercer for each
@@ -86,6 +113,14 @@ WRITABLE = {
     "notify_webhook": lambda v: str(v),
     "notify_telegram": lambda v: "1" if str(v).strip().lower() in ("1", "true", "yes", "on") else "0",
     "tmdb_key": lambda v: str(v).strip(),
+    # Connect page
+    "telegrarr_url": _http_url,
+    "prowlarr_url": _http_url,
+    "prowlarr_key": lambda v: str(v).strip(),
+    "sonarr_url": _http_url,
+    "sonarr_key": lambda v: str(v).strip(),
+    "radarr_url": _http_url,
+    "radarr_key": lambda v: str(v).strip(),
 }
 
 
