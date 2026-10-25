@@ -77,6 +77,21 @@ CREATE TABLE IF NOT EXISTS releases (
   added_at   INTEGER NOT NULL,
   PRIMARY KEY (channel_id, message_id)
 );
+CREATE TABLE IF NOT EXISTS pending_review (
+  channel_id INTEGER NOT NULL,
+  message_id INTEGER NOT NULL,
+  parsed_title TEXT,
+  year       INTEGER,
+  quality    TEXT,
+  file_name  TEXT,
+  caption    TEXT,
+  size       INTEGER,
+  group_key  TEXT,
+  reason     TEXT,
+  status     TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, message_id)
+);
 CREATE INDEX IF NOT EXISTS idx_rel_chan ON releases(channel_id);
 CREATE INDEX IF NOT EXISTS idx_dl_chan_gk   ON downloads(channel_id, group_key);
 CREATE INDEX IF NOT EXISTS idx_dl_status    ON downloads(status);
@@ -118,6 +133,9 @@ COLUMN_MIGRATIONS = (
     ("channels", "tmdb_id", "INTEGER"),
     ("releases", "parsed_episode", "INTEGER"),   # channel's own number when a part was resolved
     ("releases", "episode_source", "TEXT"),      # tmdb-ca | tmdb-en | sonarr | channel (kept)
+    ("releases", "movie_tmdb_id", "INTEGER"),  # movie channels: ids per message, not per channel
+    ("releases", "movie_imdb_id", "TEXT"),
+    ("releases", "year", "INTEGER"),
 )
 
 

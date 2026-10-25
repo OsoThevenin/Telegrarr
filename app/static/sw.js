@@ -1,7 +1,7 @@
 /* Telearr service worker — app-shell offline cache.
  * Static assets: cache-first. Navigations: network-first, fall back to the
  * cached shell when offline. API/SSE/auth are never cached. */
-const CACHE = "telearr-shell-v5";
+const CACHE = "telearr-shell-v6";
 const SHELL = [
   "/",
   "/static/app.css",
@@ -12,6 +12,7 @@ const SHELL = [
   "/static/js/palette.js",
   "/static/js/connect.js",
   "/static/js/directory.js",
+  "/static/js/review.js",
   "/static/manifest.json",
   "/static/favicon.svg",
   "/static/icons/icon-192.png",

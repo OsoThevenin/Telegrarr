@@ -98,8 +98,9 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
     matches_ids = _id_filter(tvdbid, tmdbid, imdbid)
     with db.conn() as c:
         rows = c.execute(
-            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.imdb_id, ch.kind,
-                      ch.tvdb_id, ch.tmdb_id
+            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.kind, ch.tvdb_id,
+                      COALESCE(r.movie_tmdb_id, ch.tmdb_id) AS tmdb_id,
+                      COALESCE(r.movie_imdb_id, ch.imdb_id) AS imdb_id
                FROM releases r JOIN channels ch ON ch.id = r.channel_id
                WHERE ch.enabled = 1
                ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
@@ -117,7 +118,7 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
         if not matches_ids(r):
             continue
         show = (r["imdb_title"] or r["chtitle"] or "").lower()
-        if ql and ql not in show and ql not in (r["title"] or "").lower():
+        if ql and ql not in show and ql not in (r["title"] or "").lower().replace(".", " "):
             continue
         if season not in (None, "") and r["season"] is not None and int(season) != r["season"]:
             continue

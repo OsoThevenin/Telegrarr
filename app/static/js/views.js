@@ -824,7 +824,7 @@ export function openChannelModal(ctx, channel) {
   const dayBtns = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d, i) =>
     h("button", { type: "button", class: `m-day ${daysOn.includes(String(i)) ? "on" : ""}`, dataset: { day: i }, onClick: (e) => e.target.classList.toggle("on") }, d));
   const series = seriesMapper(channel);
-  const movieNote = h("div", { class: "muted small" }, "Movie channels hold many films; each message is matched to its film on its own.");
+  const movieNote = h("div", { class: "muted small" }, "Movie channels hold many films; each message is matched to its film on TMDB by title and year. Messages without a confident match wait in Review.");
   const identity = h("div", {});
   const showIdentity = () => mount(identity, kind.value === "tv" ? series.node : movieNote);
   kind.addEventListener("change", showIdentity);

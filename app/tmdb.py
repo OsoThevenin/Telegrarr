@@ -5,8 +5,10 @@
 import re
 import time
 import logging
+import unicodedata
 import urllib.parse
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 import httpx
 from . import settings
@@ -211,6 +213,106 @@ async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
     if not tvdb_n:
         raise TMDBError("TMDB has no TVDB id for this series. Enter the TVDB id manually.")
     return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None, title=title)
+
+
+# ── films (movie channels) ───────────────────────────────────────────
+MIN_TITLE_SIMILARITY = 0.9        # parsed vs TMDB title, accent/punctuation-insensitive
+YEAR_TOLERANCE = 1                # TMDB's year filter matches any release date, not just the premiere
+RELEASE_TITLE_LANGUAGE = "en-US"  # Radarr's primary metadata title, so its parser accepts the release
+
+
+@dataclass(frozen=True)
+class Film:
+    tmdb_id: int
+    imdb_id: str | None
+    title: str            # English title: what the release is named after
+    year: int | None
+
+
+def _fold(text: str) -> str:
+    """Lower-case, accent-free, punctuation-free text for fuzzy title comparison."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    ascii_only = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return re.sub(r"[\W_]+", " ", ascii_only).strip().lower()
+
+
+def _similar(a: str, b: str) -> bool:
+    return bool(a and b) and SequenceMatcher(None, _fold(a), _fold(b)).ratio() >= MIN_TITLE_SIMILARITY
+
+
+def _year_of(date: str | None) -> int | None:
+    return int(date[:4]) if date and date[:4].isdigit() else None
+
+
+def _movie_hit(item: dict) -> dict:
+    return {
+        "tmdb_id": item["id"],
+        "title": item.get("title") or item.get("original_title") or "",
+        "original_title": item.get("original_title") or "",
+        "year": (item.get("release_date") or "")[:4],
+        "poster": (IMG + "w154" + item["poster_path"]) if item.get("poster_path") else "",
+    }
+
+
+async def search_movies(query: str, year: int | None = None) -> list[dict]:
+    """Search TMDB films in Catalan; fall back to English when nothing matches."""
+    query = (query or "").strip()
+    if not query:
+        return []
+    for language in SEARCH_LANGUAGES:
+        hits = await _search_movie_in(language, query, year)
+        if hits:
+            return hits
+    return []
+
+
+async def _search_movie_in(language: str, query: str, year: int | None) -> list[dict]:
+    extra = {"year": year} if year else {}
+    j = await _get("/search/movie", query=query, language=language, **extra)
+    return [_movie_hit(it) for it in j.get("results") or [] if it.get("id")]
+
+
+def _is_confident(hit: dict, title: str, year: int) -> bool:
+    hit_year = _year_of(hit["year"])
+    return (hit_year is not None and abs(hit_year - year) <= YEAR_TOLERANCE
+            and (_similar(title, hit["title"]) or _similar(title, hit["original_title"])))
+
+
+async def film(tmdb_id) -> Film:
+    """A film's ids, English title and year from its TMDB id."""
+    tmdb_n = _as_id(tmdb_id, "TMDB id")
+    if tmdb_n is None:
+        raise TMDBError("TMDB id is required")
+    j = await _get(f"/movie/{tmdb_n}", language=RELEASE_TITLE_LANGUAGE)
+    return Film(tmdb_id=tmdb_n, imdb_id=j.get("imdb_id") or None,
+                title=j.get("title") or j.get("original_title") or "", year=_year_of(j.get("release_date")))
+
+
+async def film_for_imdb(imdb_id) -> Film:
+    imdb = "tt" + str(imdb_id).strip().lower().lstrip("t")
+    if not imdb[2:].isdigit():
+        raise TMDBError("IMDb id must look like tt1234567")
+    j = await _get(f"/find/{imdb}", external_source="imdb_id")
+    hits = j.get("movie_results") or []
+    if not hits:
+        raise TMDBError(f"TMDB has no film with IMDb id {imdb}")
+    return await film(hits[0]["id"])
+
+
+async def match_film(title: str, year: int | None) -> Film | None:
+    """The film a parsed title + year confidently names, or None.
+
+    Confident = a TMDB hit (Catalan, then English) whose title or original title
+    is near-identical and whose release year is within YEAR_TOLERANCE."""
+    title = (title or "").strip()
+    if not year or not title:
+        return None
+    for language in SEARCH_LANGUAGES:
+        hits = await _search_movie_in(language, title, year)
+        hit = next((h for h in hits if _is_confident(h, title, year)), None)
+        if hit:
+            return await film(hit["tmdb_id"])
+    return None
 
 
 async def season_episodes(tmdb_id: int, season: int, language: str) -> list[tuple[int, str]]:

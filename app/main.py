@@ -11,7 +11,7 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, __version__
+from . import db, auth, channels, directory, scanner, settings, plex, notify, arr, tmdb, tg, system, connect, safety, movies, __version__
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
@@ -641,6 +641,41 @@ async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
         raise HTTPException(400, str(e))
     except tmdb.TMDBError as e:
         raise HTTPException(502, str(e))
+
+
+@app.get("/api/tmdb/movies")
+async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(auth.require_user)):
+    try:
+        return await tmdb.search_movies(q, year)
+    except tmdb.KeyMissing as e:
+        raise HTTPException(400, str(e))
+    except tmdb.TMDBError as e:
+        raise HTTPException(502, str(e))
+
+
+# ── movie channels: Pending review ────────────────────────────────────
+@app.get("/api/review")
+async def api_review(user=Depends(auth.require_user)):
+    return movies.pending()
+
+
+@app.post("/api/review/{cid}/{mid}/assign")
+async def api_review_assign(cid: int, mid: int, payload: dict, user=Depends(auth.require_user)):
+    try:
+        return await movies.assign(cid, mid, payload.get("tmdb_id"), payload.get("imdb_id"))
+    except movies.NotPending as e:
+        raise HTTPException(404, str(e))
+    except movies.ReviewError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/review/{cid}/{mid}/discard")
+async def api_review_discard(cid: int, mid: int, user=Depends(auth.require_user)):
+    try:
+        movies.discard(cid, mid)
+    except movies.NotPending as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
 
 
 @app.post("/api/integrations/tmdb/test")
