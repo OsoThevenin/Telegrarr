@@ -43,7 +43,7 @@ const ctx = {
 
 // ── shell ──
 function buildShell() {
-  const brand = h("div", { class: "brand" }, h("span", { class: "logo", html: LOGO }), h("span", {}, "Tele", h("b", {}, "arr")));
+  const brand = h("div", { class: "brand" }, h("span", { class: "logo", html: LOGO }), h("span", {}, "Telegr", h("b", {}, "arr")));
   const navBtn = (n, cls) => h("button", { class: `${cls} ${active === n.id ? "on" : ""}`, dataset: { view: n.id }, onClick: () => go(n.id) },
     h("span", { class: "ni", html: icon(n.icon) }), h("span", { class: "nl" }, n.label));
   const sidebar = h("aside", { class: "sidebar" },
@@ -65,7 +65,7 @@ function buildShell() {
   const BOTTOM_NAV = NAV.filter((n) => n.id !== "activity");
   const bottomNav = h("nav", { class: "bottom-nav" }, ...BOTTOM_NAV.map((n) => navBtn(n, "bnav-item")));
   const banner = h("div", { id: "tg-banner", class: "tg-banner", hidden: true },
-    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telearr can’t download until you sign in."),
+    h("span", {}, h("span", { class: "tgb-ic", html: icon("alert") }), " Telegram isn’t connected — Telegrarr can’t download until you sign in."),
     h("button", { class: "btn primary sm", onClick: () => openTelegramConnect(ctx) }, "Connect Telegram"));
   // account safety: shown while the daily download budget is used up
   const budgetBanner = h("div", { id: "budget-banner", class: "tg-banner", hidden: true },
@@ -79,7 +79,7 @@ function buildShell() {
 function syncNav() {
   document.querySelectorAll(".nav-item,.bnav-item").forEach((b) => b.classList.toggle("on", b.dataset.view === active));
   const t = qs("#view-title"); if (t) t.textContent = TITLE[active];
-  document.title = active === "dashboard" ? "Telearr" : `${TITLE[active]} · Telearr`;
+  document.title = active === "dashboard" ? "Telegrarr" : `${TITLE[active]} · Telegrarr`;
   const ca = qs("#ctx-actions");
   if (ca) mount(ca, active === "channels"
     ? h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), "Add channel")

@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
         await client.disconnect()
 
 
-app = FastAPI(title="Telearr", version=__version__, lifespan=lifespan)
+app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 
 
@@ -83,12 +83,12 @@ async def security_headers(request: Request, call_next):
 async def index(request: Request):
     if not auth.cookie_user(request):
         return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
-    return templates.TemplateResponse("login.html", {"request": request, "error": error})
+    return templates.TemplateResponse(request, "login.html", {"error": error})
 
 
 def _is_secure(request: Request) -> bool:
@@ -534,7 +534,7 @@ async def api_change_password(payload: dict, user=Depends(auth.require_user)):
 
 
 @app.post("/api/account/username")
-async def api_change_username(payload: dict, user=Depends(auth.require_user)):
+async def api_change_username(request: Request, payload: dict, user=Depends(auth.require_user)):
     current = payload.get("current", "")
     new = (payload.get("username") or "").strip()
     if not auth.verify(user, current):
@@ -548,7 +548,8 @@ async def api_change_username(payload: dict, user=Depends(auth.require_user)):
     # username change bumps the session epoch (revokes old cookies) — re-issue ours
     r = JSONResponse({"ok": True, "username": new})
     r.set_cookie("telearr_sess", auth.make_cookie(new),
-                 httponly=True, samesite="lax", max_age=7 * 86400)
+                 httponly=True, samesite="lax", max_age=7 * 86400,
+                 secure=_is_secure(request))
     return r
 
 

@@ -7,10 +7,22 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}   # metadata-action lowercases -> ghcr.io/wishaal/telearr
+  IMAGE_NAME: osothevenin/telegrarr   # -> ghcr.io/osothevenin/telegrarr
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
   publish:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
