@@ -13,6 +13,9 @@ services:
     volumes:
       - ./data:/data                          # DB + Telegram session (persisted)
       - ${TELEARR_MEDIA_ROOT:?set TELEARR_MEDIA_ROOT in .env}:/media   # library root
+      # *arr grabs land in /downloads/telegram/<tv|movies>/<release>/ — mount the
+      # same host dir at /downloads in Sonarr/Radarr so no path mapping is needed.
+      - ${PATH_TO_DOWNLOADS:-./downloads}:/downloads
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }   # bounded logs (Tier 2.5)

@@ -614,6 +614,9 @@ export function viewSettings(ctx) {
 
     const keyInp = inp("arr-key", arrKey); keyInp.readOnly = true;
     const nzInp = inp("arr-nzb", `${location.origin}/api/newznab`); nzInp.readOnly = true;
+    const standaloneChk = h("input", { type: "checkbox", id: "set-operating_mode",
+      onChange: async (e) => { await jpatch("/api/settings", { operating_mode: e.target.checked ? "standalone" : "arr" }); toast(e.target.checked ? "Standalone mode on" : "*arr mode on", "ok"); } });
+    if (s.operating_mode === "standalone") standaloneChk.checked = true;
     const arr = card("Sonarr / Radarr / Prowlarr",
       h("div", { class: "muted small", style: "margin-bottom:10px" }, "Add Telearr as a Newznab indexer and a SABnzbd download client. See docs/ARR_INTEGRATION.md."),
       row("Newznab URL", nzInp),
@@ -622,7 +625,11 @@ export function viewSettings(ctx) {
       h("div", { class: "set-actions" },
         h("button", { class: "btn ghost sm", onClick: () => copy(nzInp.value) }, h("span", { html: icon("copy") }), "Copy URL"),
         h("button", { class: "btn ghost sm", onClick: () => copy(keyInp.value) }, h("span", { html: icon("copy") }), "Copy key"),
-        h("button", { class: "btn ghost sm", onClick: async () => { const r = await jpost("/api/integrations/arr/regenerate", {}); if (r) { keyInp.value = r.apikey; toast("API key regenerated", "ok"); } } }, h("span", { html: icon("refresh") }), "Regenerate key")));
+        h("button", { class: "btn ghost sm", onClick: async () => { const r = await jpost("/api/integrations/arr/regenerate", {}); if (r) { keyInp.value = r.apikey; toast("API key regenerated", "ok"); } } }, h("span", { html: icon("refresh") }), "Regenerate key")),
+      row("Downloads folder", inp("set-downloads_dir", s.downloads_dir), "Grabs land in <folder>/telegram/<tv|movies>/<release>/ — mount it at the same path in Sonarr/Radarr"),
+      row("Standalone mode", standaloneChk, "Scans auto-download every new item into the library paths (upstream behaviour). Off = Sonarr/Radarr decide what to grab."),
+      h("div", { class: "set-actions" },
+        h("button", { class: "btn primary sm", onClick: async () => { const r = await jpatch("/api/settings", { downloads_dir: root.querySelector("#set-downloads_dir").value }); if (r) { root.querySelector("#set-downloads_dir").value = r.settings.downloads_dir; toast("Downloads folder saved", "ok"); } } }, "Save folder")));
 
     const paths = card("Library paths",
       h("div", { class: "muted small" }, h("div", {}, `TV → ${p.tv_dir}`), h("div", {}, `TV 4K → ${p.tv_dir_4k}`), h("div", {}, `Movies → ${p.movies_dir}`), h("div", {}, `Other → ${p.other_dir}`), h("div", { style: "margin-top:6px" }, "Edit via .env and rebuild.")));
