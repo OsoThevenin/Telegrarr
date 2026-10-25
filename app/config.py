@@ -17,6 +17,13 @@ def _i(name: str, default: int) -> int:
 # ── Telegram ──────────────────────────────────────────────────────────
 API_ID = _i("TG_API_ID", 0)
 API_HASH = os.getenv("TG_API_HASH", "")
+# Account safety: present the client like official Telegram Desktop on Windows
+# rather than Telethon's default (which exposes the library / server OS).
+TG_DEVICE_MODEL = os.getenv("TELEARR_TG_DEVICE_MODEL", "Desktop")
+TG_SYSTEM_VERSION = os.getenv("TELEARR_TG_SYSTEM_VERSION", "Windows 10")
+TG_APP_VERSION = os.getenv("TELEARR_TG_APP_VERSION", "5.12.3 x64")
+TG_LANG_CODE = os.getenv("TELEARR_TG_LANG_CODE", "en")
+TG_SYSTEM_LANG_CODE = os.getenv("TELEARR_TG_SYSTEM_LANG_CODE", "en-US")
 
 # ── Paths (inside the container these are volume mounts) ───────────────
 DATA_DIR = os.getenv("TELEARR_DATA_DIR", "/data")
