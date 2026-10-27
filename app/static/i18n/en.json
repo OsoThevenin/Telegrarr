@@ -202,6 +202,8 @@
  "ch.sources.other": "{n} sources",
  "ch.backfill": "Backfill",
  "ch.sources_btn": "Sources",
+ "ch.forum_whole_hint": "Whole forum group: adding its topics as separate sources keeps series and films apart.",
+ "ch.forum_whole_short": "whole forum",
  "ch.edit_aria": "Edit channel",
  "ch.remove_aria": "Remove channel",
  "ch.remove_confirm": "Remove this channel? Download history is kept.",
@@ -570,5 +572,6 @@
  "chm.topics.kind_aria": "Kind for {topic}",
  "chm.topics.pick_first": "Tick at least one topic",
  "chm.topics.added.one": "{n} topic source added",
- "chm.topics.added.other": "{n} topic sources added"
+ "chm.topics.added.other": "{n} topic sources added",
+ "chm.topics.series_hint": "Series mapping for the one ticked series topic:"
 }

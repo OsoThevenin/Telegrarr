@@ -2,10 +2,13 @@
 import { h, mount, api, jpost, jpatch, jput, toast, copy, gb, fmtBytes, fmtETA, base } from "./core.js";
 import { icon } from "./icons.js";
 import { openTelegramConnect } from "./telegram-connect.js";
-import { topicPicker, sourceTitle } from "./topics.js";
+import { sourceTitle, isWholeForum } from "./topics.js";
+import { channelTopics } from "./channel-topics.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
+const chanLabel = (c) => sourceTitle(c.title, c.topic_title);            // a channel row's source label
+const dlSource = (d) => sourceTitle(d.channel_title, d.topic_title);     // a download row's source label
 const WEEKDAYS = t("common.weekdays_short").split(" ");   // Monday first, index = weekday number
 const kindLabel = (k) => tOr(`kind.${k}`, k);
 export const fmtWeekdays = (days) => (days || []).length === 7 ? t("common.every_day")
@@ -81,7 +84,7 @@ function activeCard(d, ctx) {
       h("button", { class: "btn ghost sm", onClick: async () => { await api(`/api/downloads/${d.id}/cancel`, { method: "POST" }); ctx.refresh(); } },
         h("span", { html: icon("pause") }), t("dl.stop"))),
     h("div", { class: "ac-meta" },
-      `${d.channel_title || ""} · ${d.file_size ? gb(d.file_size) : "—"} · ` +
+      `${sourceTitle(d.channel_title, d.topic_title) || ""} · ${d.file_size ? gb(d.file_size) : "—"} · ` +
       `${d.status === "downloading" ? (d.speed_mbs || 0).toFixed(1) + " MB/s" : t("dl.waiting")}${eta ? " · " + eta : ""} · ${pct}%`),
     errorNote(d),
     h("div", { class: "bar" }, h("i", { style: `width:${pct}%` })));
@@ -208,7 +211,9 @@ function showCard(group, ctx) {
   if (!rep.imdb_id) poster.classList.add("art-done");
   return h("div", { class: "ch-card" }, poster,
     h("div", { class: "ch-body" },
-      h("div", { class: "ch-title", title: rep.imdb_title || sourceTitle(rep) }, rep.imdb_title || sourceTitle(rep)),
+      h("div", { class: "ch-title", title: rep.imdb_title || chanLabel(rep) }, rep.imdb_title || chanLabel(rep)),
+      !multi && rep.imdb_title && rep.topic_title ? h("div", { class: "ch-meta", title: chanLabel(rep) }, chanLabel(rep)) : null,
+      group.some(isWholeForum) ? h("div", { class: "muted small" }, t("ch.forum_whole_hint")) : null,
       h("div", { class: "ch-meta" }, multi ? `${kindLabel(rep.kind)} · ${tn("ch.sources", group.length)}` : `${kindLabel(rep.kind)} · ${dstr || "—"} · ${t("common.minutes_short", { n: rep.poll_minutes })}`),
       h("div", { class: "ch-actions" },
         h("button", { class: "btn ghost sm", onClick: () => scanAll(group) }, h("span", { html: icon("scan") }), t("common.scan")),
@@ -260,7 +265,10 @@ export function openChannelDrawer(ctx, c, group = null) {
       h("div", { class: "drawer-body" },
         h("div", { class: "drawer-head" }, posterBox,
           h("div", { class: "drawer-info" },
-            h("h2", {}, c.imdb_title || sourceTitle(c)), meta, overview,
+            h("h2", {}, c.imdb_title || chanLabel(c)),
+            grp.length === 1 && c.imdb_title && c.topic_title ? h("div", { class: "muted small" }, chanLabel(c)) : null,
+            grp.length === 1 && isWholeForum(c) ? h("div", { class: "muted small" }, t("ch.forum_whole_hint")) : null,
+            meta, overview,
             h("div", { class: "drawer-actions" },
               h("button", { class: "btn primary sm", onClick: () => scanAll(grp) }, h("span", { html: icon("scan") }), t("common.scan")),
               h("button", { class: "btn ghost sm", onClick: () => backfillAll(grp) }, t("ch.backfill")),
@@ -271,7 +279,8 @@ export function openChannelDrawer(ctx, c, group = null) {
           h("div", { class: "card-h" }, tn("ch.source_channels", grp.length)),
           ...grp.map((s) => h("div", { class: "src-row" },
             h("span", { class: "dot " + (s.enabled ? "ok" : "bad") }),
-            h("span", { class: "src-name", title: sourceTitle(s) }, sourceTitle(s)),
+            h("span", { class: "src-name", title: chanLabel(s) }, chanLabel(s)),
+            isWholeForum(s) ? h("span", { class: "muted small", title: t("ch.forum_whole_hint") }, t("ch.forum_whole_short")) : null,
             h("button", { class: "btn ghost sm", onClick: async () => { await jpatch(`/api/channels/${s.id}`, { enabled: s.enabled ? 0 : 1 }); close(); ctx.refresh(); } }, s.enabled ? t("common.disable") : t("common.enable")),
             h("button", { class: "btn ghost sm", onClick: () => { close(); openChannelModal(ctx, s); } }, t("common.edit")),
             h("button", { class: "btn ghost sm icon", title: t("ch.remove_source"), "aria-label": t("ch.remove_source"), onClick: async () => { if (confirm(t("ch.remove_source_confirm"))) { await api(`/api/channels/${s.id}`, { method: "DELETE" }); toast(t("ch.source_removed"), "ok"); close(); ctx.refresh(); } } }, h("span", { html: icon("trash") }))))) : null,
@@ -297,7 +306,7 @@ function sortRows(rows) {
   });
 }
 const matchQ = (d) => !ui.q || (base(d.save_path) || d.file_name || "").toLowerCase().includes(ui.q.toLowerCase())
-  || (d.channel_title || "").toLowerCase().includes(ui.q.toLowerCase());
+  || (dlSource(d) || "").toLowerCase().includes(ui.q.toLowerCase());
 
 // Two-part episode resolution ("(2a Part)" published as the next TVDB episode).
 const epTag = (n) => `E${String(n).padStart(2, "0")}`;
@@ -332,7 +341,7 @@ function rowsTable(rows, ctx, selectAll = true) {
       onChange: (e) => { e.target.checked ? ui.sel.add(d.id) : ui.sel.delete(d.id); ctx.rerender(); },
     })),
     h("td", { title: d.save_path }, base(d.save_path) || d.file_name, episodeNote(d), errorNote(d)),
-    h("td", {}, d.channel_title || "—"),
+    h("td", {}, dlSource(d) || "—"),
     h("td", {}, d.file_size ? gb(d.file_size) : "—"),
     h("td", {}, statusPill(d.status)),
     h("td", { class: "muted small" }, d.finished_at ? new Date(d.finished_at * 1000).toLocaleDateString(locale) : ""),
@@ -347,7 +356,7 @@ function rowsTable(rows, ctx, selectAll = true) {
 // fall back to the channel name.
 function showOf(d) {
   const m = (d.save_path || "").match(/\/([^/]+)\/Season\s[^/]*\/[^/]*$/i);
-  return m ? m[1] : (d.channel_title || t("common.unknown"));
+  return m ? m[1] : (dlSource(d) || t("common.unknown"));
 }
 function completedGrouped(dls, ctx) {
   let rows = dls.filter((d) => d.status === "completed" && matchQ(d));
@@ -689,20 +698,13 @@ export function openChannelModal(ctx, channel) {
   showIdentity();
   const kindRow = h("label", {}, t("chm.kind"), kind);
 
-  // ── forum topics: a forum group gets one source per ticked topic, each with its own kind ──
-  const topics = topicPicker({ kinds: CHANNEL_KINDS });
-  let topicsReady = null;
-  const loadTopics = (chatId) => {
-    topicsReady = topics.load(chatId).then((forum) => {
-      kindRow.hidden = forum; identity.hidden = forum;   // per-topic kinds replace the chat-wide one
-      return forum;
-    });
-  };
+  // forum topics: a forum group gets one source per ticked topic (channel-topics.js)
+  const topics = channelTopics({ kinds: CHANNEL_KINDS, kindRow, identity, series, showIdentity });
 
   // ── channel selection ──
   let chanArea;
   if (channel) {
-    chanArea = h("label", {}, t("chm.tg_channel"), h("input", { value: `${channel.imdb_title || sourceTitle(channel)} (${channel.chat_id})`, disabled: true }));
+    chanArea = h("label", {}, t("chm.tg_channel"), h("input", { value: `${channel.imdb_title || chanLabel(channel)} (${channel.chat_id})`, disabled: true }));
   } else {
     const chanQ = h("input", { placeholder: t("chm.chan_search_placeholder"), autocomplete: "off" });
     const chanList = h("div", { class: "chan-list" }, h("div", { class: "muted small pad" }, t("chm.loading_chats")));
@@ -710,7 +712,7 @@ export function openChannelModal(ctx, channel) {
     let dialogs = [];
     const showSel = () => mount(chanSel, selected
       ? h("div", { class: "chip" }, h("span", { html: icon("check") }), h("span", {}, `${selected.title} · ${selected.chat_id}`)) : []);
-    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); series.searchFor(d.title); loadTopics(d.chat_id); };
+    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); series.searchFor(d.title); topics.load(d.chat_id); };
     const resolveChan = async () => {
       mount(chanList, h("div", { class: "muted small pad" }, t("chm.resolving")));
       const r = await jpost("/api/telegram/resolve", { query: chanQ.value.trim() });
@@ -738,18 +740,11 @@ export function openChannelModal(ctx, channel) {
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { document.removeEventListener("keydown", onKey); host.replaceChildren(); };
   document.addEventListener("keydown", onKey);
-  // One POST per ticked topic. A failed one keeps the dialog open (api() has shown
-  // why); saving again updates the topics already added rather than duplicating them.
+  // a failed topic source keeps the dialog open (api() has shown why)
   const addTopicSources = async (fields) => {
-    const ticked = topics.picked();
-    if (!ticked.length) return toast(t("chm.topics.pick_first"), "err");
-    let added = 0;
-    for (const tp of ticked) {
-      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, ...fields, kind: tp.kind, topic_id: tp.topic_id, topic_title: tp.title });
-      if (ch) added++;
-    }
-    if (added) toast(tn("chm.topics.added", added), "ok");
-    if (added === ticked.length) close();
+    const res = await topics.addSources(selected.chat_id, fields);
+    if (!res) return;
+    if (res.all) close();
     ctx.refresh();
   };
   const save = async () => {
@@ -757,7 +752,7 @@ export function openChannelModal(ctx, channel) {
     const pm = parseInt(poll.value) || POLL_FLOOR_MIN;
     if (!channel && !selected) return toast(t("chm.pick_first"), "err");
     const fields = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
-    if (!channel && topicsReady && (await topicsReady)) return addTopicSources(fields);
+    if (!channel && (await topics.isForum())) return addTopicSources(fields);
     const ch = channel
       ? await jpatch(`/api/channels/${channel.id}`, fields)
       : await jpost("/api/channels", { chat_id: selected.chat_id, ...fields });
