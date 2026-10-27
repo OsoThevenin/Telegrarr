@@ -8,6 +8,7 @@ import time
 import html
 import re
 import secrets
+from typing import NamedTuple
 from . import db, settings, __version__ as VERSION
 from .namer import is_uhd
 
@@ -206,16 +207,22 @@ _NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)(?:-([1-9]\d*))?$")   # telearr<id>[-<
 HIDEABLE_STATUSES = ("failed", "cancelled", "completed")   # finished: a history delete hides them
 
 
+class AttemptRef(NamedTuple):
+    """One attempt at a download row: what an nzo id names."""
+    download_id: int
+    attempt: int
+
+
 def nzo_id(download_id: int, attempt: int = 0) -> str:
     """The download id Sonarr/Radarr track an attempt at a download row by. The
     first attempt keeps the legacy ``telearr<id>``; later ones add ``-<attempt>``."""
     return f"{NZO_PREFIX}{download_id}" + (f"-{attempt}" if attempt else "")
 
 
-def parse_nzo(nzo) -> tuple[int, int] | None:
-    """The (download row id, attempt) in an nzo id, or None when it isn't one of ours."""
+def parse_nzo(nzo) -> AttemptRef | None:
+    """The attempt an nzo id names, or None when it isn't one of ours."""
     m = _NZO_RE.match(str(nzo or "").strip())
-    return (int(m.group(1)), int(m.group(2) or 0)) if m else None
+    return AttemptRef(int(m.group(1)), int(m.group(2) or 0)) if m else None
 
 
 def is_current_attempt(download_id: int, attempt: int) -> bool:
@@ -231,10 +238,9 @@ def hide_from_history(download_id: int, attempt: int) -> bool:
     """Leave a finished row's current attempt out of the history reported to the
     *arr; the row and its files stay. False when the row is missing, not finished,
     or on another attempt."""
-    marks = ",".join("?" * len(HIDEABLE_STATUSES))
     with db.conn() as c:
         cur = c.execute("UPDATE downloads SET arr_hidden=1 "
-                        f"WHERE id=? AND attempt=? AND status IN ({marks})",
+                        f"WHERE id=? AND attempt=? AND status IN ({db.placeholders(HIDEABLE_STATUSES)})",
                         (download_id, attempt, *HIDEABLE_STATUSES))
     return cur.rowcount > 0
 

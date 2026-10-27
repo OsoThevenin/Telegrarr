@@ -235,6 +235,8 @@
  "dl.col.when": "When",
  "dl.select_row": "Select row",
  "dl.requeued": "Re-queued",
+ "dl.requeued_n": "Downloads re-queued: {count}",
+ "dl.not_requeued": "Nothing re-queued: only failed or cancelled downloads can be retried",
  "dl.retry": "Retry",
  "dl.delete_record": "Delete record",
  "dl.no_matches": "No matches.",

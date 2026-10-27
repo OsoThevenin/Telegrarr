@@ -9,9 +9,10 @@ import os
 import time
 import asyncio
 import logging
+from typing import NamedTuple
 
 from . import db, plex, notify, settings, safety, resolver, movies, topic_errors
-from .arr import category_for
+from .arr import AttemptRef, category_for
 from .i18n import message, translate
 from .tg import get_client, source_messages
 from .namer import (group_key, message_episode, extract_episode_title,
@@ -25,7 +26,7 @@ log = logging.getLogger("scanner")
 
 _active = None
 _queue_lock = asyncio.Lock()
-_inflight = {}                          # (channel_id, group_key) -> download id holding the slot
+_inflight = {}                          # (channel_id, group_key) -> _SlotHolder
 _sem = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
 _sem_limit = MAX_CONCURRENT_DOWNLOADS
 _task_registry = {}                     # download_id -> asyncio.Task
@@ -41,6 +42,7 @@ CANCELLED_BY_USER = "dl.err.cancelled"
 DOWNLOAD_FAILED = "dl.err.failed"
 DUPLICATE_IN_FLIGHT = "dl.err.duplicate"   # same episode already downloading from another message
 STOPPED_STATUSES = ("failed", "cancelled")   # re-queuing one of these starts a new attempt
+ACTIVE_STATUSES = ("queued", "downloading")  # waiting for or holding a download task
 
 
 def begin_shutdown():
@@ -86,19 +88,19 @@ def _unregister_task(dl_id, task) -> None:
         del _task_registry[dl_id]
 
 
-def requeue_stopped(c, dl_id: int, *, count_retry: bool = False) -> bool:
-    """Re-queue a failed or cancelled row as a new attempt: the *arr tracks it under
-    a fresh download id, shown in its history again. The status-conditional UPDATE
-    leaves a row that is already queued or downloading untouched (False).
-    ``count_retry`` counts an auto-retry; any other re-queue resets the count."""
-    marks = ",".join("?" * len(STOPPED_STATUSES))
-    cur = c.execute(
+def requeue_stopped(c, dl_id: int, *, count_retry: bool = False) -> int | None:
+    """Re-queue a failed or cancelled row as a new attempt and return that attempt:
+    the *arr tracks it under a fresh download id, shown in its history again. The
+    status-conditional UPDATE leaves a row that is already queued or downloading
+    untouched (None). ``count_retry`` counts an auto-retry; any other re-queue
+    resets the count."""
+    row = c.execute(
         "UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
         "error_key=NULL, error_params=NULL, attempt=attempt+1, arr_hidden=0, "
         "retry_count=CASE WHEN ? THEN COALESCE(retry_count,0)+1 ELSE 0 END "
-        f"WHERE id=? AND status IN ({marks})",
-        (count_retry, dl_id, *STOPPED_STATUSES))
-    return cur.rowcount > 0
+        f"WHERE id=? AND status IN ({db.placeholders(STOPPED_STATUSES)}) RETURNING attempt",
+        (count_retry, dl_id, *STOPPED_STATUSES)).fetchone()
+    return row["attempt"] if row else None
 
 
 def cancel_download(dl_id) -> bool:
@@ -372,7 +374,7 @@ async def _retry_failed(client, channel):
                 _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
             continue
         with db.conn() as c:
-            if not requeue_stopped(c, r["id"], count_retry=True):
+            if requeue_stopped(c, r["id"], count_retry=True) is None:
                 continue
         db.log("INFO", message("event.auto_retry", n=r["rc"] + 1, max=MAX_DOWNLOAD_RETRIES, file=r["file_name"]),
                channel_id=cid)
@@ -439,14 +441,25 @@ def _set_error(c, dl_id: int, status: str, reason: dict) -> None:
               (status, text, key, params, dl_id))
 
 
-def _set_message_error(c, channel_id: int, message_id: int, status: str, reason: dict) -> None:
-    """:func:`_set_error` for the download of one channel message."""
+def _message_row(channel_id: int, message_id: int, attempt: int | None) -> tuple[str, tuple]:
+    """WHERE clause and parameters for the download of one channel message. With
+    ``attempt``, only while the row is still on that attempt: a download task's
+    writes must not land on a newer attempt that a retry started."""
+    if attempt is None:
+        return "channel_id=? AND message_id=?", (channel_id, message_id)
+    return "channel_id=? AND message_id=? AND attempt=?", (channel_id, message_id, attempt)
+
+
+def _set_message_error(c, channel_id: int, message_id: int, status: str, reason: dict,
+                       attempt: int | None = None) -> None:
+    """:func:`_set_error` for the download of one channel message (and attempt)."""
     text, key, params = db.keyed(reason)
-    c.execute("UPDATE downloads SET status=?, error=?, error_key=?, error_params=? "
-              "WHERE channel_id=? AND message_id=?", (status, text, key, params, channel_id, message_id))
+    where, args = _message_row(channel_id, message_id, attempt)
+    c.execute(f"UPDATE downloads SET status=?, error=?, error_key=?, error_params=? WHERE {where}",
+              (status, text, key, params, *args))
 
 
-async def _wait_for_budget(channel_id, message_id):
+async def _wait_for_budget(channel_id, message_id, attempt: int | None):
     """Hold a download (status queued, reason in `error`) until the daily budget allows it."""
     marked = False
     while safety.budget_exhausted():
@@ -454,16 +467,17 @@ async def _wait_for_budget(channel_id, message_id):
             resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
             with db.conn() as c:
                 _set_message_error(c, channel_id, message_id, "queued",
-                                   message("budget.download_held", resets=resets))
+                                   message("budget.download_held", resets=resets), attempt)
             marked = True
         await asyncio.sleep(BUDGET_RECHECK_SECONDS)
 
 
-def _update_message(channel_id: int, message_id: int, assignments: str, *values) -> None:
-    """``UPDATE downloads SET <assignments>`` for the download of one channel message."""
+def _update_message(channel_id: int, message_id: int, assignments: str, *values,
+                    attempt: int | None = None) -> None:
+    """``UPDATE downloads SET <assignments>`` for the download of one channel message (and attempt)."""
+    where, args = _message_row(channel_id, message_id, attempt)
     with db.conn() as c:
-        c.execute(f"UPDATE downloads SET {assignments} WHERE channel_id=? AND message_id=?",
-                  (*values, channel_id, message_id))
+        c.execute(f"UPDATE downloads SET {assignments} WHERE {where}", (*values, *args))
 
 
 def _remove_partial(save_path: str) -> None:
@@ -471,7 +485,7 @@ def _remove_partial(save_path: str) -> None:
         os.remove(save_path + ".tmp")
 
 
-def _finish_if_on_disk(channel_id: int, msg, save_path: str, fsize: int) -> bool:
+def _finish_if_on_disk(channel_id: int, msg, save_path: str, fsize: int, attempt: int | None) -> bool:
     """Mark the download complete when its file is already on disk.
 
     Covers a file fully downloaded but not finalized before a crash/restart, or
@@ -481,22 +495,23 @@ def _finish_if_on_disk(channel_id: int, msg, save_path: str, fsize: int) -> bool
         return False
     _remove_partial(save_path)
     _update_message(channel_id, msg.id, "status='completed', progress=1.0, speed_mbs=0, finished_at=?",
-                    int(time.time()))
+                    int(time.time()), attempt=attempt)
     db.log("INFO", message("event.already_on_disk", file=os.path.basename(save_path)), channel_id=channel_id)
     return True
 
 
-async def _fetch(client, channel_id: int, msg, save_path: str, fsize: int) -> None:
+async def _fetch(client, channel_id: int, msg, save_path: str, fsize: int, attempt: int | None) -> None:
     """Download the message's file to `save_path`, keeping the row's progress current."""
     _update_message(channel_id, msg.id, "status='downloading', started_at=?, error=NULL, "
-                    "error_key=NULL, error_params=NULL", int(time.time()))
+                    "error_key=NULL, error_params=NULL", int(time.time()), attempt=attempt)
 
     async def progress(pct, speed):
-        _update_message(channel_id, msg.id, "progress=?, speed_mbs=?", pct, speed)
+        _update_message(channel_id, msg.id, "progress=?, speed_mbs=?", pct, speed, attempt=attempt)
 
     await download_file(client, msg, save_path, progress_cb=progress)
     safety.record_download(fsize)
-    _update_message(channel_id, msg.id, "status='completed', progress=1.0, finished_at=?", int(time.time()))
+    _update_message(channel_id, msg.id, "status='completed', progress=1.0, finished_at=?", int(time.time()),
+                    attempt=attempt)
 
 
 def _announce_completed(channel_id: int, save_path: str) -> None:
@@ -511,41 +526,83 @@ def _announce_completed(channel_id: int, save_path: str) -> None:
     _spawn(notify.send(translate("notify.downloaded"), name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
 
 
-def _on_cancelled(channel_id: int, msg, save_path: str) -> None:
+def _on_cancelled(channel_id: int, msg, save_path: str, attempt: int | None) -> None:
     if _shutting_down:
         # process is stopping — leave it queued so it resumes on next boot
-        _update_message(channel_id, msg.id, "status='queued', progress=0, speed_mbs=0")
+        _update_message(channel_id, msg.id, "status='queued', progress=0, speed_mbs=0", attempt=attempt)
         return
     with db.conn() as c:
-        _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER))
+        _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER), attempt)
     _remove_partial(save_path)
     db.log("WARN", message("event.cancelled", file=os.path.basename(save_path)), channel_id=channel_id)
 
 
-def _on_failed(channel_id: int, msg, error: Exception) -> None:
+def _on_failed(channel_id: int, msg, error: Exception, attempt: int | None) -> None:
     with db.conn() as c:
-        _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(error)))
+        _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(error)), attempt)
     db.log("ERROR", message("event.download_failed", error=str(error)), channel_id=channel_id)
 
 
-def _download_id(channel_id: int, message_id: int) -> int | None:
+class _SlotHolder(NamedTuple):
+    """The task holding an episode's in-flight slot, and the attempt it downloads."""
+    ref: AttemptRef | None
+    task: asyncio.Task
+
+
+def _download_ref(channel_id: int, message_id: int) -> AttemptRef | None:
     with db.conn() as c:
-        row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
+        row = c.execute("SELECT id, attempt FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, message_id)).fetchone()
-    return row["id"] if row else None
+    return AttemptRef(row["id"], row["attempt"]) if row else None
 
 
-def _resolve_inflight_loser(dl_id: int | None, holder_id: int | None) -> None:
+def _supersedes(ref: AttemptRef | None, holder: AttemptRef | None) -> bool:
+    """True when ``ref`` is a newer attempt at the row ``holder`` is downloading."""
+    return (ref is not None and holder is not None
+            and ref.download_id == holder.download_id and ref.attempt > holder.attempt)
+
+
+def _resolve_inflight_loser(ref: AttemptRef | None, holder: AttemptRef | None) -> None:
     """A task lost the in-flight slot for its episode. A duplicate task for the
-    row already downloading changes nothing; a row for another message of the
-    same episode is cancelled with a reason, so it isn't left queued with no
-    task behind it (and isn't resumed into the same race after a restart)."""
-    if dl_id is None or dl_id == holder_id:
+    row already downloading (or a stale one for an earlier attempt) changes
+    nothing; a row for another message of the same episode is cancelled with a
+    reason, so it isn't left queued with no task behind it (and isn't resumed
+    into the same race after a restart)."""
+    if ref is None or (holder is not None and ref.download_id == holder.download_id):
         return
     text, key, params = db.keyed(message(DUPLICATE_IN_FLIGHT))
     with db.conn() as c:   # only a row still waiting: a finished row keeps its outcome
         c.execute("UPDATE downloads SET status='cancelled', error=?, error_key=?, error_params=? "
-                  "WHERE id=? AND status='queued'", (text, key, params, dl_id))
+                  "WHERE id=? AND attempt=? AND status='queued'", (text, key, params, *ref))
+
+
+async def _claim_slot(key, ref: AttemptRef | None) -> bool:
+    """Take the in-flight slot for an episode; False when this task lost it. A
+    newer attempt at the row holding the slot (a retry right after a cancel)
+    waits for the older attempt's task to finish winding down, then claims it."""
+    me = asyncio.current_task()
+    while True:
+        async with _queue_lock:
+            holder = _inflight.get(key)
+            if holder is None:
+                _inflight[key] = _SlotHolder(ref, me)
+                if ref is not None:
+                    register_task(ref.download_id, me)
+                return True
+            if not _supersedes(ref, holder.ref):
+                _resolve_inflight_loser(ref, holder.ref)
+                return False   # another task owns this episode; leave its cancel registration alone
+            register_task(ref.download_id, me)   # a cancel of the new attempt stops this task
+        await asyncio.wait({holder.task})
+
+
+def _release_slot(key) -> None:
+    """Free the episode's in-flight slot if this task holds it. Synchronous (no
+    await between it and the stopped status), so a retry can never find the row
+    stopped while its finishing task still holds the slot."""
+    holder = _inflight.get(key)
+    if holder is not None and holder.task is asyncio.current_task():
+        del _inflight[key]
 
 
 async def _run_download(client, channel_id, msg, save_path, gk):
@@ -553,31 +610,28 @@ async def _run_download(client, channel_id, msg, save_path, gk):
     if settings.get_bool("paused", False):
         _update_message(channel_id, msg.id, "status='queued'")
         return
-    dl_id = _download_id(channel_id, msg.id)
-    async with _queue_lock:
-        if key in _inflight:
-            _resolve_inflight_loser(dl_id, _inflight[key])
-            return   # another task owns this episode; leave its cancel registration alone
-        _inflight[key] = dl_id
-    if dl_id is not None:
-        register_task(dl_id, asyncio.current_task())
+    ref = _download_ref(channel_id, msg.id)
+    attempt = ref.attempt if ref else None   # every write below is scoped to it
     try:
-        await _wait_for_budget(channel_id, msg.id)
+        if not await _claim_slot(key, ref):
+            return
+        await _wait_for_budget(channel_id, msg.id, attempt)
         async with _sem_current():
             doc = msg.document or msg.video
             fsize = doc.size if doc else 0
-            if _finish_if_on_disk(channel_id, msg, save_path, fsize):
+            if _finish_if_on_disk(channel_id, msg, save_path, fsize, attempt):
                 return
-            await _fetch(client, channel_id, msg, save_path, fsize)
+            await _fetch(client, channel_id, msg, save_path, fsize, attempt)
             _announce_completed(channel_id, save_path)
     except asyncio.CancelledError:
-        _on_cancelled(channel_id, msg, save_path)
+        _release_slot(key)   # before the stopped status: a retry may follow at once
+        _on_cancelled(channel_id, msg, save_path, attempt)
         raise
     except Exception as e:
-        _on_failed(channel_id, msg, e)
+        _release_slot(key)
+        _on_failed(channel_id, msg, e, attempt)
     finally:
-        async with _queue_lock:
-            _inflight.pop(key, None)
+        _release_slot(key)
 
 
 def _prune_history(channel_id):
@@ -593,8 +647,8 @@ def _prune_history(channel_id):
 
 
 async def grab_message(channel_id, message_id):
-    """On-demand grab used by the SABnzbd shim; returns the row's (id, attempt) or None.
-    A re-grab of a failed or cancelled row starts a new attempt."""
+    """On-demand grab used by the SABnzbd shim; returns the row's current attempt
+    or None. A re-grab of a failed or cancelled row starts a new attempt."""
     client = get_client()
     if not client.is_connected():
         await client.connect()
@@ -618,15 +672,15 @@ async def grab_message(channel_id, message_id):
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
             VALUES(?,?,?,?,?,?,?,?)""",
             (channel_id, msg.id, gk, fn, doc.size, save_path, "queued", int(time.time())))
-        row = c.execute("SELECT id, status FROM downloads WHERE channel_id=? AND message_id=?",
+        row = c.execute("SELECT id, status, attempt FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, msg.id)).fetchone()
-        if row and row["status"] in STOPPED_STATUSES:
-            requeue_stopped(c, row["id"])
-        row = c.execute("SELECT id, attempt FROM downloads WHERE channel_id=? AND message_id=?",
-                        (channel_id, msg.id)).fetchone()
+        ref = None
+        if row:
+            requeued = requeue_stopped(c, row["id"]) if row["status"] in STOPPED_STATUSES else None
+            ref = AttemptRef(row["id"], row["attempt"] if requeued is None else requeued)
     db.log("INFO", message("event.grab_queued", file=fn), channel_id=channel_id)
     _spawn(_run_download(client, channel_id, msg, save_path, gk))
-    return (row["id"], row["attempt"]) if row else None
+    return ref
 
 
 def channel_should_run_today(channel) -> bool:
