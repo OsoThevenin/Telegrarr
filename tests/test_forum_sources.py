@@ -3,6 +3,7 @@
 A forum group added as a whole chat (no topic) behaves exactly as a channel
 always has: scans and directory scans read every topic's messages.
 """
+import sqlite3
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -203,6 +204,45 @@ async def test_backfill_of_a_topic_indexes_only_that_topics_history(arr_app, fil
     assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert await _movie_search(arr_app, tmdbid=str(PA_NEGRE_TMDB)) == set()
     assert await _review(arr_app) == []
+
+
+PRE_TOPICS_CHANNELS = """CREATE TABLE channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, chat_id INTEGER NOT NULL UNIQUE, title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'tv', imdb_id TEXT, imdb_title TEXT,
+  weekdays TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6', poll_minutes INTEGER NOT NULL DEFAULT 15,
+  enabled INTEGER NOT NULL DEFAULT 1, last_scanned_at INTEGER DEFAULT 0,
+  last_message_id INTEGER DEFAULT 0, created_at INTEGER NOT NULL,
+  language TEXT NOT NULL DEFAULT 'cat', fallback_quality TEXT NOT NULL DEFAULT '1080p',
+  tvdb_id INTEGER, tmdb_id INTEGER)"""
+
+
+def _upgrade_from_a_pre_topics_db(dbfile: str, *rows: tuple[int, int, str, str]) -> None:
+    """Make the DB look like v1.0.1's, holding sources (id, chat_id, title, kind),
+    then start the app's schema init on it as an upgrade does."""
+    from app import db
+
+    with sqlite3.connect(dbfile) as c:
+        c.execute("DROP TABLE channels")
+        c.execute(PRE_TOPICS_CHANNELS)
+        c.executemany("INSERT INTO channels(id,chat_id,title,kind,created_at) VALUES(?,?,?,?,0)", rows)
+    db.init()
+
+
+@pytest.mark.asyncio
+async def test_a_source_added_before_topics_existed_still_scans_and_is_found(arr_app, fresh_db, films):
+    (await arr_app.http.patch("/api/settings", json={"tmdb_key": API_KEY})).raise_for_status()
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Pel·lícules HD",))
+    _upgrade_from_a_pre_topics_db(fresh_db, (7, FORUM, "Anime en català", "movie"))
+    arr_app.telegram.post(FORUM, **THEORY_POST, topic=forum.topic_id("Pel·lícules HD"))
+
+    [old] = await _listed(arr_app)
+    await arr_app.scan(old["id"])
+    topic = await arr_app.add_channel(FORUM, kind="movie", topic_id=forum.topic_id("Pel·lícules HD"))
+
+    assert (old["id"], old["topic_id"], old["topic_title"]) == (7, None, None)
+    assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
+    assert topic["id"] > 7
+    assert {c["id"] for c in await _listed(arr_app)} == {7, topic["id"]}
 
 
 MERLI_TMDB, MERLI_TVDB = 61662, 297571
