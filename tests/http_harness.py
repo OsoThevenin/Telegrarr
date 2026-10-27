@@ -125,9 +125,14 @@ class FakeTelegram:
         self._next_doc_id = 1
         self._downloads_open = asyncio.Event()
         self._downloads_open.set()
+        self._hold_partial = False
 
-    def hold_downloads(self) -> None:
-        """Block file transfers (they stay in-flight) until :meth:`release_downloads`."""
+    def hold_downloads(self, *, partial: bool = False) -> None:
+        """Block file transfers (they stay in-flight) until :meth:`release_downloads`.
+
+        With ``partial``, a held transfer first writes its first byte, leaving a
+        partial file on disk the way an interrupted real transfer does."""
+        self._hold_partial = partial
         self._downloads_open.clear()
 
     def release_downloads(self) -> None:
@@ -326,6 +331,9 @@ class FakeTelegram:
 
     async def download_media(self, message: FakeMessage, file: str | None = None,
                              progress_callback: Callable[[int, int], Any] | None = None) -> str:
+        if self._hold_partial and not self._downloads_open.is_set():
+            with open(file, "wb") as fh:
+                fh.write(self.channels[message.chat_id].payloads[message.id][:1])
         await self._downloads_open.wait()
         data = self.channels[message.chat_id].payloads[message.id]
         with open(file, "wb") as fh:
