@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 1.0.1 — Bare-number episodes (2026-10-27)
 
 ### Fixed
 - Series files that name the episode only with a bare number after the show name
