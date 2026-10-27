@@ -40,6 +40,10 @@ history (this consistency is the single most common shim failure — verified co
    test wants ≥1 result in category 2000; that's content, not a protocol issue.
 4. **API key** is shared with the *arr apps (Settings → Sonarr/Radarr/Prowlarr card). It is
    embedded in feed URLs, so run Telegrarr on a trusted LAN or behind TLS.
+5. **Removing from history in the *arr app** (e.g. "Remove failed downloads") only hides a
+   finished item from the SABnzbd history Telegrarr reports. The row stays in Telegrarr's
+   Downloads view and files are never deleted, whatever `del_files` says. Deleting a queued or
+   downloading item cancels it.
 
 ## How to wire it up
 

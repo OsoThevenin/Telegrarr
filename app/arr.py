@@ -200,6 +200,33 @@ def parse_ref(text):
 
 
 # ── SABnzbd-compatible download client ────────────────────────────────
+# Download ids handed to the *arr ("nzo ids") are built and parsed only here.
+NZO_PREFIX = "telearr"
+_NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)$")
+HIDEABLE_STATUSES = ("failed", "cancelled", "completed")   # finished: a history delete hides them
+
+
+def nzo_id(download_id: int) -> str:
+    """The download id Sonarr/Radarr track a download row by."""
+    return f"{NZO_PREFIX}{download_id}"
+
+
+def parse_nzo(nzo) -> int | None:
+    """The download row id in an nzo id, or None when it isn't one of ours."""
+    m = _NZO_RE.match(str(nzo or "").strip())
+    return int(m.group(1)) if m else None
+
+
+def hide_from_history(download_id: int) -> bool:
+    """Leave a finished row out of the history reported to the *arr; the row and
+    its files stay. False when the row is missing or not finished."""
+    marks = ",".join("?" * len(HIDEABLE_STATUSES))
+    with db.conn() as c:
+        cur = c.execute(f"UPDATE downloads SET arr_hidden=1 WHERE id=? AND status IN ({marks})",
+                        (download_id, *HIDEABLE_STATUSES))
+    return cur.rowcount > 0
+
+
 def sab_categories():
     return ["*", "tv", "movies", "other"]
 
@@ -252,7 +279,7 @@ def sab_queue():
         prog = r["progress"] or 0
         left = size * (1 - prog)
         slots.append({
-            "nzo_id": f"telearr{r['id']}",
+            "nzo_id": nzo_id(r["id"]),
             "filename": (r["save_path"] or r["file_name"] or "").split("/")[-1],
             "cat": category_for(r["kind"]),
             "storage": storage_path(r["save_path"]),
@@ -270,7 +297,7 @@ def sab_queue():
 def sab_history(limit=100):
     with db.conn() as c:
         rows = c.execute("""SELECT d.*, ch.kind FROM downloads d JOIN channels ch ON ch.id = d.channel_id
-                            WHERE d.status IN ('completed','failed') ORDER BY d.id DESC LIMIT ?""",
+                            WHERE d.status IN ('completed','failed') AND d.arr_hidden = 0 ORDER BY d.id DESC LIMIT ?""",
                          (limit,)).fetchall()
     slots = []
     for r in rows:
@@ -278,7 +305,7 @@ def sab_history(limit=100):
         storage = storage_path(r["save_path"])
         name = (r["save_path"] or r["file_name"] or "").split("/")[-1]
         slots.append({
-            "nzo_id": f"telearr{r['id']}",
+            "nzo_id": nzo_id(r["id"]),
             "name": name, "nzb_name": r["file_name"] or name,
             "category": category_for(r["kind"]),
             "status": "Completed" if ok else "Failed",
