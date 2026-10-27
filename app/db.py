@@ -156,6 +156,7 @@ COLUMN_MIGRATIONS = (
     ("channels", "topic_title", "TEXT"),
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
+    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),     # bumped on each re-queue of a stopped row
 )
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 

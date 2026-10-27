@@ -427,13 +427,13 @@ async def _single_action(action: str, dl_id: int) -> bool:
     return await _retry(row)
 
 
-RETRYABLE = ("failed", "cancelled")
+RETRYABLE = scanner.STOPPED_STATUSES
 
 
 async def _retry(row) -> bool:
     """Re-queue a stopped download. Only a failed or cancelled row is
-    re-queued; the status-conditional UPDATE keeps racing requests from
-    resetting a row that is already queued or downloading."""
+    re-queued, as a new attempt; the status-conditional UPDATE keeps racing
+    requests from resetting a row that is already queued or downloading."""
     if row["status"] not in RETRYABLE:
         return False
     client = get_client()
@@ -443,10 +443,7 @@ async def _retry(row) -> bool:
     if not msg:
         return False
     with db.conn() as c:
-        requeued = c.execute(
-            "UPDATE downloads SET status='queued', error=NULL, progress=0, retry_count=0 "
-            f"WHERE id=? AND status IN ({','.join('?' * len(RETRYABLE))})",
-            (row["id"], *RETRYABLE)).rowcount
+        requeued = scanner.requeue_stopped(c, row["id"])
     if not requeued:
         return False
     scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
@@ -692,19 +689,22 @@ async def newznab_nzb(id: str = "", apikey: str = ""):
 async def _sab_add(cid, mid):
     if not cid or not mid:
         return None
-    dlid = await scanner.grab_message(cid, mid)
-    return arr.nzo_id(dlid) if dlid else None
+    grabbed = await scanner.grab_message(cid, mid)
+    return arr.nzo_id(*grabbed) if grabbed else None
 
 
 def _sab_delete(nzo):
     """A finished row is only hidden from *arr history (never its files, whatever
-    del_files says); a queued/downloading one is cancelled."""
-    dlid = arr.parse_nzo(nzo)
-    if dlid is None or arr.hide_from_history(dlid):
+    del_files says); a queued/downloading one is cancelled. An id from an earlier
+    attempt changes nothing."""
+    ref = arr.parse_nzo(nzo)
+    if ref is None or arr.hide_from_history(*ref) or not arr.is_current_attempt(*ref):
         return
+    dlid, attempt = ref
     scanner.cancel_download(dlid)
     with db.conn() as c:
-        c.execute("UPDATE downloads SET status='cancelled' WHERE id=? AND status IN ('queued','downloading')", (dlid,))
+        c.execute("UPDATE downloads SET status='cancelled' "
+                  "WHERE id=? AND attempt=? AND status IN ('queued','downloading')", (dlid, attempt))
 
 
 async def _sab(request: Request):
