@@ -40,3 +40,66 @@ async def test_retrying_a_downloading_row_leaves_it_downloading(arr_app):
         ("downloading", before["progress"], before["started_at"])
     arr_app.telegram.release_downloads()
     await eventually(lambda: _status(arr_app, FILE_1, "completed"))
+
+
+async def _grab_failed(arr_app, url: str, episode: int) -> tuple[dict, bytes]:
+    """Grab ``url`` while episode ``episode``'s file can't be fetched; return the
+    failed row and the payload to put back so a retry can succeed."""
+    channel = arr_app.telegram.channels[CHAT]
+    mid = next(m.id for m in channel.messages.values() if f"S01E{episode:02d}" in m.message)
+    payload = channel.payloads.pop(mid)
+    await arr_app.sab(mode="addurl", name=url, cat="tv")
+    failed = await eventually(lambda: _status(arr_app, f"The.Show.S01E{episode:02d}.mkv", "failed"))
+    return failed, payload
+
+
+def _restore(arr_app, row: dict, payload: bytes) -> None:
+    arr_app.telegram.channels[CHAT].payloads[row["message_id"]] = payload
+
+
+@pytest.mark.asyncio
+async def test_bulk_retry_re_queues_only_the_failed_row(arr_app):
+    url_1, url_2 = await arr_app.publish_episodes(CHAT, "The Show", 1, 2)
+    failed, payload = await _grab_failed(arr_app, url_1, 1)
+    _restore(arr_app, failed, payload)
+    arr_app.telegram.hold_downloads()
+    await arr_app.sab(mode="addurl", name=url_2, cat="tv")
+    downloading = await eventually(lambda: _status(arr_app, FILE_2, "downloading"))
+
+    r = await arr_app.http.post("/api/downloads/bulk",
+                                json={"action": "retry", "ids": [failed["id"], downloading["id"]]})
+
+    assert r.raise_for_status().json() == {"ok": True, "count": 1}
+    after = await arr_app.download(FILE_2)
+    assert (after["status"], after["progress"], after["started_at"]) == \
+        ("downloading", downloading["progress"], downloading["started_at"])
+    assert (await arr_app.download(FILE_1))["status"] in ("queued", "downloading")
+    arr_app.telegram.release_downloads()
+    await eventually(lambda: _status(arr_app, FILE_1, "completed"))
+    await eventually(lambda: _status(arr_app, FILE_2, "completed"))
+
+
+@pytest.mark.asyncio
+async def test_retrying_a_failed_row_downloads_it_to_completion(arr_app):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    failed, payload = await _grab_failed(arr_app, url, 1)
+    _restore(arr_app, failed, payload)
+
+    r = await arr_app.http.post(f"/api/downloads/{failed['id']}/retry")
+
+    assert r.raise_for_status().json() == {"ok": True}
+    await eventually(lambda: _status(arr_app, FILE_1, "completed"))
+
+
+@pytest.mark.asyncio
+async def test_retrying_a_cancelled_row_re_queues_it(arr_app):
+    [held] = await _grab_held(arr_app, 1)
+    (await arr_app.http.post(f"/api/downloads/{held['id']}/cancel")).raise_for_status()
+    await eventually(lambda: _status(arr_app, FILE_1, "cancelled"))
+
+    r = await arr_app.http.post(f"/api/downloads/{held['id']}/retry")
+
+    assert r.raise_for_status().json() == {"ok": True}
+    assert (await arr_app.download(FILE_1))["status"] in ("queued", "downloading")
+    arr_app.telegram.release_downloads()
+    await eventually(lambda: _status(arr_app, FILE_1, "completed"))
