@@ -83,6 +83,18 @@ async def test_a_topic_source_is_stored_and_listed_with_its_topic(arr_app):
 
 
 @pytest.mark.asyncio
+async def test_a_whole_chat_source_records_whether_its_chat_is_a_forum_group(arr_app):
+    arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Pel·lícules HD",))
+    arr_app.telegram.add_channel(MERLI, "Merlí [CAT] 1080p")
+
+    await arr_app.add_channel(FORUM)
+    await arr_app.add_channel(MERLI)
+
+    listed = {r["chat_id"]: r["forum"] for r in await _listed(arr_app)}
+    assert listed == {FORUM: 1, MERLI: 0}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("topic_id", ["Novetats", 0, -3, True])
 async def test_a_topic_id_that_is_not_a_positive_number_is_rejected(arr_app, topic_id):
     arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Novetats",))
@@ -239,7 +251,7 @@ async def test_a_source_added_before_topics_existed_still_scans_and_is_found(arr
     await arr_app.scan(old["id"])
     topic = await arr_app.add_channel(FORUM, kind="movie", topic_id=forum.topic_id("Pel·lícules HD"))
 
-    assert (old["id"], old["topic_id"], old["topic_title"]) == (7, None, None)
+    assert (old["id"], old["topic_id"], old["topic_title"], old["forum"]) == (7, None, None, 0)
     assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert topic["id"] > 7
     assert {c["id"] for c in await _listed(arr_app)} == {7, topic["id"]}
@@ -271,3 +283,33 @@ async def test_two_topics_of_one_group_are_separate_sources_of_different_kinds(a
     assert {t.split(".CAT.")[0] for t in _titles(r.raise_for_status().text)} == {"Merlí.S01E01"}
     assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert await _review(arr_app) == []
+
+
+@pytest.mark.asyncio
+async def test_a_review_entry_from_a_topic_names_its_group_and_topic(arr_app, films):
+    forum, source = await _film_forum(arr_app)
+    arr_app.telegram.post(FORUM, text="Una pel·lícula sense any", file_name="sense_any.mkv",
+                          topic=forum.topic_id("Pel·lícules HD"))
+
+    await arr_app.scan(source["id"])
+
+    [entry] = await _review(arr_app)
+    assert (entry["channel_title"], entry["topic_title"]) == ("Anime en català", "Pel·lícules HD")
+
+
+@pytest.mark.asyncio
+async def test_a_download_from_a_topic_names_its_group_and_topic(arr_app):
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Sèries HD",))
+    series_tid = forum.topic_id("Sèries HD")
+    arr_app.telegram.post(FORUM, text="The Show S01E01 1080p", file_name="The.Show.S01E01.mkv",
+                          topic=series_tid)
+    source = await arr_app.add_channel(FORUM, kind="tv", topic_id=series_tid, topic_title="Sèries HD")
+    await arr_app.scan(source["id"])
+    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
+                                                      "q": "Anime"})
+    [item] = ET.fromstring(r.raise_for_status().text).findall("./channel/item")
+
+    await arr_app.sab(mode="addurl", name=item.find("enclosure").attrib["url"], cat="tv")
+    row = await eventually(lambda: arr_app.download("The.Show.S01E01.mkv"))
+
+    assert (row["channel_title"], row["topic_title"]) == ("Anime en català", "Sèries HD")

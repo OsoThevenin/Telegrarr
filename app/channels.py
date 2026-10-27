@@ -72,27 +72,33 @@ def _source_id(c, chat_id: int, topic_id: int | None) -> int | None:
 
 def upsert(chat_id: int, title: str, *, kind: str = "tv", weekdays: str = ALL_WEEKDAYS,
            poll_minutes: int, release: dict | None = None,
-           topic_id: int | None = None, topic_title: str | None = None) -> dict:
+           topic_id: int | None = None, topic_title: str | None = None,
+           forum: bool | None = None) -> dict:
     """Add the source for (chat, topic), or re-add it in place (same id, scan progress
-    and series mapping kept; given settings win). Returns its row."""
+    and series mapping kept; given settings win). `forum`: whether the chat is a
+    forum group (None: unknown, the stored flag is kept). Returns its row."""
     release = release or {}
     language, fallback = release.get("language"), release.get("fallback_quality")
+    forum_flag = None if forum is None else int(bool(forum))
     with db.conn() as c:
         cid = _source_id(c, chat_id, topic_id)
         if cid is None:
             cid = c.execute("""INSERT INTO channels
                (chat_id,topic_id,topic_title,title,kind,weekdays,poll_minutes,enabled,created_at,
-                language,fallback_quality)
-               VALUES(?,?,?,?,?,?,?,1,?,?,?)""",
-               (chat_id, topic_id, topic_title, title, kind, weekdays, poll_minutes, int(time.time()),
-                language or DEFAULT_LANGUAGE, fallback or DEFAULT_FALLBACK_QUALITY)).lastrowid
+                language,fallback_quality,forum)
+               VALUES(?,?,?,?,?,?,?,1,?,?,?,?)""",
+               (chat_id, topic_id, topic_title, title, kind, weekdays, poll_minutes,
+                int(time.time()), language or DEFAULT_LANGUAGE,
+                fallback or DEFAULT_FALLBACK_QUALITY, forum_flag or 0)).lastrowid
         else:
             c.execute("""UPDATE channels SET title=?, kind=?, weekdays=?, poll_minutes=?, enabled=1,
                            topic_title=COALESCE(?, topic_title),
                            language=COALESCE(?, language),
-                           fallback_quality=COALESCE(?, fallback_quality)
+                           fallback_quality=COALESCE(?, fallback_quality),
+                           forum=COALESCE(?, forum)
                          WHERE id=?""",
-                      (title, kind, weekdays, poll_minutes, topic_title, language, fallback, cid))
+                      (title, kind, weekdays, poll_minutes, topic_title, language, fallback,
+                       forum_flag, cid))
         return dict(c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone())
 
 

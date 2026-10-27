@@ -154,6 +154,7 @@ COLUMN_MIGRATIONS = (
     ("downloads", "error_params", "TEXT"),
     ("channels", "topic_id", "INTEGER"),     # forum topic sources: the topic's id (NULL: whole chat)
     ("channels", "topic_title", "TEXT"),
+    ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
 )
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 

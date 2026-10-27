@@ -174,7 +174,7 @@ def _live_snapshot():
         stats["total_size"] = c.execute(
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
         active = [dict(r) for r in c.execute(
-            "SELECT d.*, ch.title AS channel_title FROM downloads d "
+            "SELECT d.*, ch.title AS channel_title, ch.topic_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
             "WHERE d.status IN ('downloading','queued') ORDER BY d.id")]
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
@@ -316,16 +316,18 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         poll = settings.poll_minutes(payload.get("poll_minutes", channels.default_poll_minutes()))
     except settings.SettingRejected as e:
         raise _keyed(400, e)
+    forum = None     # unknown until Telegram says
     try:
         client = get_client()
         if not client.is_connected():
             await client.connect()
         ent = await client.get_entity(chat_id)
         title = getattr(ent, "title", None) or title
+        forum = bool(getattr(ent, "forum", False))
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
-    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release,
-                           **topic)
+    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
+                           release=release, forum=forum, **topic)
 
 
 @app.patch("/api/channels/{cid}")
@@ -381,7 +383,8 @@ async def api_downloads(limit: int = 100, status: str = "",
     limit = max(1, min(limit, 1000))
     # season/episode as published (a resolved two-part episode carries the
     # channel's own number in parsed_episode and where it came from in episode_source)
-    q = ("SELECT d.*, c.title AS channel_title, r.season, r.episode, r.parsed_episode, r.episode_source "
+    q = ("SELECT d.*, c.title AS channel_title, c.topic_title, "
+         "r.season, r.episode, r.parsed_episode, r.episode_source "
          "FROM downloads d LEFT JOIN channels c ON c.id=d.channel_id "
          "LEFT JOIN releases r ON r.channel_id=d.channel_id AND r.message_id=d.message_id")
     args = []
