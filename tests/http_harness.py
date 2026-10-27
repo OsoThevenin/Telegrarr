@@ -20,13 +20,15 @@ from typing import Any, Callable
 
 import httpx
 from telethon import utils
-from telethon.errors import FloodWaitError
+from telethon.errors import ChannelForumMissingError, FloodWaitError, MsgIdInvalidError
 from telethon.tl import types
-from telethon.tl.functions.messages import CheckChatInviteRequest
+from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 
 BASE_URL = "http://telegrarr.test"
 POLL_INTERVAL_S = 0.02
 POLL_TIMEOUT_S = 5.0
+GENERAL_TOPIC_ID = 1          # Telegram's id for a forum group's General topic
+GENERAL_TOPIC_TITLE = "General"
 
 
 # ── fake Telegram ─────────────────────────────────────────────────────
@@ -55,15 +57,39 @@ class FakeMessage:
     video: None = None
     entities: tuple = ()
     reply_markup: Any = None
+    reply_to: Any = None        # MessageReplyHeader(forum_topic=True, ...) inside a named topic
+    action: Any = None          # set on service messages (forum creation, topic creation)
 
 
 @dataclass
 class FakeChannel:
+    """A chat: a broadcast channel, or (``forum=True``) a forum group whose
+    ``topics`` map each named topic's id (its creation message id) to its title."""
     chat_id: int
     title: str
     username: str | None = None
     messages: dict[int, FakeMessage] = field(default_factory=dict)
     payloads: dict[int, bytes] = field(default_factory=dict)
+    forum: bool = False
+    topics: dict[int, str] = field(default_factory=dict)
+
+    def topic_id(self, title: str) -> int:
+        """The id of the named topic ``title`` (``GENERAL_TOPIC_ID`` for General)."""
+        if title == GENERAL_TOPIC_TITLE:
+            return GENERAL_TOPIC_ID
+        return next(tid for tid, t in self.topics.items() if t == title)
+
+    def next_message_id(self) -> int:
+        return max(self.messages, default=0) + 1
+
+    def topic_header(self, topic: int | None) -> types.MessageReplyHeader | None:
+        """How Telegram marks a message posted in ``topic``: named topics carry a
+        forum-topic reply header; General (or no topic) carries none."""
+        if topic is None or topic == GENERAL_TOPIC_ID:
+            return None
+        if topic not in self.topics:
+            raise AssertionError(f"chat {self.chat_id} has no topic {topic}")
+        return types.MessageReplyHeader(forum_topic=True, reply_to_msg_id=topic)
 
 
 class FakeTelegram:
@@ -101,29 +127,52 @@ class FakeTelegram:
         self.channels[chat_id] = channel
         return channel
 
+    def add_forum(self, chat_id: int, title: str, *, topics: tuple[str, ...] = (),
+                  username: str | None = None) -> FakeChannel:
+        """A forum group with the named ``topics`` (plus the implicit General topic).
+
+        As in Telegram, message 1 is the group's creation and each topic's id is
+        the id of the service message that created it."""
+        forum = FakeChannel(chat_id=chat_id, title=title, username=username, forum=True)
+        self.channels[chat_id] = forum
+        self._post_service(forum, types.MessageActionChannelCreate(title=title))
+        for name in topics:
+            created = self._post_service(forum, types.MessageActionTopicCreate(title=name, icon_color=0))
+            forum.topics[created.id] = name
+        return forum
+
+    def _post_service(self, chat: FakeChannel, action: Any) -> FakeMessage:
+        msg = FakeMessage(id=chat.next_message_id(), chat_id=chat.chat_id, message="", document=None,
+                          action=action)
+        chat.messages[msg.id] = msg
+        return msg
+
     def post(self, chat_id: int, *, text: str, file_name: str, content: bytes = b"x" * 1024,
-             message_id: int | None = None) -> FakeMessage:
-        """Post a media message with ``content`` as its file bytes."""
+             message_id: int | None = None, topic: int | None = None) -> FakeMessage:
+        """Post a media message with ``content`` as its file bytes, in forum
+        ``topic`` if given (None or ``GENERAL_TOPIC_ID``: the General topic)."""
         channel = self.channels[chat_id]
-        mid = message_id if message_id is not None else max(channel.messages, default=0) + 1
+        mid = message_id if message_id is not None else channel.next_message_id()
         doc = FakeDocument(id=self._next_doc_id, size=len(content), file_name=file_name)
         self._next_doc_id += 1
-        msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=doc)
+        msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=doc,
+                          reply_to=channel.topic_header(topic))
         channel.messages[mid] = msg
         channel.payloads[mid] = content
         return msg
 
     def post_text(self, chat_id: int, text: str, *, urls: tuple[str, ...] = (),
-                  buttons: tuple[str, ...] = ()) -> FakeMessage:
-        """Post a text-only message. ``urls`` become hidden text-link entities and
-        ``buttons`` inline URL buttons, the two other places Telegram carries links."""
+                  buttons: tuple[str, ...] = (), topic: int | None = None) -> FakeMessage:
+        """Post a text-only message (in forum ``topic``, as for :meth:`post`).
+        ``urls`` become hidden text-link entities and ``buttons`` inline URL
+        buttons, the two other places Telegram carries links."""
         channel = self.channels[chat_id]
-        mid = max(channel.messages, default=0) + 1
+        mid = channel.next_message_id()
         entities = tuple(types.MessageEntityTextUrl(offset=0, length=1, url=u) for u in urls)
         markup = types.ReplyInlineMarkup(rows=[types.KeyboardButtonRow(
             buttons=[types.KeyboardButtonUrl(text="open", url=u) for u in buttons])]) if buttons else None
         msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=None,
-                          entities=entities, reply_markup=markup)
+                          entities=entities, reply_markup=markup, reply_to=channel.topic_header(topic))
         channel.messages[mid] = msg
         return msg
 
@@ -134,7 +183,8 @@ class FakeTelegram:
     def _entity(self, channel: FakeChannel) -> types.Channel:
         bare_id, _ = utils.resolve_id(channel.chat_id)
         return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
-                             broadcast=True, access_hash=1, username=channel.username)
+                             broadcast=not channel.forum, megagroup=channel.forum, forum=channel.forum,
+                             access_hash=1, username=channel.username)
 
     def _lookup(self, query: int | str) -> None:
         self.lookups.append(query)
@@ -167,6 +217,8 @@ class FakeTelegram:
 
     async def __call__(self, request: Any) -> Any:
         self.requests.append(request)
+        if isinstance(request, GetForumTopicsRequest):
+            return self._forum_topics(request)
         if not isinstance(request, CheckChatInviteRequest):
             raise AssertionError(f"unexpected Telegram request {type(request).__name__}")
         self._lookup(request.hash)
@@ -177,9 +229,33 @@ class FakeTelegram:
             return types.ChatInvite(title=target, photo=types.PhotoEmpty(id=0), participants_count=0, color=0)
         return types.ChatInviteAlready(chat=self._entity(self.channels[target]))
 
-    async def iter_messages(self, chat_id: int, limit: int | None = None):
+    def _forum_topics(self, request: GetForumTopicsRequest) -> types.messages.ForumTopics:
+        """Answer the forum-topics request: General first, then named topics in
+        creation order. A chat that isn't a forum is refused, as Telegram does."""
+        chat = self.channels[utils.get_peer_id(request.peer)]
+        if not chat.forum:
+            raise ChannelForumMissingError(request=request)
+        listed = [(GENERAL_TOPIC_ID, GENERAL_TOPIC_TITLE), *chat.topics.items()][:request.limit]
+        topics = [types.ForumTopic(
+            id=tid, date=None, peer=types.PeerChannel(utils.resolve_id(chat.chat_id)[0]), title=title,
+            icon_color=0, top_message=tid, read_inbox_max_id=0, read_outbox_max_id=0, unread_count=0,
+            unread_mentions_count=0, unread_reactions_count=0, unread_poll_votes_count=0,
+            from_id=types.PeerUser(0), notify_settings=types.PeerNotifySettings()) for tid, title in listed]
+        return types.messages.ForumTopics(count=1 + len(chat.topics), topics=topics, messages=[],
+                                          chats=[], users=[], pts=0)
+
+    def _in_topic(self, chat: FakeChannel, topic: int) -> Callable[[FakeMessage], bool]:
+        """Telethon's ``reply_to=topic`` filter: the topic's posts, not its creation
+        message. Like Telegram, it can't read the General topic or a non-forum chat."""
+        if not chat.forum or topic not in chat.topics:
+            raise MsgIdInvalidError(request=None)
+        return lambda m: m.reply_to is not None and m.reply_to.reply_to_msg_id == topic
+
+    async def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None):
         self.history_reads.append(chat_id)
-        msgs = sorted(self.channels[chat_id].messages.values(), key=lambda m: -m.id)
+        chat = self.channels[chat_id]
+        keep = self._in_topic(chat, reply_to) if reply_to is not None else (lambda _m: True)
+        msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
         for msg in msgs[:limit] if limit else msgs:
             yield msg
 
