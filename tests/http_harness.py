@@ -118,6 +118,8 @@ class FakeTelegram:
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
+        self.flood_on_topics_page: int | None = None  # raise FloodWaitError serving this topics page (1 = first)
+        self.topics_pages_served = 0
         self.saved_messages: list[str] = []          # texts sent to the account's Saved Messages
         self.inaccessible: set[int] = set()          # chat ids the account lost access to
         self._next_doc_id = 1
@@ -272,11 +274,18 @@ class FakeTelegram:
 
     def _forum_topics(self, request: GetForumTopicsRequest) -> types.messages.ForumTopics:
         """Answer the forum-topics request: General first, then named topics in
-        creation order. A chat that isn't a forum is refused, as Telegram does."""
+        creation order, one page of ``limit`` topics after ``offset_topic``. A chat
+        that isn't a forum is refused, as Telegram does."""
         chat = self.channels[utils.get_peer_id(request.peer)]
         if not chat.forum:
             raise ChannelForumMissingError(request=request)
-        listed = [(GENERAL_TOPIC_ID, GENERAL_TOPIC_TITLE), *chat.topics.items()][:request.limit]
+        self.topics_pages_served += 1
+        if self.topics_pages_served == self.flood_on_topics_page:
+            raise FloodWaitError(request=request, capture=self.flood_seconds)
+        every = [(GENERAL_TOPIC_ID, GENERAL_TOPIC_TITLE), *chat.topics.items()]
+        # a later page starts after its offset_topic (the previous page's last topic)
+        start = next((i + 1 for i, (tid, _) in enumerate(every) if tid == request.offset_topic), 0)
+        listed = every[start:start + request.limit]
         topics = [types.ForumTopic(
             id=tid, date=None, peer=types.PeerChannel(utils.resolve_id(chat.chat_id)[0]), title=title,
             icon_color=0, top_message=tid, read_inbox_max_id=0, read_outbox_max_id=0, unread_count=0,

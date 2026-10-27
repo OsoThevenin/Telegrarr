@@ -3,6 +3,7 @@ import re
 import time
 import asyncio
 import logging
+from collections.abc import Callable
 from urllib.parse import urlparse
 from telethon import TelegramClient, types, utils
 from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
@@ -250,26 +251,50 @@ async def _general_messages(messages):
             yield msg
 
 
-FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request
+FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request (Telegram's page size)
+FORUM_TOPICS_MAX = 500     # topics listed at most, so a huge forum costs a bounded number of requests
 
 
-async def list_topics(c, chat_id: int) -> list[dict] | None:
+def _no_check() -> None:
+    return None
+
+
+def _next_page_offsets(res, last) -> dict:
+    """GetForumTopics offsets for the page after topic `last`: the date and id of
+    its top message, and its own id."""
+    top = next((m for m in res.messages if getattr(m, "id", None) == last.top_message), None)
+    return {"offset_date": getattr(top, "date", None), "offset_id": last.top_message,
+            "offset_topic": last.id}
+
+
+async def list_topics(c, chat_id: int, *,
+                      before_request: Callable[[], None] = _no_check) -> list[dict] | None:
     """A forum group's topics on client `c` as `{topic_id, title}`, in the order
     Telegram gives them (General, id GENERAL_TOPIC_ID, included: it is a source
     like any other topic); None when the chat isn't a forum group.
 
-    One forum-topics request at most (none for a non-forum chat). Telegram errors
+    Pages through the forum's topics, FORUM_TOPICS_LIMIT at a time, up to
+    FORUM_TOPICS_MAX. `before_request` runs before every Telegram request (the
+    caller's FloodWait gate check; it raises to stop). Telegram errors
     (FloodWaitError included) propagate to the caller."""
+    before_request()
     ent = await c.get_entity(chat_id)
     if not getattr(ent, "forum", False):
         return None
-    try:
-        res = await c(GetForumTopicsRequest(peer=ent, offset_date=None, offset_id=0,
-                                            offset_topic=0, limit=FORUM_TOPICS_LIMIT))
-    except ChannelForumMissingError:
-        return None
-    return [{"topic_id": t.id, "title": t.title} for t in res.topics
-            if isinstance(t, types.ForumTopic)]
+    found: dict[int, str] = {}
+    offsets = {"offset_date": None, "offset_id": 0, "offset_topic": 0}
+    while len(found) < FORUM_TOPICS_MAX:
+        before_request()
+        try:
+            res = await c(GetForumTopicsRequest(peer=ent, limit=FORUM_TOPICS_LIMIT, **offsets))
+        except ChannelForumMissingError:
+            return None
+        page = [t for t in res.topics if isinstance(t, types.ForumTopic) and t.id not in found]
+        found = {**found, **{t.id: t.title for t in page}}
+        if not page or len(res.topics) < FORUM_TOPICS_LIMIT or len(found) >= res.count:
+            break
+        offsets = _next_page_offsets(res, page[-1])
+    return [{"topic_id": tid, "title": title} for tid, title in found.items()][:FORUM_TOPICS_MAX]
 
 
 async def list_dialogs(limit=250):

@@ -1,11 +1,11 @@
 # app/routes/topics.py — a forum group's topics, for the add-channel topic picker.
 #
-# Account safety: a closed FloodWait gate refuses the listing without asking
-# Telegram, and a FloodWait while listing trips the shared gate.
+# Account safety: the FloodWait gate is checked before every Telegram request
+# of the listing (a closed gate refuses it without asking Telegram), and a
+# FloodWait while listing trips the shared gate.
 import logging
-import time
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException
 from telethon.errors import FloodWaitError
 
 from .. import auth, downloader, tg
@@ -16,9 +16,8 @@ router = keyed_router()
 
 
 def _gate_check() -> None:
-    wait = downloader.flood_gate.closed_until - time.time()
-    if wait > 0:
-        raise bad(TOO_MANY, "err.topics.rate_limit_active", minutes=max(1, round(wait / 60)))
+    if minutes := downloader.flood_gate.minutes_closed():
+        raise bad(TOO_MANY, "err.topics.rate_limit_active", minutes=minutes)
 
 
 @router.get("/api/telegram/topics")
@@ -29,9 +28,10 @@ async def api_telegram_topics(chat_id: LooseId = None, user=Depends(auth.require
     client = await tg.authorized_client()
     if not client:
         raise bad(CONFLICT, "err.tg.not_connected")
-    _gate_check()
     try:
-        topics = await tg.list_topics(client, cid)
+        topics = await tg.list_topics(client, cid, before_request=_gate_check)
+    except HTTPException:
+        raise
     except FloodWaitError as e:
         await downloader.flood_gate.trip(e.seconds)
         raise bad(TOO_MANY, "err.topics.rate_limited") from e

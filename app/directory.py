@@ -145,9 +145,7 @@ def forget_scans() -> None:
 
 
 def _gate_check(now: float) -> None:
-    closed_until = downloader.flood_gate.closed_until
-    if closed_until > now:
-        minutes = max(1, round((closed_until - now) / 60))
+    if minutes := downloader.flood_gate.minutes_closed(now):
         raise ScanRefused("err.directory.rate_limit_active", minutes=minutes)
 
 

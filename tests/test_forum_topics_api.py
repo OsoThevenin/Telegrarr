@@ -108,3 +108,45 @@ async def test_a_non_numeric_chat_id_is_refused(arr_app):
 
     assert r.status_code == 400
     assert r.json()["detail"]["key"] == "err.channel.chat_id_numeric"
+
+
+def _numbered_topics(n):
+    return tuple(f"Sèrie {i:03d}" for i in range(1, n + 1))
+
+
+@pytest.mark.asyncio
+async def test_a_forum_with_more_topics_than_one_page_lists_every_topic(arr_app):
+    tg = arr_app.telegram
+    tg.add_forum(FORUM, "Arxiu de sèries", topics=_numbered_topics(250))
+
+    r = await _topics(arr_app, FORUM)
+
+    titles = [t["title"] for t in r.raise_for_status().json()["topics"]]
+    assert titles == ["General", *_numbered_topics(250)]
+    assert len(tg.requests) == 3       # pages of 100 topics
+
+
+@pytest.mark.asyncio
+async def test_a_huge_forum_lists_at_most_the_topic_cap(arr_app):
+    from app import tg as tg_module
+
+    arr_app.telegram.add_forum(FORUM, "Arxiu de sèries", topics=_numbered_topics(tg_module.FORUM_TOPICS_MAX + 50))
+
+    r = await _topics(arr_app, FORUM)
+
+    assert len(r.raise_for_status().json()["topics"]) == tg_module.FORUM_TOPICS_MAX
+
+
+@pytest.mark.asyncio
+async def test_a_floodwait_on_a_later_topics_page_closes_the_gate(arr_app):
+    tg = arr_app.telegram
+    tg.add_forum(FORUM, "Arxiu de sèries", topics=_numbered_topics(250))
+    tg.flood_on_topics_page = 2
+
+    first = await _topics(arr_app, FORUM)
+    again = await _topics(arr_app, FORUM)
+
+    assert first.status_code == 429
+    assert first.json()["detail"]["key"] == "err.topics.rate_limited"
+    assert again.json()["detail"]["key"] == "err.topics.rate_limit_active"
+    assert len(tg.requests) == 2       # the closed gate stopped the second listing before Telegram
