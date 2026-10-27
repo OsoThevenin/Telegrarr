@@ -18,6 +18,7 @@ from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
 from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
+from .routes.common import normalize_topic_id as _normalize_topic_id
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -296,7 +297,8 @@ def _release_fields(payload: dict) -> dict:
 
 def _topic_fields(payload: dict) -> dict:
     """The forum topic a new source is restricted to (none: the whole chat)."""
-    return {"topic_id": payload.get("topic_id"), "topic_title": payload.get("topic_title")}
+    title = str(payload.get("topic_title") or "").strip()
+    return {"topic_id": _normalize_topic_id(payload.get("topic_id")), "topic_title": title or None}
 
 
 @app.post("/api/channels")
@@ -304,6 +306,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
         raise _bad(400, "err.channel.chat_id_required")
     release = _release_fields(payload)
+    topic = _topic_fields(payload)
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
@@ -321,7 +324,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
     return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release,
-                           **_topic_fields(payload))
+                           **topic)
 
 
 @app.patch("/api/channels/{cid}")

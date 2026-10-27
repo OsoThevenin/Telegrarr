@@ -6,6 +6,7 @@
  "err.settings.ui_lang": "Idioma desconegut",
  "err.channel.chat_id_required": "Cal indicar el chat_id",
  "err.channel.chat_id_numeric": "El chat_id ha de ser numèric",
+ "err.channel.topic_id_numeric": "El topic_id ha de ser un nombre positiu",
  "err.channel.choice": "{field} ha de ser un d’aquests valors: {choices}",
  "err.downloads.bad_action": "Acció no vàlida",
  "scan.all_started": "S’estan escanejant {n} canals",

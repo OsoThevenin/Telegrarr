@@ -81,6 +81,54 @@ async def test_a_topic_source_is_stored_and_listed_with_its_topic(arr_app):
     assert row["title"] == "Anime en català"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("topic_id", ["Novetats", 0, -3, True])
+async def test_a_topic_id_that_is_not_a_positive_number_is_rejected(arr_app, topic_id):
+    arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Novetats",))
+
+    r = await arr_app.http.post("/api/channels", json={"chat_id": FORUM, "topic_id": topic_id})
+
+    assert r.status_code == 400
+    assert r.json()["detail"]["key"] == "err.channel.topic_id_numeric"
+    assert await _listed(arr_app) == []
+
+
+@pytest.mark.asyncio
+async def test_a_numeric_text_topic_id_is_accepted(arr_app):
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Novetats",))
+    tid = forum.topic_id("Novetats")
+
+    added = await arr_app.add_channel(FORUM, topic_id=str(tid))
+
+    assert added["topic_id"] == tid
+
+
+@pytest.mark.asyncio
+async def test_re_adding_the_same_topic_updates_its_source(arr_app):
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Novetats",))
+    tid = forum.topic_id("Novetats")
+    first = await arr_app.add_channel(FORUM, kind="movie", topic_id=tid, topic_title="Novetats")
+
+    again = await arr_app.add_channel(FORUM, kind="tv", topic_id=tid, topic_title="Novetats")
+
+    [row] = await _listed(arr_app)
+    assert again["id"] == first["id"] == row["id"]
+    assert row["kind"] == "tv"
+
+
+@pytest.mark.asyncio
+async def test_a_whole_chat_source_and_a_topic_source_of_one_group_coexist(arr_app):
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Novetats",))
+    whole = await arr_app.add_channel(FORUM, kind="tv")
+
+    topic = await arr_app.add_channel(FORUM, kind="movie", topic_id=forum.topic_id("Novetats"))
+    whole_again = await arr_app.add_channel(FORUM, kind="tv")
+
+    assert whole_again["id"] == whole["id"] != topic["id"]
+    assert {(c["id"], c["topic_id"]) for c in await _listed(arr_app)} == {
+        (whole["id"], None), (topic["id"], forum.topic_id("Novetats"))}
+
+
 THEORY_TMDB, THEORY_IMDB = 266856, "tt2980516"
 PA_NEGRE_TMDB, PA_NEGRE_IMDB = 50797, "tt1302067"
 
@@ -103,10 +151,10 @@ async def _review(arr_app) -> list[dict]:
     return (await arr_app.http.get("/api/review")).raise_for_status().json()
 
 
-async def _film_forum(arr_app):
+async def _film_forum(arr_app, topics=("Pel·lícules HD", "Novetats")):
     """A forum whose "Pel·lícules HD" topic is a movie source; returns (forum, source)."""
     (await arr_app.http.patch("/api/settings", json={"tmdb_key": API_KEY})).raise_for_status()
-    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Pel·lícules HD", "Novetats"))
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=topics)
     source = await arr_app.add_channel(FORUM, kind="movie", topic_id=forum.topic_id("Pel·lícules HD"),
                                        topic_title="Pel·lícules HD")
     return forum, source
@@ -154,4 +202,32 @@ async def test_backfill_of_a_topic_indexes_only_that_topics_history(arr_app, fil
 
     assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert await _movie_search(arr_app, tmdbid=str(PA_NEGRE_TMDB)) == set()
+    assert await _review(arr_app) == []
+
+
+MERLI_TMDB, MERLI_TVDB = 61662, 297571
+
+
+@pytest.mark.asyncio
+async def test_two_topics_of_one_group_are_separate_sources_of_different_kinds(arr_app, films):
+    films.add_series(MERLI_TMDB, titles={"ca-ES": "Merlí"}, tvdb_id=MERLI_TVDB, imdb_id="tt4807092")
+    forum, movies = await _film_forum(arr_app, topics=("Pel·lícules HD", "Novetats", "Sèries HD"))
+    series_tid = forum.topic_id("Sèries HD")
+    series = await arr_app.add_channel(FORUM, kind="tv", topic_id=series_tid, topic_title="Sèries HD")
+    (await arr_app.http.put(f"/api/channels/{series['id']}/series",
+                            json={"tmdb_id": MERLI_TMDB, "title": "Merlí"})).raise_for_status()
+    arr_app.telegram.post(FORUM, text="Merlí S01E01 1080p", file_name="Merli.S01E01.mkv", topic=series_tid)
+    arr_app.telegram.post(FORUM, text="Merlí S01E02 1080p", file_name="Merli.S01E02.mkv",
+                          topic=forum.topic_id("Novetats"))
+    arr_app.telegram.post(FORUM, **THEORY_POST, topic=forum.topic_id("Pel·lícules HD"))
+
+    await arr_app.scan(series["id"])
+    await arr_app.scan(movies["id"])
+
+    listed = {(c["topic_title"], c["kind"]) for c in await _listed(arr_app)}
+    assert listed == {("Pel·lícules HD", "movie"), ("Sèries HD", "tv")}
+    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
+                                                      "tvdbid": str(MERLI_TVDB)})
+    assert {t.split(".CAT.")[0] for t in _titles(r.raise_for_status().text)} == {"Merlí.S01E01"}
+    assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert await _review(arr_app) == []

@@ -6,6 +6,7 @@
  "err.settings.ui_lang": "Unknown language",
  "err.channel.chat_id_required": "chat_id is required",
  "err.channel.chat_id_numeric": "chat_id must be numeric",
+ "err.channel.topic_id_numeric": "topic_id must be a positive number",
  "err.channel.choice": "{field} must be one of: {choices}",
  "err.downloads.bad_action": "bad action",
  "scan.all_started": "Scanning {n} channel(s)",
