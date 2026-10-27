@@ -279,6 +279,8 @@
  "event.resume_failed": "Resume failed for message {message_id}: {error}",
  "event.scanner_started": "Scanner started",
  "event.scan_failed": "Scan failed for {channel}: {error}",
+ "event.topic_gone": "Can't scan {channel} › {topic}: the topic no longer exists. Remove this source or add another topic.",
+ "event.topic_inaccessible": "Can't scan {channel} › {topic}: this account no longer has access to the group.",
  "event.scan_loop_error": "Scan loop error: {error}",
  "event.pending_review": "Pending review: {file} ({reason})",
  "event.tmdb_lookup_failed": "TMDB lookup failed for {file}: {error}",

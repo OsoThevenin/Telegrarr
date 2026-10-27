@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import httpx
 from telethon import utils
-from telethon.errors import ChannelForumMissingError, FloodWaitError, MsgIdInvalidError
+from telethon.errors import ChannelForumMissingError, ChannelPrivateError, FloodWaitError, MsgIdInvalidError
 from telethon.tl import types
 from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 
@@ -110,6 +110,7 @@ class FakeTelegram:
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
         self.saved_messages: list[str] = []          # texts sent to the account's Saved Messages
+        self.inaccessible: set[int] = set()          # chat ids the account lost access to
         self._next_doc_id = 1
         self._downloads_open = asyncio.Event()
         self._downloads_open.set()
@@ -140,6 +141,24 @@ class FakeTelegram:
             created = self._post_service(forum, types.MessageActionTopicCreate(title=name, icon_color=0))
             forum.topics[created.id] = name
         return forum
+
+    def delete_topic(self, chat_id: int, topic: int) -> None:
+        """Delete a forum topic as Telegram does: the topic and all its messages
+        go, so reading it (``reply_to=topic``) fails with ``MsgIdInvalidError``."""
+        forum = self.channels[chat_id]
+        del forum.topics[topic]
+        forum.messages = {mid: m for mid, m in forum.messages.items()
+                          if mid != topic and not (m.reply_to and m.reply_to.reply_to_msg_id == topic)}
+
+    def lose_access(self, chat_id: int) -> None:
+        """The account left, or was removed from, ``chat_id``: as in Telegram,
+        every read of it (entity, history, messages) raises ``ChannelPrivateError``."""
+        self.inaccessible.add(chat_id)
+
+    def _readable(self, chat_id: int) -> FakeChannel:
+        if chat_id in self.inaccessible:
+            raise ChannelPrivateError(request=None)
+        return self.channels[chat_id]
 
     def _post_service(self, chat: FakeChannel, action: Any) -> FakeMessage:
         msg = FakeMessage(id=chat.next_message_id(), chat_id=chat.chat_id, message="", document=None,
@@ -213,7 +232,7 @@ class FakeTelegram:
             channel = self.channels.get(query)
         if channel is None:
             raise ValueError(f"Cannot find any entity corresponding to {query!r}")
-        return self._entity(channel)
+        return self._entity(self._readable(channel.chat_id))
 
     async def __call__(self, request: Any) -> Any:
         self.requests.append(request)
@@ -253,7 +272,7 @@ class FakeTelegram:
 
     async def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None):
         self.history_reads.append(chat_id)
-        chat = self.channels[chat_id]
+        chat = self._readable(chat_id)
         keep = self._in_topic(chat, reply_to) if reply_to is not None else (lambda _m: True)
         msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
         for msg in msgs[:limit] if limit else msgs:
@@ -264,7 +283,7 @@ class FakeTelegram:
         self.saved_messages.append(text)
 
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
-        return self.channels[chat_id].messages.get(ids)
+        return self._readable(chat_id).messages.get(ids)
 
     async def download_media(self, message: FakeMessage, file: str | None = None,
                              progress_callback: Callable[[int, int], Any] | None = None) -> str:

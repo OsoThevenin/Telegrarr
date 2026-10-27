@@ -279,6 +279,8 @@
  "event.resume_failed": "No s'ha pogut reprendre el missatge {message_id}: {error}",
  "event.scanner_started": "Escàner iniciat",
  "event.scan_failed": "Ha fallat l'escaneig de {channel}: {error}",
+ "event.topic_gone": "No es pot escanejar {channel} › {topic}: el tema ja no existeix. Elimina aquesta font o afegeix-ne un altre.",
+ "event.topic_inaccessible": "No es pot escanejar {channel} › {topic}: aquest compte ja no té accés al grup.",
  "event.scan_loop_error": "Error al bucle d'escaneig: {error}",
  "event.pending_review": "Pendent de revisió: {file} ({reason})",
  "event.tmdb_lookup_failed": "Ha fallat la cerca a TMDB de {file}: {error}",
