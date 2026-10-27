@@ -17,6 +17,9 @@ _TEST_DATA_DIR = tempfile.mkdtemp(prefix="telearr-tests-")
 os.environ.setdefault("TELEARR_DATA_DIR", _TEST_DATA_DIR)
 os.environ.setdefault("TELEARR_LOG_DIR", os.path.join(_TEST_DATA_DIR, "logs"))
 os.environ.setdefault("TELEARR_SECRET_KEY", "test-secret-key-not-for-production")
+# Downloads in tests are a few bytes into temp dirs: the host's free space must
+# not decide the outcome (CI runners have far less than the 50 GB default).
+os.environ["TELEARR_MIN_FREE_GB"] = "0"
 
 import pytest
 

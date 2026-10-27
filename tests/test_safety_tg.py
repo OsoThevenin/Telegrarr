@@ -102,8 +102,10 @@ async def test_invite_link_for_non_member_asks_user_to_join(monkeypatch):
     assert not any(isinstance(r, ImportChatInviteRequest) for r in fake.requests)
 
 
-def test_cli_login_registers_the_same_device_as_the_service(recorder):
+def test_cli_login_registers_the_same_device_as_the_service(recorder, monkeypatch):
     import authorize
+    monkeypatch.setattr(tg, "API_ID", 12345)
+    monkeypatch.setattr(tg, "API_HASH", "test-hash")
 
     client = authorize.build_client()
 
@@ -112,3 +114,15 @@ def test_cli_login_registers_the_same_device_as_the_service(recorder):
     assert client.kwargs["device_model"] == config.TG_DEVICE_MODEL
     assert client.kwargs["system_version"] == config.TG_SYSTEM_VERSION
     assert client.kwargs["app_version"] == config.TG_APP_VERSION
+
+
+def test_cli_login_without_api_credentials_exits_with_guidance(recorder, monkeypatch):
+    import authorize
+    monkeypatch.setattr(tg, "API_ID", 0)
+    monkeypatch.setattr(tg, "API_HASH", "")
+
+    with pytest.raises(SystemExit) as exited:
+        authorize.build_client()
+
+    assert "TG_API_ID" in str(exited.value.code)
+    assert recorder.built == []
