@@ -13,7 +13,7 @@ import logging
 from . import db, plex, notify, settings, safety, resolver, movies
 from .arr import category_for
 from .i18n import message, translate
-from .tg import get_client
+from .tg import get_client, source_messages
 from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE, extract_movie)
@@ -207,11 +207,11 @@ def _already_have(channel, gk, size) -> bool:
                 and row["file_size"] >= size)
 
 
-async def _iter_best(client, chat_id, *, limit, stop_at=0):
+async def _iter_best(client, chat_id, *, limit, stop_at=0, topic_id=None):
     """Yield newest→older media, keeping only the largest file per group_key."""
     best = {}
     max_seen = stop_at
-    async for msg in client.iter_messages(chat_id, limit=limit):
+    async for msg in source_messages(client, chat_id, limit=limit, topic_id=topic_id):
         if stop_at and msg.id <= stop_at:
             break
         max_seen = max(max_seen, msg.id)

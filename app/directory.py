@@ -188,7 +188,7 @@ async def _read_telegram(client, chat_id: int, now: float) -> TelegramScan:
     _gate_check(now)
     try:
         ent = await client.get_entity(chat_id)
-        messages = [m async for m in client.iter_messages(chat_id, limit=SCAN_MESSAGE_LIMIT)]
+        messages = [m async for m in tg.source_messages(client, chat_id, limit=SCAN_MESSAGE_LIMIT)]
     except FloodWaitError as e:
         await downloader.flood_gate.trip(e.seconds)
         raise ScanRefused(RATE_LIMITED["key"]) from e

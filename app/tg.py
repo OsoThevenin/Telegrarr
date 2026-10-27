@@ -219,6 +219,17 @@ async def authorized_client():
 _ready = authorized_client
 
 
+def source_messages(c, chat_id: int, *, limit: int | None = None, topic_id: int | None = None):
+    """A source's messages on client `c`, newest first: the one place scans,
+    backfills and directory scans read a chat's history.
+
+    `topic_id` restricts the read to one forum topic (Telethon's `reply_to`
+    filter); None reads the whole chat, as for a channel."""
+    if topic_id is None:
+        return c.iter_messages(chat_id, limit=limit)
+    return c.iter_messages(chat_id, limit=limit, reply_to=topic_id)
+
+
 async def list_dialogs(limit=250):
     """Channels/groups the logged-in account belongs to — so users pick, not paste ids."""
     now = time.time()
