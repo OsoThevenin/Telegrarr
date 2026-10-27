@@ -4,6 +4,7 @@ import { icon } from "./icons.js";
 import { openTelegramConnect } from "./telegram-connect.js";
 import { sourceTitle, isWholeForum } from "./topics.js";
 import { channelTopics } from "./channel-topics.js";
+import { isRetryable, retryableIds } from "./retry.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
@@ -402,8 +403,8 @@ export function viewDownloads(ctx) {
   const bulk = h("div", { class: "bulk-bar" });
   if (ui.sel.size) {
     bulk.append(h("span", {}, h("b", {}, ui.sel.size), " " + t("dl.selected")));
-    if (sel.some((d) => d.status === "failed" || d.status === "cancelled"))
-      bulk.append(h("button", { class: "btn ghost sm", onClick: async () => { await jpost("/api/downloads/bulk", { action: "retry", ids: [...ui.sel] }); ui.sel.clear(); ctx.refresh(); } }, t("dl.retry")));
+    if (sel.some(isRetryable))
+      bulk.append(h("button", { class: "btn ghost sm", onClick: async () => { await jpost("/api/downloads/bulk", { action: "retry", ids: retryableIds(sel) }); ui.sel.clear(); ctx.refresh(); } }, t("dl.retry")));
     bulk.append(h("button", { class: "btn danger sm", onClick: async () => { await jpost("/api/downloads/bulk", { action: "delete", ids: [...ui.sel] }); ui.sel.clear(); ctx.refresh(); } }, t("common.delete")));
     bulk.append(h("button", { class: "btn ghost sm", onClick: () => { ui.sel.clear(); ctx.rerender(); } }, t("dl.clear_selection")));
   }

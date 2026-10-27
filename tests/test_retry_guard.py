@@ -4,6 +4,10 @@ downloading row is left untouched, singly or in bulk (#31).
 Driven over HTTP (``arr_app``): Sonarr grabs through the SABnzbd shim, the UI
 retries through ``/api/downloads``.
 """
+import json
+import shutil
+import subprocess
+
 import pytest
 
 from http_harness import eventually
@@ -103,3 +107,28 @@ async def test_retrying_a_cancelled_row_re_queues_it(arr_app):
     assert (await arr_app.download(FILE_1))["status"] in ("queued", "downloading")
     arr_app.telegram.release_downloads()
     await eventually(lambda: _status(arr_app, FILE_1, "completed"))
+
+
+# ── the Downloads view's bulk Retry ──────────────────────────────────
+def _run_module(source: str, expression: str):
+    """Evaluate ``expression`` against the ES module ``source`` in node; return its JSON value."""
+    script = (f"const m = await import('data:text/javascript,' + encodeURIComponent({json.dumps(source)}));"
+              f"console.log(JSON.stringify({expression}));")
+    out = subprocess.run(["node", "--input-type=module", "-e", script],
+                         capture_output=True, text=True, check=True, timeout=30)
+    return json.loads(out.stdout)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the UI module")
+async def test_bulk_retry_in_the_ui_sends_only_failed_or_cancelled_ids(arr_app):
+    module = (await arr_app.http.get("/static/js/retry.js")).raise_for_status().text
+    views = (await arr_app.http.get("/static/js/views.js")).raise_for_status().text
+    selection = [{"id": 1, "status": "failed"}, {"id": 2, "status": "downloading"},
+                 {"id": 3, "status": "cancelled"}, {"id": 4, "status": "queued"},
+                 {"id": 5, "status": "completed"}]
+
+    ids = _run_module(module, f"m.retryableIds({json.dumps(selection)})")
+
+    assert ids == [1, 3]
+    assert 'from "./retry.js"' in views
