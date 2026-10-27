@@ -202,6 +202,11 @@ def init():
     _logger.info("db initialised at %s", DB_PATH)
 
 
+def placeholders(values) -> str:
+    """``?,?,…`` for an SQL ``IN (…)`` over ``values``."""
+    return ",".join("?" * len(values))
+
+
 def keyed(m: str | dict | None) -> tuple[str | None, str | None, str | None]:
     """(English text, key, JSON params) to store for a plain string or an
     i18n message ``{"key", "params"}``; key and params are None for plain text."""

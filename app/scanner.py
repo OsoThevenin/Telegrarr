@@ -11,7 +11,7 @@ import asyncio
 import logging
 
 from . import db, plex, notify, settings, safety, resolver, movies, topic_errors
-from .arr import category_for
+from .arr import AttemptRef, category_for
 from .i18n import message, translate
 from .tg import get_client, source_messages
 from .namer import (group_key, message_episode, extract_episode_title,
@@ -41,6 +41,7 @@ CANCELLED_BY_USER = "dl.err.cancelled"
 DOWNLOAD_FAILED = "dl.err.failed"
 DUPLICATE_IN_FLIGHT = "dl.err.duplicate"   # same episode already downloading from another message
 STOPPED_STATUSES = ("failed", "cancelled")   # re-queuing one of these starts a new attempt
+ACTIVE_STATUSES = ("queued", "downloading")  # waiting for or holding a download task
 
 
 def begin_shutdown():
@@ -86,19 +87,19 @@ def _unregister_task(dl_id, task) -> None:
         del _task_registry[dl_id]
 
 
-def requeue_stopped(c, dl_id: int, *, count_retry: bool = False) -> bool:
-    """Re-queue a failed or cancelled row as a new attempt: the *arr tracks it under
-    a fresh download id, shown in its history again. The status-conditional UPDATE
-    leaves a row that is already queued or downloading untouched (False).
-    ``count_retry`` counts an auto-retry; any other re-queue resets the count."""
-    marks = ",".join("?" * len(STOPPED_STATUSES))
-    cur = c.execute(
+def requeue_stopped(c, dl_id: int, *, count_retry: bool = False) -> int | None:
+    """Re-queue a failed or cancelled row as a new attempt and return that attempt:
+    the *arr tracks it under a fresh download id, shown in its history again. The
+    status-conditional UPDATE leaves a row that is already queued or downloading
+    untouched (None). ``count_retry`` counts an auto-retry; any other re-queue
+    resets the count."""
+    row = c.execute(
         "UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
         "error_key=NULL, error_params=NULL, attempt=attempt+1, arr_hidden=0, "
         "retry_count=CASE WHEN ? THEN COALESCE(retry_count,0)+1 ELSE 0 END "
-        f"WHERE id=? AND status IN ({marks})",
-        (count_retry, dl_id, *STOPPED_STATUSES))
-    return cur.rowcount > 0
+        f"WHERE id=? AND status IN ({db.placeholders(STOPPED_STATUSES)}) RETURNING attempt",
+        (count_retry, dl_id, *STOPPED_STATUSES)).fetchone()
+    return row["attempt"] if row else None
 
 
 def cancel_download(dl_id) -> bool:
@@ -372,7 +373,7 @@ async def _retry_failed(client, channel):
                 _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
             continue
         with db.conn() as c:
-            if not requeue_stopped(c, r["id"], count_retry=True):
+            if requeue_stopped(c, r["id"], count_retry=True) is None:
                 continue
         db.log("INFO", message("event.auto_retry", n=r["rc"] + 1, max=MAX_DOWNLOAD_RETRIES, file=r["file_name"]),
                channel_id=cid)
@@ -593,8 +594,8 @@ def _prune_history(channel_id):
 
 
 async def grab_message(channel_id, message_id):
-    """On-demand grab used by the SABnzbd shim; returns the row's (id, attempt) or None.
-    A re-grab of a failed or cancelled row starts a new attempt."""
+    """On-demand grab used by the SABnzbd shim; returns the row's current attempt
+    or None. A re-grab of a failed or cancelled row starts a new attempt."""
     client = get_client()
     if not client.is_connected():
         await client.connect()
@@ -618,15 +619,15 @@ async def grab_message(channel_id, message_id):
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
             VALUES(?,?,?,?,?,?,?,?)""",
             (channel_id, msg.id, gk, fn, doc.size, save_path, "queued", int(time.time())))
-        row = c.execute("SELECT id, status FROM downloads WHERE channel_id=? AND message_id=?",
+        row = c.execute("SELECT id, status, attempt FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, msg.id)).fetchone()
-        if row and row["status"] in STOPPED_STATUSES:
-            requeue_stopped(c, row["id"])
-        row = c.execute("SELECT id, attempt FROM downloads WHERE channel_id=? AND message_id=?",
-                        (channel_id, msg.id)).fetchone()
+        ref = None
+        if row:
+            requeued = requeue_stopped(c, row["id"]) if row["status"] in STOPPED_STATUSES else None
+            ref = AttemptRef(row["id"], row["attempt"] if requeued is None else requeued)
     db.log("INFO", message("event.grab_queued", file=fn), channel_id=channel_id)
     _spawn(_run_download(client, channel_id, msg, save_path, gk))
-    return (row["id"], row["attempt"]) if row else None
+    return ref
 
 
 def channel_should_run_today(channel) -> bool:

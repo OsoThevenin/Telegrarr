@@ -406,7 +406,8 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
         raise _bad(400, "err.downloads.bad_action")
     count = 0
     for i in ids:
-        count += await _single_action(action, int(i))
+        if await _single_action(action, int(i)):
+            count += 1
     return {"ok": True, "count": count}
 
 
@@ -427,15 +428,10 @@ async def _single_action(action: str, dl_id: int) -> bool:
     return await _retry(row)
 
 
-RETRYABLE = scanner.STOPPED_STATUSES
-
-
 async def _retry(row) -> bool:
     """Re-queue a stopped download. Only a failed or cancelled row is
-    re-queued, as a new attempt; the status-conditional UPDATE keeps racing
-    requests from resetting a row that is already queued or downloading."""
-    if row["status"] not in RETRYABLE:
-        return False
+    re-queued, as a new attempt; ``requeue_stopped`` is the guard, so racing
+    requests can't reset a row that is already queued or downloading."""
     client = get_client()
     if not client.is_connected():
         await client.connect()
@@ -443,8 +439,8 @@ async def _retry(row) -> bool:
     if not msg:
         return False
     with db.conn() as c:
-        requeued = scanner.requeue_stopped(c, row["id"])
-    if not requeued:
+        attempt = scanner.requeue_stopped(c, row["id"])
+    if attempt is None:
         return False
     scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
                                          row["save_path"], row["group_key"]))
@@ -698,13 +694,17 @@ def _sab_delete(nzo):
     del_files says); a queued/downloading one is cancelled. An id from an earlier
     attempt changes nothing."""
     ref = arr.parse_nzo(nzo)
-    if ref is None or arr.hide_from_history(*ref) or not arr.is_current_attempt(*ref):
+    if ref is None:
         return
-    dlid, attempt = ref
-    scanner.cancel_download(dlid)
+    hidden = arr.hide_from_history(*ref)
+    if hidden or not arr.is_current_attempt(*ref):
+        return
+    scanner.cancel_download(ref.download_id)
+    active = scanner.ACTIVE_STATUSES
     with db.conn() as c:
         c.execute("UPDATE downloads SET status='cancelled' "
-                  "WHERE id=? AND attempt=? AND status IN ('queued','downloading')", (dlid, attempt))
+                  f"WHERE id=? AND attempt=? AND status IN ({db.placeholders(active)})",
+                  (*ref, *active))
 
 
 async def _sab(request: Request):
