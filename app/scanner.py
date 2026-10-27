@@ -39,6 +39,7 @@ BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-
 MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
 CANCELLED_BY_USER = "dl.err.cancelled"
 DOWNLOAD_FAILED = "dl.err.failed"
+DUPLICATE_IN_FLIGHT = "dl.err.duplicate"   # same episode already downloading from another message
 
 
 def begin_shutdown():
@@ -519,6 +520,19 @@ def _download_id(channel_id: int, message_id: int) -> int | None:
     return row["id"] if row else None
 
 
+def _resolve_inflight_loser(dl_id: int | None, holder_id: int | None) -> None:
+    """A task lost the in-flight slot for its episode. A duplicate task for the
+    row already downloading changes nothing; a row for another message of the
+    same episode is cancelled with a reason, so it isn't left queued with no
+    task behind it (and isn't resumed into the same race after a restart)."""
+    if dl_id is None or dl_id == holder_id:
+        return
+    text, key, params = db.keyed(message(DUPLICATE_IN_FLIGHT))
+    with db.conn() as c:   # only a row still waiting: a finished row keeps its outcome
+        c.execute("UPDATE downloads SET status='cancelled', error=?, error_key=?, error_params=? "
+                  "WHERE id=? AND status='queued'", (text, key, params, dl_id))
+
+
 async def _run_download(client, channel_id, msg, save_path, gk):
     key = (channel_id, gk)
     if settings.get_bool("paused", False):
@@ -527,6 +541,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
     dl_id = _download_id(channel_id, msg.id)
     async with _queue_lock:
         if key in _inflight:
+            _resolve_inflight_loser(dl_id, _inflight[key])
             return   # another task owns this episode; leave its cancel registration alone
         _inflight[key] = dl_id
     if dl_id is not None:
