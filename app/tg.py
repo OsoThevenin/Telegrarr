@@ -4,9 +4,9 @@ import time
 import asyncio
 import logging
 from urllib.parse import urlparse
-from telethon import TelegramClient, utils
-from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.messages import CheckChatInviteRequest
+from telethon import TelegramClient, types, utils
+from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
+from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 from . import settings
 from .i18n import message
 from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
@@ -248,6 +248,28 @@ async def _general_messages(messages):
     async for msg in messages:
         if not _in_named_topic(msg) and not getattr(msg, "action", None):
             yield msg
+
+
+FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request
+
+
+async def list_topics(c, chat_id: int) -> list[dict] | None:
+    """A forum group's topics on client `c` as `{topic_id, title}`, in the order
+    Telegram gives them (General, id GENERAL_TOPIC_ID, included: it is a source
+    like any other topic); None when the chat isn't a forum group.
+
+    One forum-topics request at most (none for a non-forum chat). Telegram errors
+    (FloodWaitError included) propagate to the caller."""
+    ent = await c.get_entity(chat_id)
+    if not getattr(ent, "forum", False):
+        return None
+    try:
+        res = await c(GetForumTopicsRequest(peer=ent, offset_date=None, offset_id=0,
+                                            offset_topic=0, limit=FORUM_TOPICS_LIMIT))
+    except ChannelForumMissingError:
+        return None
+    return [{"topic_id": t.id, "title": t.title} for t in res.topics
+            if isinstance(t, types.ForumTopic)]
 
 
 async def list_dialogs(limit=250):

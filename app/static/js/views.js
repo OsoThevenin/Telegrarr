@@ -2,6 +2,7 @@
 import { h, mount, api, jpost, jpatch, jput, toast, copy, gb, fmtBytes, fmtETA, base } from "./core.js";
 import { icon } from "./icons.js";
 import { openTelegramConnect } from "./telegram-connect.js";
+import { topicPicker, sourceTitle } from "./topics.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
@@ -207,7 +208,7 @@ function showCard(group, ctx) {
   if (!rep.imdb_id) poster.classList.add("art-done");
   return h("div", { class: "ch-card" }, poster,
     h("div", { class: "ch-body" },
-      h("div", { class: "ch-title", title: rep.imdb_title || rep.title }, rep.imdb_title || rep.title),
+      h("div", { class: "ch-title", title: rep.imdb_title || sourceTitle(rep) }, rep.imdb_title || sourceTitle(rep)),
       h("div", { class: "ch-meta" }, multi ? `${kindLabel(rep.kind)} · ${tn("ch.sources", group.length)}` : `${kindLabel(rep.kind)} · ${dstr || "—"} · ${t("common.minutes_short", { n: rep.poll_minutes })}`),
       h("div", { class: "ch-actions" },
         h("button", { class: "btn ghost sm", onClick: () => scanAll(group) }, h("span", { html: icon("scan") }), t("common.scan")),
@@ -259,7 +260,7 @@ export function openChannelDrawer(ctx, c, group = null) {
       h("div", { class: "drawer-body" },
         h("div", { class: "drawer-head" }, posterBox,
           h("div", { class: "drawer-info" },
-            h("h2", {}, c.imdb_title || c.title), meta, overview,
+            h("h2", {}, c.imdb_title || sourceTitle(c)), meta, overview,
             h("div", { class: "drawer-actions" },
               h("button", { class: "btn primary sm", onClick: () => scanAll(grp) }, h("span", { html: icon("scan") }), t("common.scan")),
               h("button", { class: "btn ghost sm", onClick: () => backfillAll(grp) }, t("ch.backfill")),
@@ -270,7 +271,7 @@ export function openChannelDrawer(ctx, c, group = null) {
           h("div", { class: "card-h" }, tn("ch.source_channels", grp.length)),
           ...grp.map((s) => h("div", { class: "src-row" },
             h("span", { class: "dot " + (s.enabled ? "ok" : "bad") }),
-            h("span", { class: "src-name", title: s.title }, s.title),
+            h("span", { class: "src-name", title: sourceTitle(s) }, sourceTitle(s)),
             h("button", { class: "btn ghost sm", onClick: async () => { await jpatch(`/api/channels/${s.id}`, { enabled: s.enabled ? 0 : 1 }); close(); ctx.refresh(); } }, s.enabled ? t("common.disable") : t("common.enable")),
             h("button", { class: "btn ghost sm", onClick: () => { close(); openChannelModal(ctx, s); } }, t("common.edit")),
             h("button", { class: "btn ghost sm icon", title: t("ch.remove_source"), "aria-label": t("ch.remove_source"), onClick: async () => { if (confirm(t("ch.remove_source_confirm"))) { await api(`/api/channels/${s.id}`, { method: "DELETE" }); toast(t("ch.source_removed"), "ok"); close(); ctx.refresh(); } } }, h("span", { html: icon("trash") }))))) : null,
@@ -686,11 +687,22 @@ export function openChannelModal(ctx, channel) {
   const showIdentity = () => mount(identity, kind.value === "tv" ? series.node : movieNote);
   kind.addEventListener("change", showIdentity);
   showIdentity();
+  const kindRow = h("label", {}, t("chm.kind"), kind);
+
+  // ── forum topics: a forum group gets one source per ticked topic, each with its own kind ──
+  const topics = topicPicker({ kinds: CHANNEL_KINDS });
+  let topicsReady = null;
+  const loadTopics = (chatId) => {
+    topicsReady = topics.load(chatId).then((forum) => {
+      kindRow.hidden = forum; identity.hidden = forum;   // per-topic kinds replace the chat-wide one
+      return forum;
+    });
+  };
 
   // ── channel selection ──
   let chanArea;
   if (channel) {
-    chanArea = h("label", {}, t("chm.tg_channel"), h("input", { value: `${channel.imdb_title || channel.title} (${channel.chat_id})`, disabled: true }));
+    chanArea = h("label", {}, t("chm.tg_channel"), h("input", { value: `${channel.imdb_title || sourceTitle(channel)} (${channel.chat_id})`, disabled: true }));
   } else {
     const chanQ = h("input", { placeholder: t("chm.chan_search_placeholder"), autocomplete: "off" });
     const chanList = h("div", { class: "chan-list" }, h("div", { class: "muted small pad" }, t("chm.loading_chats")));
@@ -698,7 +710,7 @@ export function openChannelModal(ctx, channel) {
     let dialogs = [];
     const showSel = () => mount(chanSel, selected
       ? h("div", { class: "chip" }, h("span", { html: icon("check") }), h("span", {}, `${selected.title} · ${selected.chat_id}`)) : []);
-    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); series.searchFor(d.title); };
+    const selectChan = (d) => { selected = { chat_id: d.chat_id, title: d.title }; showSel(); renderList(); series.searchFor(d.title); loadTopics(d.chat_id); };
     const resolveChan = async () => {
       mount(chanList, h("div", { class: "muted small pad" }, t("chm.resolving")));
       const r = await jpost("/api/telegram/resolve", { query: chanQ.value.trim() });
@@ -720,17 +732,32 @@ export function openChannelModal(ctx, channel) {
     };
     chanQ.addEventListener("input", renderList);
     api("/api/telegram/dialogs").then((d) => { dialogs = d || []; if (!dialogs.length) mount(chanList, h("div", { class: "muted small pad" }, t("chm.no_chats"))); else renderList(); });
-    chanArea = h("label", {}, t("chm.tg_channel"), chanQ, chanList, chanSel);
+    chanArea = h("div", {}, h("label", {}, t("chm.tg_channel"), chanQ, chanList, chanSel), topics.node);
   }
 
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { document.removeEventListener("keydown", onKey); host.replaceChildren(); };
   document.addEventListener("keydown", onKey);
+  // One POST per ticked topic. A failed one keeps the dialog open (api() has shown
+  // why); saving again updates the topics already added rather than duplicating them.
+  const addTopicSources = async (fields) => {
+    const ticked = topics.picked();
+    if (!ticked.length) return toast(t("chm.topics.pick_first"), "err");
+    let added = 0;
+    for (const tp of ticked) {
+      const ch = await jpost("/api/channels", { chat_id: selected.chat_id, ...fields, kind: tp.kind, topic_id: tp.topic_id, topic_title: tp.title });
+      if (ch) added++;
+    }
+    if (added) toast(tn("chm.topics.added", added), "ok");
+    if (added === ticked.length) close();
+    ctx.refresh();
+  };
   const save = async () => {
     const weekdays = dayBtns.filter((b) => b.classList.contains("on")).map((b) => b.dataset.day).join(",") || "0,1,2,3,4,5,6";
     const pm = parseInt(poll.value) || POLL_FLOOR_MIN;
     if (!channel && !selected) return toast(t("chm.pick_first"), "err");
     const fields = { kind: kind.value, weekdays, poll_minutes: pm, language: language.value, fallback_quality: fallbackQuality.value };
+    if (!channel && topicsReady && (await topicsReady)) return addTopicSources(fields);
     const ch = channel
       ? await jpatch(`/api/channels/${channel.id}`, fields)
       : await jpost("/api/channels", { chat_id: selected.chat_id, ...fields });
@@ -747,7 +774,7 @@ export function openChannelModal(ctx, channel) {
       h("div", { class: "modal-head" }, h("h3", {}, channel ? t("ch.edit_aria") : t("shell.add_channel")),
         h("button", { class: "btn ghost icon", "aria-label": t("common.close"), onClick: close }, h("span", { html: icon("x") }))),
       chanArea,
-      h("label", {}, t("chm.kind"), kind),
+      kindRow,
       h("label", {}, t("chm.audio_language"), language),
       h("label", {}, t("chm.fallback_quality"), fallbackQuality),
       h("label", {}, t("chm.scan_days")), h("div", { class: "days" }, ...dayBtns),

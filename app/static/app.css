@@ -400,6 +400,17 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 .chan-selected:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 6px 12px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); font-size: 13px; font-weight: 500; }
 .pad { padding: 12px 14px; }
+/* forum topic picker (topics.js) */
+.modal-card [hidden] { display: none; }
+.topic-picker:empty { display: none; }
+.topic-picker { display: grid; gap: 6px; margin-top: 4px; }
+.topic-picker .card-h { margin-bottom: 0; }
+.topic-list { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.topic-row { display: flex; align-items: center; justify-content: space-between; gap: 11px; padding: 8px 13px; border-bottom: 1px solid var(--line-soft); }
+.topic-row:last-child { border-bottom: 0; }
+.modal-card label.topic-name { display: flex; align-items: center; gap: 9px; min-width: 0; color: var(--text); font-weight: 600; }
+.topic-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topic-row select { flex: 0 0 auto; width: auto; }
 
 /* directory import dialog */
 .modal-card.wide { width: min(680px, 96vw); }
