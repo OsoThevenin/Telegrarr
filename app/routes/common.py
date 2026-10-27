@@ -46,6 +46,21 @@ def normalize_chat_id(raw) -> int:
     return cid
 
 
+def normalize_topic_id(raw) -> int | None:
+    """A forum topic id (a number or its text, > 0); None/"" means the whole chat."""
+    if raw is None or raw == "":
+        return None
+    tid = None
+    if not isinstance(raw, bool):   # True/False are ints to Python, not topic ids
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            pass
+    if tid is None or tid <= 0:
+        raise bad(BAD_REQUEST, "err.channel.topic_id_numeric")
+    return tid
+
+
 def _invalid_field(e: RequestValidationError) -> str:
     errors = e.errors()
     loc = errors[0].get("loc", ()) if errors else ()

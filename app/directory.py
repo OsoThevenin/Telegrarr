@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from telethon import utils
 from telethon.errors import FloodWaitError
 
-from . import channels, downloader, settings, tg, tmdb
+from . import channels, downloader, settings, tg, tmdb, topic_errors
 from .config import POLL_FLOOR_MINUTES
 from .i18n import KeyedError, message
 
@@ -34,6 +34,9 @@ MAX_IMPORT_ITEMS = 200
 RATE_LIMITED = message("err.directory.rate_limited")
 NOT_A_MEMBER = message("err.directory.not_a_member")
 NOT_RESOLVED = message("err.directory.not_resolved")
+# why a forum topic can't be scanned (topic_errors' classification) -> its error key
+TOPIC_ERROR_KEYS = {topic_errors.GONE: "err.directory.topic_gone",
+                    topic_errors.INACCESSIBLE: "err.directory.topic_inaccessible"}
 
 
 class ScanRefused(KeyedError):
@@ -128,9 +131,12 @@ class TelegramScan:
     complete: bool = True            # False when a FloodWait cut resolution short
 
 
+ScanKey = tuple[int, int | None]   # (directory chat id, forum topic id or None for the whole chat)
+
+
 @dataclass
 class _Cache:
-    scans: dict[int, TelegramScan] = field(default_factory=dict)
+    scans: dict[ScanKey, TelegramScan] = field(default_factory=dict)
 
 
 _cache = _Cache()
@@ -142,9 +148,7 @@ def forget_scans() -> None:
 
 
 def _gate_check(now: float) -> None:
-    closed_until = downloader.flood_gate.closed_until
-    if closed_until > now:
-        minutes = max(1, round((closed_until - now) / 60))
+    if minutes := downloader.flood_gate.minutes_closed(now):
         raise ScanRefused("err.directory.rate_limit_active", minutes=minutes)
 
 
@@ -184,17 +188,27 @@ async def _resolve_all(client, links: list[ChannelLink], self_id: int) -> tuple[
     return out, True
 
 
-async def _read_telegram(client, chat_id: int, now: float) -> TelegramScan:
+def _read_failed(error: Exception, topic_id: int | None) -> ScanRefused:
+    """The refusal for a failed read: why a forum topic is unreadable when that
+    is known (deleted, or the group is out of reach), else the generic one."""
+    reason = topic_errors.why_unreadable(error) if topic_id is not None else None
+    if reason:
+        return ScanRefused(TOPIC_ERROR_KEYS[reason])
+    return ScanRefused("err.directory.read_failed", error=type(error).__name__)
+
+
+async def _read_telegram(client, chat_id: int, topic_id: int | None, now: float) -> TelegramScan:
     _gate_check(now)
     try:
         ent = await client.get_entity(chat_id)
-        messages = [m async for m in client.iter_messages(chat_id, limit=SCAN_MESSAGE_LIMIT)]
+        messages = [m async for m in tg.source_messages(
+            client, chat_id, limit=SCAN_MESSAGE_LIMIT, topic_id=topic_id)]
     except FloodWaitError as e:
         await downloader.flood_gate.trip(e.seconds)
         raise ScanRefused(RATE_LIMITED["key"]) from e
     except Exception as e:
-        log.warning("directory: reading %s failed: %s", chat_id, e)
-        raise ScanRefused("err.directory.read_failed", error=type(e).__name__) from e
+        log.warning("directory: reading %s (topic %s) failed: %s", chat_id, topic_id, e)
+        raise _read_failed(e, topic_id) from e
     entries, complete = await _resolve_all(client, extract_links(messages), chat_id)
     return TelegramScan(directory={"chat_id": chat_id, "title": getattr(ent, "title", "") or ""},
                         messages_scanned=len(messages), entries=tuple(entries), scanned_at=now,
@@ -217,20 +231,24 @@ async def _suggestions(entries) -> tuple[dict[str, dict | None], dict | None]:
     return out, None
 
 
-async def scan(client, chat_id: int, now: float | None = None) -> dict:
-    """Scan directory `chat_id`; Telegram is read at most once per RESCAN_AFTER_S."""
+async def scan(client, chat_id: int, now: float | None = None, *,
+               topic_id: int | None = None) -> dict:
+    """Scan directory `chat_id` (only forum topic `topic_id` when given); each
+    (chat, topic) is read from Telegram at most once per RESCAN_AFTER_S."""
     now = time.time() if now is None else now
-    cached = _cache.scans.get(chat_id)
+    key = (chat_id, topic_id)
+    cached = _cache.scans.get(key)
     fresh = cached is not None and now - cached.scanned_at < RESCAN_AFTER_S
-    result = cached if fresh else await _read_telegram(client, chat_id, now)
+    result = cached if fresh else await _read_telegram(client, chat_id, topic_id, now)
     if not fresh and result.complete:
-        _cache.scans = {**_cache.scans, chat_id: result}
+        _cache.scans = {**_cache.scans, key: result}
     added = channels.existing_chat_ids()
     suggestions, tmdb_error = await _suggestions(result.entries)
     links = [{**e.__dict__, "already_added": e.chat_id in added, "channel_id": added.get(e.chat_id),
               "suggestion": suggestions.get(e.link)} for e in result.entries]
-    return {"directory": result.directory, "messages_scanned": result.messages_scanned,
-            "links": links, "cached": fresh, "scanned_at": result.scanned_at,
+    return {"directory": result.directory, "topic_id": topic_id,
+            "messages_scanned": result.messages_scanned, "links": links, "cached": fresh,
+            "scanned_at": result.scanned_at,
             "next_scan_at": result.scanned_at + RESCAN_AFTER_S, "tmdb_error": tmdb_error}
 
 

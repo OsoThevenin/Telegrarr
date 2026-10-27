@@ -116,9 +116,11 @@ async def index_message(posted: PostedFilm) -> bool:
 
 # ── Pending review ────────────────────────────────────────────────────
 def pending() -> list[dict]:
-    """Messages waiting for review, newest first, with their channel title."""
+    """Messages waiting for review, newest first, with their source's chat title
+    and (a topic source) topic title."""
     with db.conn() as c:
-        rows = c.execute("""SELECT p.*, ch.title AS channel_title FROM pending_review p
+        rows = c.execute("""SELECT p.*, ch.title AS channel_title, ch.topic_title
+                            FROM pending_review p
                             JOIN channels ch ON ch.id = p.channel_id
                             WHERE p.status=? ORDER BY p.created_at DESC, p.message_id DESC""",
                          (STATUS_PENDING,)).fetchall()

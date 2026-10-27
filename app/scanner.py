@@ -10,10 +10,10 @@ import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings, safety, resolver, movies
+from . import db, plex, notify, settings, safety, resolver, movies, topic_errors
 from .arr import category_for
 from .i18n import message, translate
-from .tg import get_client
+from .tg import get_client, source_messages
 from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE, extract_movie)
@@ -207,11 +207,11 @@ def _already_have(channel, gk, size) -> bool:
                 and row["file_size"] >= size)
 
 
-async def _iter_best(client, chat_id, *, limit, stop_at=0):
+async def _iter_best(client, chat_id, *, limit, stop_at=0, topic_id=None):
     """Yield newest→older media, keeping only the largest file per group_key."""
     best = {}
     max_seen = stop_at
-    async for msg in client.iter_messages(chat_id, limit=limit):
+    async for msg in source_messages(client, chat_id, limit=limit, topic_id=topic_id):
         if stop_at and msg.id <= stop_at:
             break
         max_seen = max(max_seen, msg.id)
@@ -357,10 +357,29 @@ async def _retry_failed(client, channel):
         _spawn(_run_download(client, cid, msg, r["save_path"], r["group_key"]))
 
 
+async def _read_source(client, channel, *, limit, stop_at=0):
+    """``_iter_best`` over the source's messages, or None (with the reason in the
+    event log) when it is a topic source whose topic is gone or inaccessible."""
+    try:
+        return await _iter_best(client, channel["chat_id"], limit=limit, stop_at=stop_at,
+                                topic_id=channel["topic_id"])
+    except Exception as e:
+        reason = topic_errors.unreadable_topic(channel, e)
+        if reason is None:
+            raise
+        db.log("ERROR", reason, channel_id=channel["id"])
+        return None
+
+
 async def scan_channel(client, channel):
     cid = channel["id"]
     last = channel["last_message_id"] or 0
-    best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last)
+    scanned = await _read_source(client, channel, limit=80, stop_at=last)
+    if scanned is None:   # retried at the next poll, not every loop cycle
+        with db.conn() as c:
+            c.execute("UPDATE channels SET last_scanned_at=? WHERE id=?", (int(time.time()), cid))
+        return
+    best, max_seen = scanned
     auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
         offered = await _index_release(channel, msg, size, fn, gk)
@@ -374,7 +393,10 @@ async def scan_channel(client, channel):
 
 async def backfill_channel(client, channel, full=True):
     cid = channel["id"]
-    best, _ = await _iter_best(client, channel["chat_id"], limit=None)
+    scanned = await _read_source(client, channel, limit=None)
+    if scanned is None:
+        return 0
+    best, _ = scanned
     auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():

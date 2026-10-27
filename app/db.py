@@ -12,14 +12,14 @@ from .namer import DEFAULT_FALLBACK_QUALITY
 
 _logger = logging.getLogger("db")
 
-SCHEMA = f"""
-CREATE TABLE IF NOT EXISTS users (
-  username TEXT PRIMARY KEY,
-  pw_hash  TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS channels (
+# A source (the `channels` table) is unique by (chat_id, topic_id): a NULL topic_id
+# is the whole chat. SQLite treats NULLs as distinct in UNIQUE, hence IFNULL (topic
+# ids are message ids, so never 0). Databases from before topics had an inline
+# UNIQUE(chat_id); `_rebuild_channels_without_inline_unique` lifts it.
+CHANNELS_TABLE = f"""
+CREATE TABLE IF NOT EXISTS {{name}} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  chat_id INTEGER NOT NULL UNIQUE,
+  chat_id INTEGER NOT NULL,
   title   TEXT NOT NULL,
   kind    TEXT NOT NULL DEFAULT 'tv',
   imdb_id TEXT,
@@ -30,6 +30,15 @@ CREATE TABLE IF NOT EXISTS channels (
   last_scanned_at INTEGER DEFAULT 0,
   last_message_id INTEGER DEFAULT 0,
   created_at INTEGER NOT NULL
+);
+"""
+SOURCE_UNIQUE_INDEX = ("CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_source "
+                       "ON channels(chat_id, IFNULL(topic_id, 0))")
+
+SCHEMA = CHANNELS_TABLE.format(name="channels") + """
+CREATE TABLE IF NOT EXISTS users (
+  username TEXT PRIMARY KEY,
+  pw_hash  TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS downloads (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,6 +152,9 @@ COLUMN_MIGRATIONS = (
     ("logs", "msg_params", "TEXT"),          # its params, JSON
     ("downloads", "error_key", "TEXT"),      # i18n key of `error` (which stays English for SABnzbd)
     ("downloads", "error_params", "TEXT"),
+    ("channels", "topic_id", "INTEGER"),     # forum topic sources: the topic's id (NULL: whole chat)
+    ("channels", "topic_title", "TEXT"),
+    ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
 )
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 
@@ -154,11 +166,35 @@ def add_column_if_missing(c: sqlite3.Connection, table: str, column: str, decl: 
         c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
+def _has_inline_unique_chat_id(c: sqlite3.Connection) -> bool:
+    """True for a channels table created before topic sources (UNIQUE on chat_id alone)."""
+    return any(idx["origin"] == "u" for idx in c.execute("PRAGMA index_list(channels)"))
+
+
+def _rebuild_channels_without_inline_unique(c: sqlite3.Connection) -> None:
+    """SQLite can't drop an inline UNIQUE: copy channels (ids included) into a new table."""
+    if not _has_inline_unique_chat_id(c):
+        return
+    c.execute("DROP TABLE IF EXISTS channels_rebuild")
+    c.execute(CHANNELS_TABLE.format(name="channels_rebuild"))
+    for table, column, decl in COLUMN_MIGRATIONS:
+        if table == "channels":
+            add_column_if_missing(c, "channels_rebuild", column, decl)
+    cols = ",".join(r[1] for r in c.execute("PRAGMA table_info(channels)"))
+    c.execute(f"INSERT INTO channels_rebuild ({cols}) SELECT {cols} FROM channels")
+    c.execute("DROP TABLE channels")
+    c.execute("ALTER TABLE channels_rebuild RENAME TO channels")
+    _logger.info("channels table rebuilt: sources are now unique by (chat, topic)")
+
+
 def init():
     with conn() as c:
         c.executescript(SCHEMA)
         for table, column, decl in COLUMN_MIGRATIONS:
             add_column_if_missing(c, table, column, decl)
+        _rebuild_channels_without_inline_unique(c)
+        c.execute(SOURCE_UNIQUE_INDEX)
+        c.commit()  # a checkpoint can't run inside the rebuild's transaction
         c.execute("PRAGMA wal_autocheckpoint=1000;")
         c.execute("PRAGMA wal_checkpoint(TRUNCATE);")  # shrink bloated WAL on boot
     _logger.info("db initialised at %s", DB_PATH)

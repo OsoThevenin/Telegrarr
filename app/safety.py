@@ -18,6 +18,7 @@ log = logging.getLogger("safety")
 FLOOD_NOTIFY_SECONDS = 600          # notify when a single wait exceeds ten minutes
 FLOOD_MAX_BACKOFF_SECONDS = 2 * 3600
 FLOOD_STREAK_RESET_SECONDS = 30 * 60  # quiet time after which back-off starts over
+SECONDS_PER_MINUTE = 60
 
 Notifier = Callable[[float], Awaitable[None]]
 
@@ -42,6 +43,12 @@ class FloodGate:
     @property
     def closed_until(self) -> float:
         return self._until
+
+    def minutes_closed(self, now: float | None = None) -> int:
+        """Whole minutes (at least 1) until the gate opens; 0 when it is open.
+        The check every Telegram read made on the user's behalf runs first."""
+        wait = self._until - (self._clock() if now is None else now)
+        return max(1, round(wait / SECONDS_PER_MINUTE)) if wait > 0 else 0
 
     def _backoff(self, seconds: float) -> float:
         grown = seconds * 2 ** (self._streak - 1)

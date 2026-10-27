@@ -3,10 +3,11 @@ import re
 import time
 import asyncio
 import logging
+from collections.abc import Callable
 from urllib.parse import urlparse
-from telethon import TelegramClient, utils
-from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.messages import CheckChatInviteRequest
+from telethon import TelegramClient, types, utils
+from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
+from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 from . import settings
 from .i18n import message
 from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
@@ -16,6 +17,7 @@ log = logging.getLogger("tg")
 _client: TelegramClient | None = None
 _dialogs_cache = {"ts": 0, "data": []}
 _login = {}   # transient state during the interactive sign-in flow
+GENERAL_TOPIC_ID = 1   # Telegram's fixed id for a forum group's General topic
 
 
 def _api_creds():
@@ -217,6 +219,82 @@ async def authorized_client():
 
 
 _ready = authorized_client
+
+
+def source_messages(c, chat_id: int, *, limit: int | None = None, topic_id: int | None = None):
+    """A source's messages on client `c`, newest first: the one place scans,
+    backfills and directory scans read a chat's history.
+
+    `topic_id` restricts the read to one forum topic (Telethon's `reply_to`
+    filter); None reads the whole chat, as for a channel. Telegram refuses that
+    filter for the General topic, so General reads the whole group and keeps
+    the messages of no named topic (`limit` then counts messages read, not kept)."""
+    if topic_id is None:
+        return c.iter_messages(chat_id, limit=limit)
+    if topic_id == GENERAL_TOPIC_ID:
+        return _general_messages(c.iter_messages(chat_id, limit=limit))
+    return c.iter_messages(chat_id, limit=limit, reply_to=topic_id)
+
+
+def _in_named_topic(msg) -> bool:
+    """Whether `msg` belongs to a named forum topic. Telegram flags every message
+    of a named topic, posts and replies alike, with `reply_to.forum_topic`; a
+    General message has no reply header, or (a reply) one without that flag."""
+    return bool(msg.reply_to is not None and getattr(msg.reply_to, "forum_topic", False))
+
+
+async def _general_messages(messages):
+    """The General topic's posts among a forum group's `messages` (service
+    messages such as topic creations are left out)."""
+    async for msg in messages:
+        if not _in_named_topic(msg) and not getattr(msg, "action", None):
+            yield msg
+
+
+FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request (Telegram's page size)
+FORUM_TOPICS_MAX = 500     # topics listed at most, so a huge forum costs a bounded number of requests
+
+
+def _no_check() -> None:
+    return None
+
+
+def _next_page_offsets(res, last) -> dict:
+    """GetForumTopics offsets for the page after topic `last`: the date and id of
+    its top message, and its own id."""
+    top = next((m for m in res.messages if getattr(m, "id", None) == last.top_message), None)
+    return {"offset_date": getattr(top, "date", None), "offset_id": last.top_message,
+            "offset_topic": last.id}
+
+
+async def list_topics(c, chat_id: int, *,
+                      before_request: Callable[[], None] = _no_check) -> list[dict] | None:
+    """A forum group's topics on client `c` as `{topic_id, title}`, in the order
+    Telegram gives them (General, id GENERAL_TOPIC_ID, included: it is a source
+    like any other topic); None when the chat isn't a forum group.
+
+    Pages through the forum's topics, FORUM_TOPICS_LIMIT at a time, up to
+    FORUM_TOPICS_MAX. `before_request` runs before every Telegram request (the
+    caller's FloodWait gate check; it raises to stop). Telegram errors
+    (FloodWaitError included) propagate to the caller."""
+    before_request()
+    ent = await c.get_entity(chat_id)
+    if not getattr(ent, "forum", False):
+        return None
+    found: dict[int, str] = {}
+    offsets = {"offset_date": None, "offset_id": 0, "offset_topic": 0}
+    while len(found) < FORUM_TOPICS_MAX:
+        before_request()
+        try:
+            res = await c(GetForumTopicsRequest(peer=ent, limit=FORUM_TOPICS_LIMIT, **offsets))
+        except ChannelForumMissingError:
+            return None
+        page = [t for t in res.topics if isinstance(t, types.ForumTopic) and t.id not in found]
+        found = {**found, **{t.id: t.title for t in page}}
+        if not page or len(res.topics) < FORUM_TOPICS_LIMIT or len(found) >= res.count:
+            break
+        offsets = _next_page_offsets(res, page[-1])
+    return [{"topic_id": tid, "title": title} for tid, title in found.items()][:FORUM_TOPICS_MAX]
 
 
 async def list_dialogs(limit=250):

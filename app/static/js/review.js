@@ -4,6 +4,7 @@
 import { h, api, jpost, toast, fmtBytes } from "./core.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
+import { sourceTitle } from "./topics.js";
 
 const SEARCH_DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
@@ -20,7 +21,7 @@ function typedId(text) {
 
 function parsedLine(entry) {
   const parsed = [entry.parsed_title, entry.year && `(${entry.year})`].filter(Boolean).join(" ");
-  return [entry.channel_title, parsed && t("review.read_as", { parsed }), entry.size && fmtBytes(entry.size)].filter(Boolean).join(" · ");
+  return [sourceTitle(entry.channel_title, entry.topic_title), parsed && t("review.read_as", { parsed }), entry.size && fmtBytes(entry.size)].filter(Boolean).join(" · ");
 }
 
 function entryCard(entry, reload) {

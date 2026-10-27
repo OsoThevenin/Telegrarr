@@ -17,7 +17,9 @@ from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
+from .routes import topics as topic_routes
 from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
+from .routes.common import normalize_topic_id as _normalize_topic_id
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -57,7 +59,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
-for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes):
+for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes,
+                topic_routes):
     app.include_router(_router.router)
 
 
@@ -172,7 +175,7 @@ def _live_snapshot():
         stats["total_size"] = c.execute(
             "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
         active = [dict(r) for r in c.execute(
-            "SELECT d.*, ch.title AS channel_title FROM downloads d "
+            "SELECT d.*, ch.title AS channel_title, ch.topic_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
             "WHERE d.status IN ('downloading','queued') ORDER BY d.id")]
     return {"stats": stats, "active": active, "paused": settings.get_bool("paused", False),
@@ -294,11 +297,18 @@ def _release_fields(payload: dict) -> dict:
     return fields
 
 
+def _topic_fields(payload: dict) -> dict:
+    """The forum topic a new source is restricted to (none: the whole chat)."""
+    title = str(payload.get("topic_title") or "").strip()
+    return {"topic_id": _normalize_topic_id(payload.get("topic_id")), "topic_title": title or None}
+
+
 @app.post("/api/channels")
 async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
         raise _bad(400, "err.channel.chat_id_required")
     release = _release_fields(payload)
+    topic = _topic_fields(payload)
     chat_id = _normalize_chat_id(payload["chat_id"])
     title = payload.get("title") or f"Channel {chat_id}"
     kind = payload.get("kind", "tv")
@@ -307,15 +317,18 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         poll = settings.poll_minutes(payload.get("poll_minutes", channels.default_poll_minutes()))
     except settings.SettingRejected as e:
         raise _keyed(400, e)
+    forum = None     # unknown until Telegram says
     try:
         client = get_client()
         if not client.is_connected():
             await client.connect()
         ent = await client.get_entity(chat_id)
         title = getattr(ent, "title", None) or title
+        forum = bool(getattr(ent, "forum", False))
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
-    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release)
+    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
+                           release=release, forum=forum, **topic)
 
 
 @app.patch("/api/channels/{cid}")
@@ -371,7 +384,8 @@ async def api_downloads(limit: int = 100, status: str = "",
     limit = max(1, min(limit, 1000))
     # season/episode as published (a resolved two-part episode carries the
     # channel's own number in parsed_episode and where it came from in episode_source)
-    q = ("SELECT d.*, c.title AS channel_title, r.season, r.episode, r.parsed_episode, r.episode_source "
+    q = ("SELECT d.*, c.title AS channel_title, c.topic_title, "
+         "r.season, r.episode, r.parsed_episode, r.episode_source "
          "FROM downloads d LEFT JOIN channels c ON c.id=d.channel_id "
          "LEFT JOIN releases r ON r.channel_id=d.channel_id AND r.message_id=d.message_id")
     args = []
