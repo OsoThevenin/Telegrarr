@@ -67,3 +67,21 @@ async def test_history_delete_of_a_downloading_row_still_cancels_it(arr_app):
 
     assert cancelled["status"] == "cancelled"
     assert nzo not in [s["nzo_id"] for s in (await arr_app.sab(mode="queue"))["queue"]["slots"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["queue", "history"])
+async def test_a_delete_with_an_id_that_is_not_ours_changes_nothing(arr_app, mode):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    arr_app.telegram.hold_downloads()
+    [nzo] = (await arr_app.sab(mode="addurl", name=url, cat="tv"))["nzo_ids"]
+    row = await _row_with_status(arr_app, "downloading")
+
+    for bogus in (str(row["id"]), f"SABnzbd_nzo_{row['id']}", f"{nzo}x", ""):
+        assert (await arr_app.sab(mode=mode, name="delete", value=bogus))["status"] is True
+    still = await arr_app.download(FILE)
+    queue = (await arr_app.sab(mode="queue"))["queue"]["slots"]
+    arr_app.telegram.release_downloads()
+
+    assert still["status"] == "downloading"
+    assert [s["nzo_id"] for s in queue] == [nzo]
