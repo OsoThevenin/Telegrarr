@@ -2,6 +2,7 @@
 import logging
 import httpx
 from . import settings
+from .i18n import message
 
 log = logging.getLogger("plex")
 
@@ -50,11 +51,11 @@ async def test() -> dict:
     """Verify Plex creds; returns {ok, detail, sections}."""
     url, token = _creds()
     if not (url and token):
-        return {"ok": False, "detail": "Plex URL or token not set"}
+        return {"ok": False, "detail": message("plex.test.not_set")}
     try:
         async with httpx.AsyncClient() as client:
             secs = await _sections(client, url, token)
-        return {"ok": True, "detail": f"Connected — {len(secs)} libraries",
+        return {"ok": True, "detail": message("plex.test.ok", n=len(secs)),
                 "sections": [s.get("title") for s in secs]}
     except Exception as e:
-        return {"ok": False, "detail": _scrub(e, token)}
+        return {"ok": False, "detail": message("plex.test.failed", error=_scrub(e, token))}

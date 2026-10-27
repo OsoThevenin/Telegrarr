@@ -1,6 +1,7 @@
 // palette.js — ⌘K / Ctrl-K command palette (fuzzy nav + actions).
 import { h, mount } from "./core.js";
 import { icon } from "./icons.js";
+import { t } from "./i18n.js";
 
 let getCommands = null, overlay = null;
 
@@ -17,7 +18,7 @@ export function openCommandPalette() {
   if (overlay) return close();
   const all = getCommands();
   let items = all, sel = 0;
-  const input = h("input", { class: "cmdk-input", placeholder: "Type a command or search…", autocomplete: "off", spellcheck: "false" });
+  const input = h("input", { class: "cmdk-input", placeholder: t("palette.placeholder"), autocomplete: "off", spellcheck: "false" });
   const list = h("div", { class: "cmdk-list" });
 
   const draw = () => {
@@ -30,7 +31,7 @@ export function openCommandPalette() {
         h("span", { class: "cmdk-label" }, c.label),
         c.hint ? h("span", { class: "cmdk-hint" }, c.hint) : null,
         c.kbd ? h("kbd", {}, c.kbd) : null))
-      : [h("div", { class: "cmdk-empty" }, "No matching commands")]));
+      : [h("div", { class: "cmdk-empty" }, t("palette.empty"))]));
   };
   const run = (c) => { close(); try { c.run(); } catch {} };
 
@@ -45,7 +46,7 @@ export function openCommandPalette() {
     h("div", { class: "cmdk-box" },
       h("div", { class: "cmdk-head" }, h("span", { class: "cmdk-k", html: icon("search") }), input),
       list,
-      h("div", { class: "cmdk-foot" }, h("kbd", {}, "↑↓"), " navigate ", h("kbd", {}, "↵"), " run ", h("kbd", {}, "esc"), " close")));
+      h("div", { class: "cmdk-foot" }, h("kbd", {}, "↑↓"), ` ${t("palette.navigate")} `, h("kbd", {}, "↵"), ` ${t("palette.run")} `, h("kbd", {}, "esc"), ` ${t("palette.close")}`)));
   document.body.append(overlay);
   draw();
   input.focus();

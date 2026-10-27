@@ -1,15 +1,18 @@
 # app/db.py — SQLite access layer (WAL, tuned pragmas, schema, indexes).
 # Schema is backward-compatible with telearr v1, so an existing
 # telearr.db imports cleanly (every CREATE ... IF NOT EXISTS is a no-op on it).
+import json
 import sqlite3
 import time
 import logging
 import contextlib
-from .config import DB_PATH
+from .config import DB_PATH, POLL_FLOOR_MINUTES
+from .i18n import translate
+from .namer import DEFAULT_FALLBACK_QUALITY
 
 _logger = logging.getLogger("db")
 
-SCHEMA = """
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS users (
   username TEXT PRIMARY KEY,
   pw_hash  TEXT NOT NULL
@@ -22,7 +25,7 @@ CREATE TABLE IF NOT EXISTS channels (
   imdb_id TEXT,
   imdb_title TEXT,
   weekdays TEXT NOT NULL DEFAULT '0,1,2,3,4,5,6',
-  poll_minutes INTEGER NOT NULL DEFAULT 10,
+  poll_minutes INTEGER NOT NULL DEFAULT {POLL_FLOOR_MINUTES},
   enabled INTEGER NOT NULL DEFAULT 1,
   last_scanned_at INTEGER DEFAULT 0,
   last_message_id INTEGER DEFAULT 0,
@@ -77,6 +80,21 @@ CREATE TABLE IF NOT EXISTS releases (
   added_at   INTEGER NOT NULL,
   PRIMARY KEY (channel_id, message_id)
 );
+CREATE TABLE IF NOT EXISTS pending_review (
+  channel_id INTEGER NOT NULL,
+  message_id INTEGER NOT NULL,
+  parsed_title TEXT,
+  year       INTEGER,
+  quality    TEXT,
+  file_name  TEXT,
+  caption    TEXT,
+  size       INTEGER,
+  group_key  TEXT,
+  reason     TEXT,
+  status     TEXT NOT NULL DEFAULT 'pending',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, message_id)
+);
 CREATE INDEX IF NOT EXISTS idx_rel_chan ON releases(channel_id);
 CREATE INDEX IF NOT EXISTS idx_dl_chan_gk   ON downloads(channel_id, group_key);
 CREATE INDEX IF NOT EXISTS idx_dl_status    ON downloads(status);
@@ -107,25 +125,75 @@ def conn():
         c.close()
 
 
+# Lightweight migrations: CREATE TABLE IF NOT EXISTS won't add new columns to an
+# existing table, so each (table, column, declaration) is added when missing.
+# Append one line per new column; never reorder or remove entries.
+COLUMN_MIGRATIONS = (
+    ("downloads", "retry_count", "INTEGER DEFAULT 0"),
+    ("channels", "language", "TEXT NOT NULL DEFAULT 'cat'"),
+    ("channels", "fallback_quality", f"TEXT NOT NULL DEFAULT '{DEFAULT_FALLBACK_QUALITY}'"),
+    ("channels", "tvdb_id", "INTEGER"),      # series channels: Sonarr matches by TVDB id
+    ("channels", "tmdb_id", "INTEGER"),
+    ("releases", "parsed_episode", "INTEGER"),   # channel's own number when a part was resolved
+    ("releases", "episode_source", "TEXT"),      # tmdb-ca | tmdb-en | sonarr | channel (kept)
+    ("releases", "movie_tmdb_id", "INTEGER"),  # movie channels: ids per message, not per channel
+    ("releases", "movie_imdb_id", "TEXT"),
+    ("releases", "year", "INTEGER"),
+    ("logs", "msg_key", "TEXT"),             # i18n key of the event (NULL on rows from older versions)
+    ("logs", "msg_params", "TEXT"),          # its params, JSON
+    ("downloads", "error_key", "TEXT"),      # i18n key of `error` (which stays English for SABnzbd)
+    ("downloads", "error_params", "TEXT"),
+)
+_TEXT_LANG = "en"     # language of the plain-text column kept next to a key
+
+
+def add_column_if_missing(c: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    """Idempotent ALTER TABLE ... ADD COLUMN (identifiers come from code, never input)."""
+    cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+
 def init():
     with conn() as c:
         c.executescript(SCHEMA)
-        # Lightweight migrations: CREATE TABLE IF NOT EXISTS won't add new columns
-        # to an existing table, so add them explicitly when missing.
-        cols = {r[1] for r in c.execute("PRAGMA table_info(downloads)")}
-        if "retry_count" not in cols:
-            c.execute("ALTER TABLE downloads ADD COLUMN retry_count INTEGER DEFAULT 0")
+        for table, column, decl in COLUMN_MIGRATIONS:
+            add_column_if_missing(c, table, column, decl)
         c.execute("PRAGMA wal_autocheckpoint=1000;")
         c.execute("PRAGMA wal_checkpoint(TRUNCATE);")  # shrink bloated WAL on boot
     _logger.info("db initialised at %s", DB_PATH)
 
 
-def log(level: str, message: str, channel_id=None):
-    """Persist an app event to the logs table (v1-compatible signature)."""
+def keyed(m: str | dict | None) -> tuple[str | None, str | None, str | None]:
+    """(English text, key, JSON params) to store for a plain string or an
+    i18n message ``{"key", "params"}``; key and params are None for plain text."""
+    if not isinstance(m, dict):
+        return m, None, None
+    params = m.get("params") or {}
+    return translate(m["key"], _TEXT_LANG, **params), m["key"], json.dumps(params)
+
+
+def stored_message(key: str | None, params: str | None) -> dict | None:
+    """The ``{"key", "params"}`` message a row stored with :func:`keyed`, or None."""
+    if not key:
+        return None
+    try:
+        decoded = json.loads(params) if params else {}
+    except ValueError:
+        decoded = {}
+    return {"key": key, "params": decoded if isinstance(decoded, dict) else {}}
+
+
+def log(level: str, message: str | dict, channel_id=None):
+    """Persist an app event to the logs table.
+
+    ``message`` is an i18n message (``i18n.message(...)``), shown in the UI
+    language, or plain text (third-party text)."""
+    text, key, params = keyed(message)
     try:
         with conn() as c:
-            c.execute("INSERT INTO logs(ts,level,message,channel_id) VALUES(?,?,?,?)",
-                      (int(time.time()), level, message, channel_id))
+            c.execute("INSERT INTO logs(ts,level,message,channel_id,msg_key,msg_params) VALUES(?,?,?,?,?,?)",
+                      (int(time.time()), level, text, channel_id, key, params))
     except Exception as e:  # logging must never crash a download
         _logger.error("db.log failed: %s", e)
-    _logger.log(getattr(logging, level.upper(), logging.INFO), message)
+    _logger.log(getattr(logging, level.upper(), logging.INFO), text)

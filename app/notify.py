@@ -2,6 +2,7 @@
 import logging
 import httpx
 from . import settings
+from .i18n import translate
 
 log = logging.getLogger("notify")
 
@@ -46,6 +47,10 @@ async def _telegram(text, poster=""):
         return False
 
 
+def _plex_line(link: str) -> str:
+    return f"\n▶ {translate('notify.open_in_plex')}: {link}" if link else ""
+
+
 def _plex_link(show):
     if not show:
         return ""
@@ -55,7 +60,7 @@ def _plex_link(show):
 
 async def send(title, detail="", imdb_id=None, show=None):
     link = _plex_link(show)
-    text = f"📥 {title}" + (f"\n{detail}" if detail else "") + (f"\n▶ Open in Plex: {link}" if link else "")
+    text = f"📥 {title}" + (f"\n{detail}" if detail else "") + _plex_line(link)
     poster = ""
     if imdb_id:
         try:
@@ -87,16 +92,16 @@ async def test():
         except Exception:
             poster = ""
     link = _plex_link(show)
-    text = "✅ Telearr test notification" + (f"\n▶ Open in Plex: {link}" if link else "")
+    text = "✅ " + translate("notify.test.title") + _plex_line(link)
     results, ok = [], True
     w = await _webhook(text)
     if w is not None:
-        results.append("Webhook " + ("✓" if w else "✗"))
+        results.append(translate("notify.test.webhook") + " " + ("✓" if w else "✗"))
         ok = ok and w
     t = await _telegram(text, poster)
     if t is not None:
-        results.append("Telegram Saved Messages " + ("✓" if t else "✗"))
+        results.append(translate("notify.test.saved_messages") + " " + ("✓" if t else "✗"))
         ok = ok and t
     if not results:
-        return {"ok": True, "detail": "No notification channels enabled — turn on a webhook or Telegram below."}
+        return {"ok": True, "detail": translate("notify.test.none_enabled")}
     return {"ok": ok, "detail": " · ".join(results)}

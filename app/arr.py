@@ -1,13 +1,15 @@
 # app/arr.py — *arr stack integration: Newznab indexer + SABnzbd download client.
 #
-# Sonarr/Radarr/Prowlarr add Telearr as a Newznab indexer (search Telegram channels
-# as "releases") and as a SABnzbd download client (hand grabs to Telearr, which
+# Sonarr/Radarr/Prowlarr add Telegrarr as a Newznab indexer (search Telegram channels
+# as "releases") and as a SABnzbd download client (hand grabs to Telegrarr, which
 # downloads from Telegram and reports the finished path back for import).
+import os
 import time
 import html
 import re
 import secrets
 from . import db, settings, __version__ as VERSION
+from .namer import is_uhd
 
 SAB_VERSION = "4.2.0"        # advertise a modern SABnzbd to the *arr clients
 
@@ -36,7 +38,7 @@ def _parent_cat(kind) -> int:
 
 
 def _subcat(kind, quality) -> int:
-    uhd = str(quality or "").lower() in ("2160p", "4k", "uhd")
+    uhd = is_uhd(str(quality or ""))
     if kind == "movie":
         return 2045 if uhd else 2040
     return 5045 if uhd else 5040
@@ -47,15 +49,15 @@ def caps_xml() -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<caps>'
-        f'<server title="Telearr" version="{VERSION}"/>'
+        f'<server title="Telegrarr" version="{VERSION}"/>'
         '<limits max="100" default="100"/>'
         '<retention days="9999"/>'
         '<searching>'
         # advertise ONLY params we actually honor (advertising ignored params is a
         # spec anti-pattern that can make categorized test searches misbehave)
         '<search available="yes" supportedParams="q"/>'
-        '<tv-search available="yes" supportedParams="q,season,ep,imdbid"/>'
-        '<movie-search available="yes" supportedParams="q,imdbid"/>'
+        '<tv-search available="yes" supportedParams="q,season,ep,tvdbid,tmdbid,imdbid"/>'
+        '<movie-search available="yes" supportedParams="q,tmdbid,imdbid"/>'
         '</searching>'
         '<categories>'
         '<category id="2000" name="Movies">'
@@ -69,14 +71,57 @@ def caps_xml() -> str:
     )
 
 
-def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100):
+def _norm_imdb(imdbid) -> str:
+    return "tt" + str(imdbid).strip().lstrip("t")
+
+
+def _as_int(value) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+# Newznab id param -> the SQL expression it is matched against (fixed strings, never input)
+_ID_COLUMNS = {"tvdbid": "ch.tvdb_id",
+               "tmdbid": "COALESCE(r.movie_tmdb_id, ch.tmdb_id)",
+               "imdbid": "COALESCE(r.movie_imdb_id, ch.imdb_id)"}
+
+
+def _id_where(tvdbid, tmdbid, imdbid) -> tuple[list[str], list] | None:
+    """SQL conditions + args for the Newznab id params given; None when an id can never match."""
+    given = {"tvdbid": tvdbid, "tmdbid": tmdbid, "imdbid": imdbid}
+    clauses, args = [], []
+    for param, raw in given.items():
+        if raw in (None, ""):
+            continue
+        value = _norm_imdb(raw) if param == "imdbid" else _as_int(raw)
+        if value is None:
+            return None
+        clauses.append(f"{_ID_COLUMNS[param]} = ?")
+        args.append(value)
+    return clauses, args
+
+
+_SCAN_WINDOW = 2000   # newest releases considered by one search (id filters apply before it)
+
+
+def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100,
+                    tvdbid=None, tmdbid=None):
+    id_where = _id_where(tvdbid, tmdbid, imdbid)
+    if id_where is None:
+        return []
+    clauses, args = id_where
+    where = " AND ".join(["ch.enabled = 1", *clauses])
     with db.conn() as c:
         rows = c.execute(
-            """SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.imdb_id, ch.kind
-               FROM releases r JOIN channels ch ON ch.id = r.channel_id
-               WHERE ch.enabled = 1
-               ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
-               LIMIT 2000""").fetchall()
+            f"""SELECT r.*, ch.title AS chtitle, ch.imdb_title, ch.kind, ch.tvdb_id,
+                       COALESCE(r.movie_tmdb_id, ch.tmdb_id) AS tmdb_id,
+                       COALESCE(r.movie_imdb_id, ch.imdb_id) AS imdb_id
+                FROM releases r JOIN channels ch ON ch.id = r.channel_id
+                WHERE {where}
+                ORDER BY r.season DESC, r.episode DESC, r.added_at DESC
+                LIMIT ?""", (*args, _SCAN_WINDOW)).fetchall()
     ql = (q or "").strip().lower()
     want_movie = t in ("movie", "moviesearch")
     want_tv = t in ("tvsearch", "tv-search", "tv")
@@ -87,12 +132,8 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
             continue
         if want_tv and kind == "movie":
             continue
-        if imdbid:
-            norm = "tt" + str(imdbid).lstrip("t")
-            if not r["imdb_id"] or r["imdb_id"] != norm:
-                continue
         show = (r["imdb_title"] or r["chtitle"] or "").lower()
-        if ql and ql not in show and ql not in (r["title"] or "").lower():
+        if ql and ql not in show and ql not in (r["title"] or "").lower().replace(".", " "):
             continue
         if season not in (None, "") and r["season"] is not None and int(season) != r["season"]:
             continue
@@ -102,6 +143,15 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
         if len(out) >= limit:
             break
     return out
+
+
+def _id_attrs(r) -> str:
+    """Newznab id attrs so Sonarr/Radarr can map a release by id, not by title."""
+    keys = r.keys()
+    ids = (("tvdbid", r["tvdb_id"] if "tvdb_id" in keys else None),
+           ("tmdbid", r["tmdb_id"] if "tmdb_id" in keys else None),
+           ("imdb", (r["imdb_id"] or "").removeprefix("tt") if "imdb_id" in keys else None))
+    return "".join(f'<newznab:attr name="{name}" value="{html.escape(str(v))}"/>' for name, v in ids if v)
 
 
 def feed_xml(base: str, releases) -> str:
@@ -120,11 +170,11 @@ def feed_xml(base: str, releases) -> str:
             f'<category>{parent}</category>'
             f'<newznab:attr name="category" value="{parent}"/>'
             f'<newznab:attr name="category" value="{sub}"/>'
-            f'<newznab:attr name="size" value="{size}"/></item>')
+            f'<newznab:attr name="size" value="{size}"/>{_id_attrs(r)}</item>')
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">'
-        '<channel><title>Telearr</title><description>Telegram releases</description>'
+        '<channel><title>Telegrarr</title><description>Telegram releases</description>'
         f'<newznab:response offset="0" total="{len(items)}"/>'
         f'{"".join(items)}</channel></rss>')
 
@@ -155,8 +205,20 @@ def _mb(b):
     return round((b or 0) / 1e6, 2)
 
 
-def _cat(kind):
+def category_for(kind) -> str:
+    """SAB category (and *arr download folder) for a channel kind."""
     return "movies" if kind == "movie" else "tv"
+
+
+def storage_path(save_path) -> str:
+    """What SAB reports as a job's storage: the release folder for flat *arr grabs
+    (Sonarr/Radarr import the folder), the file itself for library-layout downloads
+    (whose folder holds other episodes)."""
+    save_path = save_path or ""
+    root = os.path.realpath(settings.arr_root())
+    if save_path and os.path.commonpath([root, os.path.realpath(save_path)]) == root:
+        return os.path.dirname(save_path)
+    return save_path
 
 
 def sab_version():
@@ -170,7 +232,7 @@ def sab_config():
              "newzbin": "", "priority": 0}
             for i, n in enumerate(sab_categories())]
     return {"config": {
-        "misc": {"complete_dir": "/media", "pre_check": 0, "history_retention": "",
+        "misc": {"complete_dir": settings.arr_root(), "pre_check": 0, "history_retention": "",
                  "enable_tv_sorting": 0, "enable_movie_sorting": 0, "enable_date_sorting": 0},
         "categories": cats,
         "sorters": [],
@@ -189,7 +251,8 @@ def sab_queue():
         slots.append({
             "nzo_id": f"telearr{r['id']}",
             "filename": (r["save_path"] or r["file_name"] or "").split("/")[-1],
-            "cat": _cat(r["kind"]),
+            "cat": category_for(r["kind"]),
+            "storage": storage_path(r["save_path"]),
             "status": "Downloading" if r["status"] == "downloading" else "Queued",
             "index": len(slots), "percentage": str(int(prog * 100)),
             "mb": str(_mb(size)), "mbleft": str(_mb(left)),
@@ -209,13 +272,14 @@ def sab_history(limit=100):
     slots = []
     for r in rows:
         ok = r["status"] == "completed"
+        storage = storage_path(r["save_path"])
         name = (r["save_path"] or r["file_name"] or "").split("/")[-1]
         slots.append({
             "nzo_id": f"telearr{r['id']}",
             "name": name, "nzb_name": r["file_name"] or name,
-            "category": _cat(r["kind"]),
+            "category": category_for(r["kind"]),
             "status": "Completed" if ok else "Failed",
-            "storage": r["save_path"] or "", "path": r["save_path"] or "",
+            "storage": storage, "path": storage,
             "bytes": r["file_size"] or 0,
             "fail_message": "" if ok else (r["error"] or "failed"),
             "download_time": 0, "postproc_time": 0, "action_line": "",

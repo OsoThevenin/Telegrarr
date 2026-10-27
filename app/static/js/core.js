@@ -1,4 +1,5 @@
 // core.js — framework-free foundation: DOM builder, store, API client, helpers.
+import { t, msg } from "./i18n.js";
 
 // ── hyperscript DOM builder (XSS-safe: text is auto-escaped via text nodes) ──
 export function h(tag, attrs = {}, ...kids) {
@@ -50,15 +51,16 @@ export function toast(msg, kind = "") {
 export async function api(url, opts = {}) {
   let r;
   try { r = await fetch(url, opts); }
-  catch { toast("Network error", "err"); return null; }
+  catch { toast(t("common.network_error"), "err"); return null; }
   if (r.status === 401) { location.href = "/login"; return null; }
   const ct = r.headers.get("content-type") || "";
   const body = ct.includes("json") ? await r.json().catch(() => null) : await r.text();
-  if (!r.ok) { toast(body && body.detail ? body.detail : `Error ${r.status}`, "err"); return null; }
+  if (!r.ok) { toast(body && body.detail ? msg(body.detail) : t("common.http_error", { status: r.status }), "err"); return null; }
   return body;
 }
 export const jpost = (url, obj) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
 export const jpatch = (url, obj) => api(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
+export const jput = (url, obj) => api(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) });
 
 export async function copy(text) {
   // navigator.clipboard needs a secure context (https or localhost). Over a
@@ -67,7 +69,7 @@ export async function copy(text) {
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text);
-      toast("Copied to clipboard", "ok");
+      toast(t("common.copied"), "ok");
       return;
     }
   } catch { /* fall through to legacy path */ }
@@ -81,9 +83,9 @@ export async function copy(text) {
     try { ta.setSelectionRange(0, text.length); } catch { /* not a text field */ }
     const ok = document.execCommand("copy");
     ta.remove();
-    toast(ok ? "Copied to clipboard" : "Copy failed — select manually", ok ? "ok" : "err");
+    toast(ok ? t("common.copied") : t("common.copy_failed"), ok ? "ok" : "err");
   } catch {
-    toast("Copy failed — select manually", "err");
+    toast(t("common.copy_failed"), "err");
   }
 }
 
@@ -101,6 +103,6 @@ export function fmtETA(d) {
   const secs = left / (d.speed_mbs * 1024 * 1024);
   if (!isFinite(secs) || secs <= 0) return "";
   const m = Math.floor(secs / 60), s = Math.floor(secs % 60);
-  return m ? `${m}m ${s}s left` : `${s}s left`;
+  return m ? t("common.eta_min", { m, s }) : t("common.eta_sec", { s });
 }
 export const base = (p) => (p || "").split("/").pop();

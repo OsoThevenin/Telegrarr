@@ -1,5 +1,5 @@
 // icons.js — dependency-free inline-SVG icon set (Lucide/Feather style)
-// for the Telearr web app. Each icon inherits the current text color and
+// for the Telegrarr web app. Each icon inherits the current text color and
 // scales cleanly in light/dark themes.
 
 // Raw path/body markup for each icon (the inner contents of the <svg>).

@@ -4,15 +4,19 @@
 # task registry). It is correct ONLY under a single event loop / single uvicorn
 # worker. The container runs `--workers 1`; do not raise that without moving the
 # scanner into its own process.
+import contextlib
 import os
 import time
 import asyncio
 import logging
 
-from . import db, plex, notify, settings
+from . import db, plex, notify, settings, safety, resolver, movies
+from .arr import category_for
+from .i18n import message, translate
 from .tg import get_client
 from .namer import (group_key, extract_episode, extract_episode_title,
-                    build_save_path, is_uhd, release_name)
+                    build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
+                    DEFAULT_LANGUAGE, extract_movie)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
                      MAX_CONCURRENT_DOWNLOADS)
 from .downloader import download_file
@@ -28,6 +32,12 @@ _task_registry = {}                     # download_id -> asyncio.Task
 _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
+_poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
+ON_DISK_RATIO = 0.98                    # a file this complete on disk counts as already downloaded
+BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
+MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
+CANCELLED_BY_USER = "dl.err.cancelled"
+DOWNLOAD_FAILED = "dl.err.failed"
 
 
 def begin_shutdown():
@@ -92,14 +102,64 @@ def _file_name(doc, msg_id):
     return f"file_{msg_id}.mp4"
 
 
-def _resolve_path(channel, msg, fn):
+def _video_dims(doc) -> tuple[int | None, int | None]:
+    """Width/height from Telegram's DocumentAttributeVideo, if the upload has one."""
+    for attr in getattr(doc, "attributes", []) or []:
+        w, h = getattr(attr, "w", None), getattr(attr, "h", None)
+        if isinstance(w, int) and isinstance(h, int):
+            return w, h
+    return None, None
+
+
+def _parse_episode(msg, fn) -> dict:
+    """Episode info from the file name, falling back to the caption."""
     info = extract_episode(fn) if fn else {}
     if not info.get("season"):
         info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
+    return info
+
+
+def _show_title(channel) -> str:
+    return channel["imdb_title"] or channel["title"]
+
+
+def _is_mapped(channel) -> bool:
+    return bool((channel["imdb_id"] or "").strip() or (channel["imdb_title"] or "").strip())
+
+
+def _message_quality(channel, msg, parsed_quality):
+    """Quality precedence: video dimensions > quality tag in the text > the
+    channel's fallback quality."""
+    width, height = _video_dims(msg.document or msg.video)
+    return quality_from_dims(width, height, fallback=parsed_quality or channel["fallback_quality"])
+
+
+def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
+    """What a Telegram media message is published as on the Newznab feed.
+
+    ``episode`` overrides the parsed episode number (a resolved two-part episode)."""
+    info = _parse_episode(msg, fn)
+    if episode is not None:
+        info = {**info, "episode": episode}
+    season, episode = info.get("season") or 0, info.get("episode") or 0
+    quality = _message_quality(channel, msg, info.get("quality"))
+    show = _show_title(channel)
+    title = release_name(show, season, episode, quality or "", channel["kind"],
+                         language=channel["language"] or DEFAULT_LANGUAGE,
+                         episode_end=info.get("episode_end"))
+    episode_title = extract_episode_title(msg.message or "", fn, season, episode,
+                                          show_title=show, mapped=_is_mapped(channel))
+    return {"title": title, "season": info.get("season"), "episode": info.get("episode"),
+            "episode_end": info.get("episode_end"), "quality": quality, "episode_title": episode_title}
+
+
+def _resolve_path(channel, msg, fn):
+    info = _parse_episode(msg, fn)
+    show = _show_title(channel)
     ep_title = extract_episode_title(msg.message or "", fn,
                                      info.get("season") or 0,
-                                     info.get("episode") or 0, show_title=show)
+                                     info.get("episode") or 0, show_title=show,
+                                     mapped=_is_mapped(channel))
     base = base_dir_for(channel, info.get("quality"))
     return build_save_path(base, show, info.get("season") or 0,
                            info.get("episode") or 0, fn, ep_title)
@@ -157,23 +217,83 @@ async def _iter_best(client, chat_id, *, limit, stop_at=0):
     return best, max_seen
 
 
-def _record_release(channel, msg, size, fn, gk):
+def _flat_path(channel, msg, fn):
+    """*arr grab path: <downloads>/telegram/<category>/<release title>/<file>.
+
+    Uses the indexed release title (what Sonarr/Radarr grabbed) when present."""
+    with db.conn() as c:
+        row = c.execute("SELECT title FROM releases WHERE channel_id=? AND message_id=?",
+                        (channel["id"], msg.id)).fetchone()
+    title = row["title"] if row else build_release(channel, msg, fn)["title"]
+    return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
+
+
+def _is_mapped_series(channel) -> bool:
+    return (channel["kind"] or "tv") == "tv" and bool(channel["tmdb_id"] or channel["tvdb_id"])
+
+
+def _log_resolution(channel, rel: dict, found: "resolver.Resolution") -> None:
+    marker = f"S{rel['season']:02d}E{rel['episode']:02d} {rel['episode_title']}"
+    if found.source == resolver.KEPT:
+        db.log("WARN", message("event.part_kept", marker=marker), channel_id=channel["id"])
+    elif found.episode != rel["episode"]:
+        db.log("INFO", message("event.part_resolved", marker=marker, episode=f"E{found.episode:02d}",
+                               source=found.source), channel_id=channel["id"])
+
+
+async def build_resolved_release(channel, msg, fn) -> dict:
+    """``build_release`` with a "(Na Part)" episode resolved to TVDB's numbering
+    on series channels mapped to TMDB/TVDB ids.
+
+    Adds ``parsed_episode`` (the channel's number) and ``episode_source`` (where
+    the published number came from); both None when nothing was resolved."""
+    rel = {**build_release(channel, msg, fn), "parsed_episode": None, "episode_source": None}
+    if not _is_mapped_series(channel):
+        return rel
+    found = await resolver.resolve_part(tmdb_id=channel["tmdb_id"], tvdb_id=channel["tvdb_id"],
+                                        season=rel["season"], episode=rel["episode"],
+                                        episode_title=rel["episode_title"])
+    if found is None:
+        return rel
+    _log_resolution(channel, rel, found)
+    resolved = rel if found.episode == rel["episode"] else build_release(channel, msg, fn, episode=found.episode)
+    return {**resolved, "parsed_episode": rel["episode"], "episode_source": found.source}
+
+
+async def _record_release(channel, msg, size, fn, gk):
     """Index a seen media item so the Newznab endpoint can serve it as a release."""
-    info = extract_episode(fn) if fn else {}
-    if not info.get("season"):
-        info = extract_episode(msg.message or "")
-    show = channel["imdb_title"] or channel["title"]
-    title = release_name(show, info.get("season") or 0, info.get("episode") or 0,
-                         info.get("quality") or "", channel["kind"])
+    rel = await build_resolved_release(channel, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT INTO releases
-            (channel_id,message_id,group_key,title,season,episode,quality,size,added_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            (channel_id,message_id,group_key,title,season,episode,quality,size,added_at,
+             parsed_episode,episode_source)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(channel_id,message_id) DO UPDATE SET
               title=excluded.title, season=excluded.season, episode=excluded.episode,
-              quality=excluded.quality, size=excluded.size""",
-            (channel["id"], msg.id, gk, title, info.get("season"), info.get("episode"),
-             info.get("quality"), size, int(time.time())))
+              quality=excluded.quality, size=excluded.size,
+              parsed_episode=excluded.parsed_episode, episode_source=excluded.episode_source""",
+            (channel["id"], msg.id, gk, rel["title"], rel["season"], rel["episode"],
+             rel["quality"], size, int(time.time()), rel["parsed_episode"], rel["episode_source"]))
+
+
+def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
+    """A movie channel message's film: title/year from the caption, else the file name."""
+    caption = msg.message or ""
+    from_caption, from_file = extract_movie(caption), extract_movie(fn or "")
+    candidates = [m for m in (from_caption, from_file) if m.title]
+    movie = next((m for m in candidates if m.year), candidates[0] if candidates else from_file)
+    quality = _message_quality(channel, msg, from_caption.quality or from_file.quality)
+    return movies.PostedFilm(channel_id=channel["id"], message_id=msg.id, group_key=gk, size=size,
+                             file_name=fn, caption=caption, title=movie.title, year=movie.year,
+                             quality=quality)
+
+
+async def _index_release(channel, msg, size, fn, gk) -> bool:
+    """Index a seen media item for Newznab. False when it is not offered (pending review)."""
+    if channel["kind"] == "movie":
+        return await movies.index_message(posted_film(channel, msg, size, fn, gk))
+    await _record_release(channel, msg, size, fn, gk)
+    return True
 
 
 async def _enqueue(client, channel, msg, size, fn, gk):
@@ -193,7 +313,7 @@ async def _enqueue(client, channel, msg, size, fn, gk):
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
             VALUES(?,?,?,?,?,?,?,?)""",
             (cid, msg.id, gk, fn, size, save_path, "queued", int(time.time())))
-    db.log("INFO", f"Queued {fn} ({size/1e9:.2f}GB) → {save_path}", channel_id=cid)
+    db.log("INFO", message("event.queued", file=fn, size=f"{size/1e9:.2f}", path=save_path), channel_id=cid)
     _spawn(_run_download(client, cid, msg, save_path, gk))
 
 
@@ -212,16 +332,19 @@ async def _retry_failed(client, channel):
         try:
             msg = await client.get_messages(channel["chat_id"], ids=r["message_id"])
         except Exception as e:
-            db.log("WARN", f"Auto-retry: could not fetch msg {r['message_id']}: {e}", channel_id=cid)
+            db.log("WARN", message("event.retry_fetch_failed", message_id=r["message_id"], error=str(e)),
+                   channel_id=cid)
             continue
         if not msg:
             with db.conn() as c:
-                c.execute("UPDATE downloads SET status='failed', error='message gone' WHERE id=?", (r["id"],))
+                _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
             continue
         with db.conn() as c:
             c.execute("UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
-                      "retry_count=COALESCE(retry_count,0)+1 WHERE id=?", (r["id"],))
-        db.log("INFO", f"Auto-retry {r['rc'] + 1}/{MAX_DOWNLOAD_RETRIES}: {r['file_name']}", channel_id=cid)
+                      "error_key=NULL, error_params=NULL, retry_count=COALESCE(retry_count,0)+1 WHERE id=?",
+                      (r["id"],))
+        db.log("INFO", message("event.auto_retry", n=r["rc"] + 1, max=MAX_DOWNLOAD_RETRIES, file=r["file_name"]),
+               channel_id=cid)
         _spawn(_run_download(client, cid, msg, r["save_path"], r["group_key"]))
 
 
@@ -229,9 +352,10 @@ async def scan_channel(client, channel):
     cid = channel["id"]
     last = channel["last_message_id"] or 0
     best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last)
+    auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
-        _record_release(channel, msg, size, fn, gk)
-        if not _already_have(channel, gk, size):
+        offered = await _index_release(channel, msg, size, fn, gk)
+        if offered and auto_download and not _already_have(channel, gk, size):
             await _enqueue(client, channel, msg, size, fn, gk)
     await _retry_failed(client, channel)   # recover transient download failures
     with db.conn() as c:
@@ -242,105 +366,147 @@ async def scan_channel(client, channel):
 async def backfill_channel(client, channel, full=True):
     cid = channel["id"]
     best, _ = await _iter_best(client, channel["chat_id"], limit=None)
+    auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():
-        _record_release(channel, msg, size, fn, gk)
-        if _already_have(channel, gk, size):
+        offered = await _index_release(channel, msg, size, fn, gk)
+        if not (offered and auto_download) or _already_have(channel, gk, size):
             continue
         await _enqueue(client, channel, msg, size, fn, gk)
         queued += 1
-    db.log("INFO", f"[Backfill] {channel['title']}: {queued} new queued.", channel_id=cid)
+    db.log("INFO", message("event.backfill_done", channel=channel["title"], indexed=len(best), queued=queued),
+           channel_id=cid)
     return queued
+
+
+def _set_error(c, dl_id: int, status: str, reason: dict) -> None:
+    """Set a download's status and its reason, stored as a key the UI translates."""
+    text, key, params = db.keyed(reason)
+    c.execute("UPDATE downloads SET status=?, error=?, error_key=?, error_params=? WHERE id=?",
+              (status, text, key, params, dl_id))
+
+
+def _set_message_error(c, channel_id: int, message_id: int, status: str, reason: dict) -> None:
+    """:func:`_set_error` for the download of one channel message."""
+    text, key, params = db.keyed(reason)
+    c.execute("UPDATE downloads SET status=?, error=?, error_key=?, error_params=? "
+              "WHERE channel_id=? AND message_id=?", (status, text, key, params, channel_id, message_id))
+
+
+async def _wait_for_budget(channel_id, message_id):
+    """Hold a download (status queued, reason in `error`) until the daily budget allows it."""
+    marked = False
+    while safety.budget_exhausted():
+        if not marked:
+            resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
+            with db.conn() as c:
+                _set_message_error(c, channel_id, message_id, "queued",
+                                   message("budget.download_held", resets=resets))
+            marked = True
+        await asyncio.sleep(BUDGET_RECHECK_SECONDS)
+
+
+def _update_message(channel_id: int, message_id: int, assignments: str, *values) -> None:
+    """``UPDATE downloads SET <assignments>`` for the download of one channel message."""
+    with db.conn() as c:
+        c.execute(f"UPDATE downloads SET {assignments} WHERE channel_id=? AND message_id=?",
+                  (*values, channel_id, message_id))
+
+
+def _remove_partial(save_path: str) -> None:
+    with contextlib.suppress(OSError):
+        os.remove(save_path + ".tmp")
+
+
+def _finish_if_on_disk(channel_id: int, msg, save_path: str, fsize: int) -> bool:
+    """Mark the download complete when its file is already on disk.
+
+    Covers a file fully downloaded but not finalized before a crash/restart, or
+    grabbed by a sibling source; re-downloading it used to loop forever,
+    re-writing a full .tmp and stalling at the finalize step."""
+    if not (fsize and os.path.exists(save_path) and os.path.getsize(save_path) >= fsize * ON_DISK_RATIO):
+        return False
+    _remove_partial(save_path)
+    _update_message(channel_id, msg.id, "status='completed', progress=1.0, speed_mbs=0, finished_at=?",
+                    int(time.time()))
+    db.log("INFO", message("event.already_on_disk", file=os.path.basename(save_path)), channel_id=channel_id)
+    return True
+
+
+async def _fetch(client, channel_id: int, msg, save_path: str, fsize: int) -> None:
+    """Download the message's file to `save_path`, keeping the row's progress current."""
+    _update_message(channel_id, msg.id, "status='downloading', started_at=?, error=NULL, "
+                    "error_key=NULL, error_params=NULL", int(time.time()))
+
+    async def progress(pct, speed):
+        _update_message(channel_id, msg.id, "progress=?, speed_mbs=?", pct, speed)
+
+    await download_file(client, msg, save_path, progress_cb=progress)
+    safety.record_download(fsize)
+    _update_message(channel_id, msg.id, "status='completed', progress=1.0, finished_at=?", int(time.time()))
+
+
+def _announce_completed(channel_id: int, save_path: str) -> None:
+    """Log the finished file, prune history, refresh Plex and send the notification."""
+    name = os.path.basename(save_path)
+    db.log("INFO", message("event.downloaded", file=name), channel_id=channel_id)
+    _prune_history(channel_id)
+    with db.conn() as c:
+        ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
+    show = (ch["imdb_title"] or ch["title"]) if ch else ""
+    _spawn(plex.refresh_path(os.path.dirname(save_path)))
+    _spawn(notify.send(translate("notify.downloaded"), name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
+
+
+def _on_cancelled(channel_id: int, msg, save_path: str) -> None:
+    if _shutting_down:
+        # process is stopping — leave it queued so it resumes on next boot
+        _update_message(channel_id, msg.id, "status='queued', progress=0, speed_mbs=0")
+        return
+    with db.conn() as c:
+        _set_message_error(c, channel_id, msg.id, "cancelled", message(CANCELLED_BY_USER))
+    _remove_partial(save_path)
+    db.log("WARN", message("event.cancelled", file=os.path.basename(save_path)), channel_id=channel_id)
+
+
+def _on_failed(channel_id: int, msg, error: Exception) -> None:
+    with db.conn() as c:
+        _set_message_error(c, channel_id, msg.id, "failed", message(DOWNLOAD_FAILED, error=str(error)))
+    db.log("ERROR", message("event.download_failed", error=str(error)), channel_id=channel_id)
+
+
+def _register_current_task(channel_id: int, message_id: int) -> None:
+    with db.conn() as c:
+        row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
+                        (channel_id, message_id)).fetchone()
+    if row:
+        register_task(row["id"], asyncio.current_task())
 
 
 async def _run_download(client, channel_id, msg, save_path, gk):
     key = (channel_id, gk)
-    with db.conn() as c:
-        row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
-                        (channel_id, msg.id)).fetchone()
-    if row:
-        register_task(row["id"], asyncio.current_task())
-
+    _register_current_task(channel_id, msg.id)
     if settings.get_bool("paused", False):
-        with db.conn() as c:
-            c.execute("UPDATE downloads SET status='queued' WHERE channel_id=? AND message_id=?",
-                      (channel_id, msg.id))
+        _update_message(channel_id, msg.id, "status='queued'")
         return
-
     async with _queue_lock:
         if key in _inflight:
             return
         _inflight.add(key)
     try:
+        await _wait_for_budget(channel_id, msg.id)
         async with _sem_current():
-            # If the finished file is already on disk — fully downloaded but not
-            # finalized before a crash/restart, or grabbed by a sibling source —
-            # mark it complete instead of re-downloading (which previously looped
-            # forever, re-writing a full .tmp and stalling at the finalize step).
             doc = msg.document or msg.video
             fsize = doc.size if doc else 0
-            if fsize and os.path.exists(save_path) and os.path.getsize(save_path) >= fsize * 0.98:
-                tmp = save_path + ".tmp"
-                if os.path.exists(tmp):
-                    try:
-                        os.remove(tmp)
-                    except OSError:
-                        pass
-                with db.conn() as c:
-                    c.execute("""UPDATE downloads SET status='completed', progress=1.0, speed_mbs=0,
-                                 finished_at=? WHERE channel_id=? AND message_id=?""",
-                              (int(time.time()), channel_id, msg.id))
-                db.log("INFO", f"Already on disk — finalized {os.path.basename(save_path)}", channel_id=channel_id)
+            if _finish_if_on_disk(channel_id, msg, save_path, fsize):
                 return
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='downloading', started_at=?
-                             WHERE channel_id=? AND message_id=?""",
-                          (int(time.time()), channel_id, msg.id))
-
-            async def pcb(pct, speed):
-                with db.conn() as c:
-                    c.execute("""UPDATE downloads SET progress=?, speed_mbs=?
-                                 WHERE channel_id=? AND message_id=?""",
-                              (pct, speed, channel_id, msg.id))
-
-            await download_file(client, msg, save_path, progress_cb=pcb)
-
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='completed', progress=1.0,
-                             finished_at=? WHERE channel_id=? AND message_id=?""",
-                          (int(time.time()), channel_id, msg.id))
-            name = os.path.basename(save_path)
-            db.log("INFO", f"✅ Downloaded {name}", channel_id=channel_id)
-            _prune_history(channel_id)
-            with db.conn() as c:
-                ch = c.execute("SELECT imdb_id, imdb_title, title FROM channels WHERE id=?", (channel_id,)).fetchone()
-            show = (ch["imdb_title"] or ch["title"]) if ch else ""
-            _spawn(plex.refresh_path(os.path.dirname(save_path)))
-            _spawn(notify.send("Downloaded", name, imdb_id=(ch["imdb_id"] if ch else None), show=show))
+            await _fetch(client, channel_id, msg, save_path, fsize)
+            _announce_completed(channel_id, save_path)
     except asyncio.CancelledError:
-        if _shutting_down:
-            # process is stopping — leave it queued so it resumes on next boot
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='queued', progress=0, speed_mbs=0
-                             WHERE channel_id=? AND message_id=?""", (channel_id, msg.id))
-        else:
-            with db.conn() as c:
-                c.execute("""UPDATE downloads SET status='cancelled', error='cancelled by user'
-                             WHERE channel_id=? AND message_id=?""", (channel_id, msg.id))
-            tmp = save_path + ".tmp"
-            try:
-                if os.path.exists(tmp):
-                    os.remove(tmp)
-            except Exception:
-                pass
-            db.log("WARN", f"Cancelled {os.path.basename(save_path)}", channel_id=channel_id)
+        _on_cancelled(channel_id, msg, save_path)
         raise
     except Exception as e:
-        with db.conn() as c:
-            c.execute("""UPDATE downloads SET status='failed', error=?
-                         WHERE channel_id=? AND message_id=?""",
-                      (str(e), channel_id, msg.id))
-        db.log("ERROR", f"Download failed: {e}", channel_id=channel_id)
+        _on_failed(channel_id, msg, e)
     finally:
         async with _queue_lock:
             _inflight.discard(key)
@@ -370,14 +536,14 @@ async def grab_message(channel_id, message_id):
     try:
         msg = await client.get_messages(ch["chat_id"], ids=message_id)
     except Exception as e:
-        db.log("ERROR", f"[arr] grab fetch failed: {e}", channel_id=channel_id)
+        db.log("ERROR", message("event.grab_fetch_failed", error=str(e)), channel_id=channel_id)
         return None
     doc = msg.document or msg.video if msg else None
     if not doc:
         return None
     fn = _file_name(doc, msg.id)
     gk = group_key(msg.message or "", fn, msg.id)
-    save_path = _resolve_path(ch, msg, fn)
+    save_path = _flat_path(ch, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT OR IGNORE INTO downloads
             (channel_id,message_id,group_key,file_name,file_size,save_path,status,created_at)
@@ -385,7 +551,7 @@ async def grab_message(channel_id, message_id):
             (channel_id, msg.id, gk, fn, doc.size, save_path, "queued", int(time.time())))
         row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, msg.id)).fetchone()
-    db.log("INFO", f"[arr] Grab queued {fn}", channel_id=channel_id)
+    db.log("INFO", message("event.grab_queued", file=fn), channel_id=channel_id)
     _spawn(_run_download(client, channel_id, msg, save_path, gk))
     return row["id"] if row else None
 
@@ -407,22 +573,21 @@ async def resume_pending_downloads():
         rows = c.execute("""SELECT d.*, c.chat_id FROM downloads d
                             JOIN channels c ON c.id=d.channel_id
                             WHERE d.status='queued' ORDER BY d.id ASC""").fetchall()
-    db.log("INFO", f"Resuming {len(rows)} queued downloads")
+    db.log("INFO", message("event.resuming", n=len(rows)))
     for r in rows:
         try:
             msg = await client.get_messages(r["chat_id"], ids=r["message_id"])
             if not msg:
                 with db.conn() as c:
-                    c.execute("UPDATE downloads SET status='failed', error='message gone' "
-                              "WHERE id=?", (r["id"],))
+                    _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
                 continue
             _spawn(_run_download(client, r["channel_id"], msg, r["save_path"], r["group_key"]))
         except Exception as e:
-            db.log("ERROR", f"Resume failed for msg {r['message_id']}: {e}")
+            db.log("ERROR", message("event.resume_failed", message_id=r["message_id"], error=str(e)))
 
 
 async def scan_loop():
-    db.log("INFO", "Scanner started")
+    db.log("INFO", message("event.scanner_started"))
     resumed = False
     while True:
         try:
@@ -444,14 +609,14 @@ async def scan_loop():
             for ch in rows:
                 if not channel_should_run_today(ch):
                     continue
-                if now < (ch["last_scanned_at"] or 0) + ch["poll_minutes"] * 60:
+                if not _poll.is_due(ch["id"], ch["last_scanned_at"] or 0, ch["poll_minutes"], now):
                     continue
                 try:
                     await scan_channel(client, ch)
                 except Exception as e:
-                    db.log("ERROR", f"Scan failed for {ch['title']}: {e}", channel_id=ch["id"])
+                    db.log("ERROR", message("event.scan_failed", channel=ch["title"], error=str(e)), channel_id=ch["id"])
         except Exception as e:
-            db.log("ERROR", f"Scan loop error: {e}")
+            db.log("ERROR", message("event.scan_loop_error", error=str(e)))
         await asyncio.sleep(30)
 
 

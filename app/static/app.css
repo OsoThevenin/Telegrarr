@@ -1,4 +1,4 @@
-/* Telearr — Apple-inspired design system.
+/* Telegrarr — Apple-inspired design system.
  * Precision editorial calm: SF Pro type, generous white space, one restrained
  * blue accent, purposeful radii, softly restrained depth. Light and dark both
  * first-class. Adapted from Open Design's "apple" system (curated fixture).
@@ -159,6 +159,10 @@ td.num, td .mono { font-family: var(--mono); font-feature-settings: "tnum"; }
 td.cb, th.cb { width: 36px; text-align: center; }
 tr.selrow { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { padding-top: 8px; padding-bottom: 8px; font-size: 13px; }
+
+/* two-part episode resolution note under a download's file name */
+.ep-note { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.err-note { display: block; margin-top: 2px; font-size: 12px; color: var(--err); }
 
 /* status pills — Apple capsule, restrained tint */
 .pill { font-size: 12px; font-weight: 600; padding: 4px 11px; border-radius: var(--r-pill); border: 1px solid transparent; white-space: nowrap; text-transform: capitalize; }
@@ -396,6 +400,19 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 .chan-selected:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 7px; margin-top: 10px; padding: 6px 12px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); font-size: 13px; font-weight: 500; }
 .pad { padding: 12px 14px; }
+
+/* directory import dialog */
+.modal-card.wide { width: min(680px, 96vw); }
+.dir-pick { display: flex; gap: 8px; align-items: center; }
+.dir-pick select { flex: 1; min-width: 0; }
+.dir-list { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: var(--r-md); }
+.dir-row { display: flex; gap: 11px; align-items: flex-start; padding: 11px 13px; border-bottom: 1px solid var(--line-soft); }
+.dir-row:last-child { border-bottom: 0; }
+.dir-row.off .ci-title { color: var(--muted); }
+.dir-row input[type=checkbox] { margin-top: 3px; width: 16px; height: 16px; padding: 0; flex: 0 0 auto; }
+.dir-row .ci-main { gap: 3px; flex: 1; }
+.dir-match { display: grid; gap: 6px; font-size: 13px; }
+.dir-match-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 .drawer { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,.4); backdrop-filter: blur(6px); display: grid; place-items: start center; padding: 5vh 16px 16px; overflow: auto; }
 .drawer-card { width: min(820px, 100%); background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-raised); }

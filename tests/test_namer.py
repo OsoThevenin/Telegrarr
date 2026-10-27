@@ -41,7 +41,7 @@ def test_extract_episode_episode_only(text, episode):
 
 def test_extract_episode_empty():
     assert namer.extract_episode("") == {
-        "season": None, "episode": None, "date": None, "quality": None}
+        "season": None, "episode": None, "episode_end": None, "date": None, "quality": None}
 
 
 # --------------------------------------------------------------------------
@@ -194,3 +194,22 @@ def test_group_key_falls_back_to_message_id():
 def test_group_key_prefers_filename_over_caption():
     # filename carries S/E, caption does not -> filename wins
     assert namer.group_key("some caption", "Show.S02E04.mkv", 7) == "S02E04"
+
+
+# --------------------------------------------------------------------------
+# flat_save_path: *arr layout <root>/<category>/<release>/<file>, traversal-proof
+# --------------------------------------------------------------------------
+def test_flat_save_path_builds_category_release_file():
+    path = namer.flat_save_path("/downloads/telegram", "tv", "Show.S01E02.1080p", "Show.S01E02.mkv")
+    assert path == "/downloads/telegram/tv/Show.S01E02.1080p/Show.S01E02.mkv"
+
+
+@pytest.mark.parametrize("release, file_name, expected", [
+    ("..", "a.mkv", "/dl/tv/Unknown/a.mkv"),
+    ("../../etc", "a.mkv", "/dl/tv/etc/a.mkv"),
+    ("Rel", "..\\..\\passwd", "/dl/tv/Rel/passwd"),
+    ("Rel", ".hidden.mkv", "/dl/tv/Rel/hidden.mkv"),
+    ("Rel: <A|B>?", "", "/dl/tv/Rel_ _A_B__/file"),
+])
+def test_flat_save_path_neutralises_hostile_names(release, file_name, expected):
+    assert namer.flat_save_path("/dl", "tv", release, file_name) == expected
