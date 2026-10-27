@@ -56,32 +56,44 @@ def series_title(imdb_id: str) -> str:
 
 
 def existing_chat_ids() -> dict[int, int]:
-    """chat_id -> channel id of every source channel already added."""
+    """chat_id -> channel id of every whole-chat source already added (topic sources
+    don't count: adding one topic of a group doesn't add the group)."""
     with db.conn() as c:
-        return {r["chat_id"]: r["id"] for r in c.execute("SELECT id, chat_id FROM channels")}
+        return {r["chat_id"]: r["id"]
+                for r in c.execute("SELECT id, chat_id FROM channels WHERE topic_id IS NULL")}
+
+
+def _source_id(c, chat_id: int, topic_id: int | None) -> int | None:
+    """Id of the source for (chat, topic) — topic None is the whole chat — if added."""
+    row = c.execute("SELECT id FROM channels WHERE chat_id=? AND topic_id IS ?",
+                    (chat_id, topic_id)).fetchone()
+    return row["id"] if row else None
 
 
 def upsert(chat_id: int, title: str, *, kind: str = "tv", weekdays: str = ALL_WEEKDAYS,
-           poll_minutes: int, release: dict | None = None) -> dict:
-    """Insert (or re-add, keeping scan progress and ids) a source channel; returns its row."""
+           poll_minutes: int, release: dict | None = None,
+           topic_id: int | None = None, topic_title: str | None = None) -> dict:
+    """Add the source for (chat, topic), or re-add it in place (same id, scan progress
+    and series mapping kept; given settings win). Returns its row."""
     release = release or {}
+    language, fallback = release.get("language"), release.get("fallback_quality")
     with db.conn() as c:
-        c.execute("""INSERT OR REPLACE INTO channels
-           (chat_id,title,kind,weekdays,poll_minutes,enabled,created_at,
-            last_message_id,last_scanned_at,imdb_id,imdb_title,
-            language,fallback_quality)
-           VALUES(?,?,?,?,?,1,?,
-             COALESCE((SELECT last_message_id FROM channels WHERE chat_id=?),0),
-             COALESCE((SELECT last_scanned_at FROM channels WHERE chat_id=?),0),
-             (SELECT imdb_id FROM channels WHERE chat_id=?),
-             (SELECT imdb_title FROM channels WHERE chat_id=?),
-             COALESCE(?, (SELECT language FROM channels WHERE chat_id=?), ?),
-             COALESCE(?, (SELECT fallback_quality FROM channels WHERE chat_id=?), ?))""",
-           (chat_id, title, kind, weekdays, poll_minutes, int(time.time()),
-            chat_id, chat_id, chat_id, chat_id,
-            release.get("language"), chat_id, DEFAULT_LANGUAGE,
-            release.get("fallback_quality"), chat_id, DEFAULT_FALLBACK_QUALITY))
-        return dict(c.execute("SELECT * FROM channels WHERE chat_id=?", (chat_id,)).fetchone())
+        cid = _source_id(c, chat_id, topic_id)
+        if cid is None:
+            cid = c.execute("""INSERT INTO channels
+               (chat_id,topic_id,topic_title,title,kind,weekdays,poll_minutes,enabled,created_at,
+                language,fallback_quality)
+               VALUES(?,?,?,?,?,?,?,1,?,?,?)""",
+               (chat_id, topic_id, topic_title, title, kind, weekdays, poll_minutes, int(time.time()),
+                language or DEFAULT_LANGUAGE, fallback or DEFAULT_FALLBACK_QUALITY)).lastrowid
+        else:
+            c.execute("""UPDATE channels SET title=?, kind=?, weekdays=?, poll_minutes=?, enabled=1,
+                           topic_title=COALESCE(?, topic_title),
+                           language=COALESCE(?, language),
+                           fallback_quality=COALESCE(?, fallback_quality)
+                         WHERE id=?""",
+                      (title, kind, weekdays, poll_minutes, topic_title, language, fallback, cid))
+        return dict(c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone())
 
 
 def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:

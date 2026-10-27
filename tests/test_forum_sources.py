@@ -59,3 +59,20 @@ async def test_directory_scan_of_a_whole_forum_lists_links_from_every_topic(arr_
     links = {e["link"]: e for e in r.raise_for_status().json()["links"]}
     assert set(links) == {"https://t.me/merli_cat", "https://t.me/no_such_cat"}
     assert links["https://t.me/merli_cat"]["chat_id"] == MERLI
+
+
+async def _listed(arr_app) -> list[dict]:
+    return (await arr_app.http.get("/api/channels")).raise_for_status().json()
+
+
+@pytest.mark.asyncio
+async def test_a_topic_source_is_stored_and_listed_with_its_topic(arr_app):
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Pel·lícules HD",))
+    tid = forum.topic_id("Pel·lícules HD")
+
+    added = await arr_app.add_channel(FORUM, kind="movie", topic_id=tid, topic_title="Pel·lícules HD")
+
+    [row] = await _listed(arr_app)
+    assert row["id"] == added["id"]
+    assert (row["chat_id"], row["topic_id"], row["topic_title"]) == (FORUM, tid, "Pel·lícules HD")
+    assert row["title"] == "Anime en català"

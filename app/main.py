@@ -294,6 +294,11 @@ def _release_fields(payload: dict) -> dict:
     return fields
 
 
+def _topic_fields(payload: dict) -> dict:
+    """The forum topic a new source is restricted to (none: the whole chat)."""
+    return {"topic_id": payload.get("topic_id"), "topic_title": payload.get("topic_title")}
+
+
 @app.post("/api/channels")
 async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
     if "chat_id" not in payload:
@@ -315,7 +320,8 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         title = getattr(ent, "title", None) or title
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
-    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release)
+    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll, release=release,
+                           **_topic_fields(payload))
 
 
 @app.patch("/api/channels/{cid}")
