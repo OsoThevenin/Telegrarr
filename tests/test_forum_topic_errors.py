@@ -34,7 +34,7 @@ async def test_scanning_a_deleted_topic_logs_a_keyed_error_naming_the_source(arr
     await arr_app.scan(source["id"])
 
     row = await _logged(arr_app, "event.topic_gone")
-    assert row["msg"]["params"] == {"channel": GROUP, "topic": "Sèries HD"}
+    assert row["msg"]["params"] == {"source": f"{GROUP} › Sèries HD"}
     assert row["level"] == "ERROR"
     assert "Sèries HD" in row["message"] and GROUP in row["message"]
 
@@ -48,7 +48,7 @@ async def test_scanning_a_topic_of_a_group_the_account_lost_access_to_logs_a_key
     await arr_app.scan(source["id"])
 
     row = await _logged(arr_app, "event.topic_inaccessible")
-    assert row["msg"]["params"] == {"channel": GROUP, "topic": "Pel·lícules HD"}
+    assert row["msg"]["params"] == {"source": f"{GROUP} › Pel·lícules HD"}
     assert "Pel·lícules HD" in row["message"] and GROUP in row["message"]
 
 
@@ -95,4 +95,4 @@ async def test_backfilling_a_deleted_topic_logs_the_same_keyed_error(arr_app):
     (await arr_app.http.post(f"/api/channels/{source['id']}/backfill")).raise_for_status()
 
     row = await _logged(arr_app, "event.topic_gone")
-    assert row["msg"]["params"] == {"channel": GROUP, "topic": "Sèries HD"}
+    assert row["msg"]["params"] == {"source": f"{GROUP} › Sèries HD"}

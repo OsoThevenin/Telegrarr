@@ -136,3 +136,30 @@ async def test_importing_from_a_topic_scan_adds_series_channels_and_marks_them(a
         "tv", "Merlí [CAT] 1080p", None)
     assert set(stored) == {MERLI}                     # the forum itself is not added
     assert (rescanned["already_added"], rescanned["channel_id"]) == (True, stored[MERLI]["id"])
+
+
+async def _refused_scan(arr_app, topic_id):
+    r = await arr_app.http.post("/api/directory/scan", json={"chat_id": FORUM, "topic_id": topic_id})
+    assert r.status_code == 429, r.text
+    return r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_a_scan_of_a_deleted_topic_says_the_topic_is_gone(arr_app):
+    tg, forum = _forum(arr_app)
+    series = forum.topic_id("Sèries HD")
+    tg.delete_topic(FORUM, series)
+
+    detail = await _refused_scan(arr_app, series)
+
+    assert detail == {"key": "err.directory.topic_gone", "params": {}}
+
+
+@pytest.mark.asyncio
+async def test_a_scan_of_a_topic_in_a_group_the_account_left_says_it_is_inaccessible(arr_app):
+    tg, forum = _forum(arr_app)
+    tg.lose_access(FORUM)
+
+    detail = await _refused_scan(arr_app, forum.topic_id("Sèries HD"))
+
+    assert detail == {"key": "err.directory.topic_inaccessible", "params": {}}

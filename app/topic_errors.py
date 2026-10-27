@@ -1,5 +1,6 @@
 """Why a topic source can't be read: its topic was deleted, or the account lost
-access to its forum group. Turned into keyed event-log messages (#29)."""
+access to its forum group. Turned into keyed event-log messages (#29) and keyed
+directory-scan errors (#28)."""
 from telethon.errors import (ChannelBannedError, ChannelInvalidError, ChannelPrivateError,
                              ChatForbiddenError, MsgIdInvalidError, TopicDeletedError,
                              UserBannedInChannelError)
@@ -13,18 +14,30 @@ TOPIC_GONE_ERRORS = (MsgIdInvalidError, TopicDeletedError)
 NO_ACCESS_ERRORS = (ChannelPrivateError, ChannelInvalidError, ChatForbiddenError,
                     ChannelBannedError, UserBannedInChannelError)
 
-TOPIC_GONE = "event.topic_gone"
-TOPIC_INACCESSIBLE = "event.topic_inaccessible"
+GONE, INACCESSIBLE = "gone", "inaccessible"
+EVENT_KEYS = {GONE: "event.topic_gone", INACCESSIBLE: "event.topic_inaccessible"}
+
+
+def why_unreadable(error: Exception) -> str | None:
+    """GONE or INACCESSIBLE when `error` came from reading a forum topic that was
+    deleted or whose group the account can't read any more; None otherwise."""
+    if isinstance(error, TOPIC_GONE_ERRORS):
+        return GONE
+    if isinstance(error, NO_ACCESS_ERRORS):
+        return INACCESSIBLE
+    return None
+
+
+def source_label(channel) -> str:
+    """How event messages name a source: "Group › Topic" for a topic source
+    (its id when the topic has no title), the chat title otherwise."""
+    if channel["topic_id"] is None:
+        return channel["title"]
+    return f"{channel['title']} › {channel['topic_title'] or '#' + str(channel['topic_id'])}"
 
 
 def unreadable_topic(channel, error: Exception) -> dict | None:
     """The keyed message explaining why ``channel``'s topic can't be read, or
     None when ``channel`` isn't a topic source or ``error`` is something else."""
-    if channel["topic_id"] is None:
-        return None
-    source = {"channel": channel["title"], "topic": channel["topic_title"] or f"#{channel['topic_id']}"}
-    if isinstance(error, TOPIC_GONE_ERRORS):
-        return message(TOPIC_GONE, **source)
-    if isinstance(error, NO_ACCESS_ERRORS):
-        return message(TOPIC_INACCESSIBLE, **source)
-    return None
+    reason = why_unreadable(error) if channel["topic_id"] is not None else None
+    return message(EVENT_KEYS[reason], source=source_label(channel)) if reason else None
