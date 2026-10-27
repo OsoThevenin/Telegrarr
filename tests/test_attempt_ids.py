@@ -89,3 +89,87 @@ async def test_an_auto_retry_on_the_next_scan_reports_a_new_id(arr_app):
 
     assert old not in history
     assert len(history) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_first_attempt_keeps_the_legacy_id_for_queue_history_and_delete(arr_app):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    arr_app.telegram.hold_downloads()
+    nzo = await _grab(arr_app, url)
+    row = await eventually(lambda: _status(arr_app, "downloading"))
+    queue = await _queue_ids(arr_app)
+    arr_app.telegram.release_downloads()
+    slot = await arr_app.history_slot(nzo)
+
+    await arr_app.sab(mode="history", name="delete", value=f"telearr{row['id']}")
+
+    assert nzo == f"telearr{row['id']}"
+    assert queue == [nzo]
+    assert slot["status"] == "Completed"
+    assert await _history_ids(arr_app) == []
+
+
+@pytest.mark.asyncio
+async def test_a_re_grab_of_a_downloading_row_keeps_its_id(arr_app):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    arr_app.telegram.hold_downloads()
+    first = await _grab(arr_app, url)
+    await eventually(lambda: _status(arr_app, "downloading"))
+
+    again = await _grab(arr_app, url)
+    queue = await _queue_ids(arr_app)
+    arr_app.telegram.release_downloads()
+
+    assert again == first
+    assert queue == [first]
+    assert (await arr_app.history_slot(first))["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["queue", "history"])
+async def test_a_delete_with_a_stale_id_leaves_the_current_attempt_downloading(arr_app, mode):
+    url, old, payload = await _grab_failed(arr_app)
+    _restore(arr_app, payload)
+    arr_app.telegram.hold_downloads()
+    new = await _grab(arr_app, url)
+    await eventually(lambda: _status(arr_app, "downloading"))
+
+    await arr_app.sab(mode=mode, name="delete", value=old)
+    row = await arr_app.download(FILE)
+    queue = await _queue_ids(arr_app)
+    arr_app.telegram.release_downloads()
+
+    assert row["status"] == "downloading"
+    assert queue == [new]
+    assert (await arr_app.history_slot(new))["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_a_history_delete_with_a_stale_id_keeps_the_current_attempt_in_history(arr_app):
+    url, old, payload = await _grab_failed(arr_app)
+    _restore(arr_app, payload)
+    new = await _grab(arr_app, url)
+    await arr_app.history_slot(new)
+
+    await arr_app.sab(mode="history", name="delete", value=old)
+    kept = await _history_ids(arr_app)
+    await arr_app.sab(mode="history", name="delete", value=new)
+
+    assert kept == [new]
+    assert await _history_ids(arr_app) == []
+
+
+@pytest.mark.asyncio
+async def test_a_queue_delete_with_the_current_attempt_id_cancels_it(arr_app):
+    url, _old, payload = await _grab_failed(arr_app)
+    _restore(arr_app, payload)
+    arr_app.telegram.hold_downloads()
+    new = await _grab(arr_app, url)
+    await eventually(lambda: _status(arr_app, "downloading"))
+
+    await arr_app.sab(mode="queue", name="delete", value=new)
+    cancelled = await eventually(lambda: _status(arr_app, "cancelled"))
+    arr_app.telegram.release_downloads()
+
+    assert cancelled["status"] == "cancelled"
+    assert await _queue_ids(arr_app) == []

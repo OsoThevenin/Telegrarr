@@ -695,13 +695,16 @@ async def _sab_add(cid, mid):
 
 def _sab_delete(nzo):
     """A finished row is only hidden from *arr history (never its files, whatever
-    del_files says); a queued/downloading one is cancelled."""
-    dlid = arr.parse_nzo(nzo)
-    if dlid is None or arr.hide_from_history(dlid):
+    del_files says); a queued/downloading one is cancelled. An id from an earlier
+    attempt changes nothing."""
+    ref = arr.parse_nzo(nzo)
+    if ref is None or arr.hide_from_history(*ref) or not arr.is_current_attempt(*ref):
         return
+    dlid, attempt = ref
     scanner.cancel_download(dlid)
     with db.conn() as c:
-        c.execute("UPDATE downloads SET status='cancelled' WHERE id=? AND status IN ('queued','downloading')", (dlid,))
+        c.execute("UPDATE downloads SET status='cancelled' "
+                  "WHERE id=? AND attempt=? AND status IN ('queued','downloading')", (dlid, attempt))
 
 
 async def _sab(request: Request):

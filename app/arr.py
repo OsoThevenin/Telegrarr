@@ -202,7 +202,7 @@ def parse_ref(text):
 # ── SABnzbd-compatible download client ────────────────────────────────
 # Download ids handed to the *arr ("nzo ids") are built and parsed only here.
 NZO_PREFIX = "telearr"
-_NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)$")
+_NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)(?:-([1-9]\d*))?$")   # telearr<id>[-<attempt>]
 HIDEABLE_STATUSES = ("failed", "cancelled", "completed")   # finished: a history delete hides them
 
 
@@ -212,19 +212,30 @@ def nzo_id(download_id: int, attempt: int = 0) -> str:
     return f"{NZO_PREFIX}{download_id}" + (f"-{attempt}" if attempt else "")
 
 
-def parse_nzo(nzo) -> int | None:
-    """The download row id in an nzo id, or None when it isn't one of ours."""
+def parse_nzo(nzo) -> tuple[int, int] | None:
+    """The (download row id, attempt) in an nzo id, or None when it isn't one of ours."""
     m = _NZO_RE.match(str(nzo or "").strip())
-    return int(m.group(1)) if m else None
+    return (int(m.group(1)), int(m.group(2) or 0)) if m else None
 
 
-def hide_from_history(download_id: int) -> bool:
-    """Leave a finished row out of the history reported to the *arr; the row and
-    its files stay. False when the row is missing or not finished."""
+def is_current_attempt(download_id: int, attempt: int) -> bool:
+    """True when the row exists and ``attempt`` is its latest; an id from an
+    earlier attempt must not act on the current one."""
+    with db.conn() as c:
+        row = c.execute("SELECT 1 FROM downloads WHERE id=? AND attempt=?",
+                        (download_id, attempt)).fetchone()
+    return row is not None
+
+
+def hide_from_history(download_id: int, attempt: int) -> bool:
+    """Leave a finished row's current attempt out of the history reported to the
+    *arr; the row and its files stay. False when the row is missing, not finished,
+    or on another attempt."""
     marks = ",".join("?" * len(HIDEABLE_STATUSES))
     with db.conn() as c:
-        cur = c.execute(f"UPDATE downloads SET arr_hidden=1 WHERE id=? AND status IN ({marks})",
-                        (download_id, *HIDEABLE_STATUSES))
+        cur = c.execute("UPDATE downloads SET arr_hidden=1 "
+                        f"WHERE id=? AND attempt=? AND status IN ({marks})",
+                        (download_id, attempt, *HIDEABLE_STATUSES))
     return cur.rowcount > 0
 
 
