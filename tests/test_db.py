@@ -34,10 +34,10 @@ def test_legacy_db_is_migrated_and_keeps_rows(tmp_path, monkeypatch):
     assert row["fallback_quality"] == "1080p"
 
 
-def test_legacy_downloads_gain_the_arr_hidden_flag_and_keep_rows(tmp_path, monkeypatch):
+def test_legacy_downloads_gain_the_arr_columns_and_keep_rows(tmp_path, monkeypatch):
     from app import config, db
     dbfile = str(tmp_path / "legacy.db")
-    with sqlite3.connect(dbfile) as c:   # a downloads table from before error keys and the flag
+    with sqlite3.connect(dbfile) as c:   # a downloads table from before error keys, the flag and attempts
         c.execute("""CREATE TABLE channels (id INTEGER PRIMARY KEY AUTOINCREMENT,
                      chat_id INTEGER NOT NULL UNIQUE, title TEXT NOT NULL,
                      kind TEXT NOT NULL DEFAULT 'tv', created_at INTEGER NOT NULL)""")
@@ -58,7 +58,7 @@ def test_legacy_downloads_gain_the_arr_hidden_flag_and_keep_rows(tmp_path, monke
     with db.conn() as c:
         rows = [dict(r) for r in c.execute("SELECT * FROM downloads")]
     assert len(rows) == 1
-    assert rows[0]["arr_hidden"] == 0
+    assert (rows[0]["arr_hidden"], rows[0]["attempt"]) == (0, 0)
     assert (rows[0]["file_name"], rows[0]["status"], rows[0]["error"]) == ("Old.S01E01.mkv", "failed", "boom")
 
 
