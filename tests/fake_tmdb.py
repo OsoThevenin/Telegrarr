@@ -109,6 +109,8 @@ class FakeTMDB:
             return self._movie(int(parts[1]), request.url.params.get("language", "en-US"))
         if len(parts) == 3 and parts[0] == "tv" and parts[2] == "external_ids":
             return self._external_ids(int(parts[1]))
+        if len(parts) == 2 and parts[0] == "tv":
+            return self._tv_details(int(parts[1]))
         if len(parts) == 4 and parts[0] == "tv" and parts[2] == "season":
             return self._season(int(parts[1]), int(parts[3]), request.url.params.get("language", "en-US"))
         if len(parts) == 2 and parts[0] == "find":
@@ -149,6 +151,13 @@ class FakeTMDB:
         if not show:
             return httpx.Response(404, json={"status_code": 34})
         return httpx.Response(200, json={"id": tmdb_id, "tvdb_id": show.tvdb_id, "imdb_id": show.imdb_id})
+
+    def _tv_details(self, tmdb_id: int) -> httpx.Response:
+        show = self.series.get(tmdb_id)
+        if not show:
+            return httpx.Response(404, json={"status_code": 34, "status_message": "Not found"})
+        return httpx.Response(200, json={"id": tmdb_id, "name": show.title_in("en-US"),
+                                         "first_air_date": show.first_air_date})
 
     def _season(self, tmdb_id: int, season: int, language: str) -> httpx.Response:
         show = self.series.get(tmdb_id)

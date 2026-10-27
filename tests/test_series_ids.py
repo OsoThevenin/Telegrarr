@@ -103,6 +103,20 @@ async def test_mapping_a_picked_tmdb_series_stores_tvdb_tmdb_and_imdb_ids(arr_ap
 
 
 @pytest.mark.asyncio
+async def test_mapping_stores_the_series_premiere_year(arr_app, fake_tmdb):
+    # The year lets release titles match a Sonarr series whose title carries it.
+    fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361,
+                         imdb_id="tt0944947", first_air_date="2011-04-17")
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app)
+
+    await arr_app.http.put(f"/api/channels/{channel['id']}/series", json={"tmdb_id": 1399})
+
+    stored = next(c for c in (await arr_app.http.get("/api/channels")).json() if c["id"] == channel["id"])
+    assert stored["year"] == 2011
+
+
+@pytest.mark.asyncio
 async def test_an_edited_tvdb_id_wins_over_the_derived_one(arr_app, fake_tmdb):
     fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361, imdb_id="tt0944947")
     await _save_tmdb_key(arr_app)

@@ -178,6 +178,22 @@ def test_release_name_double_episode():
     assert name == "Show.S01E01E02.CAT.1080p.WEB-DL.x264-TELEGRARR"
 
 
+def test_release_name_tv_year_before_episode_tag():
+    # A series whose Sonarr title carries the year (e.g. "Anne of Green Gables
+    # (1979)") only matches by name when the release title carries it too.
+    name = namer.release_name("Anne of Green Gables", 1, 7, "1080p", "tv",
+                              language="cat", year=1979)
+
+    assert name == "Anne.of.Green.Gables.1979.S01E07.CAT.1080p.WEB-DL.x264-TELEGRARR"
+
+
+def test_release_name_tv_without_year_unchanged():
+    # No year known: the title stays exactly as before (backward compatible).
+    name = namer.release_name("Show", 3, 13, "1080p", "tv", language="cat", year=None)
+
+    assert name == "Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR"
+
+
 # --------------------------------------------------------------------------
 # bare-number fallback: "Show 01 - Title" (issue #20)
 # --------------------------------------------------------------------------

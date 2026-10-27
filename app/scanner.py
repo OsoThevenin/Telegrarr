@@ -211,6 +211,15 @@ def _show_title(channel) -> str:
     return channel["imdb_title"] or channel["title"]
 
 
+def _channel_year(channel) -> int | None:
+    """The mapped series' premiere year, or None when unknown or not stored yet
+    (older channels, or rows from before the column existed)."""
+    try:
+        return channel["year"]
+    except (KeyError, IndexError):
+        return None
+
+
 def _is_mapped(channel) -> bool:
     return bool((channel["imdb_id"] or "").strip() or (channel["imdb_title"] or "").strip())
 
@@ -234,7 +243,7 @@ def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
     show = _show_title(channel)
     title = release_name(show, season, episode, quality or "", channel["kind"],
                          language=channel["language"] or DEFAULT_LANGUAGE,
-                         episode_end=info.get("episode_end"))
+                         episode_end=info.get("episode_end"), year=_channel_year(channel))
     episode_title = extract_episode_title(msg.message or "", fn, season, episode,
                                           show_title=show, mapped=_is_mapped(channel),
                                           bare=_is_series(channel))
