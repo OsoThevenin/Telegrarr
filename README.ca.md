@@ -163,7 +163,14 @@ a qualsevol lloc del text:
 | Capítol / Episodi | `Cap. 13`, `Cap 13`, `C13`, `Episodi 13`, `Ep. 13` |
 | Formes angleses | `S03E13`, … |
 | Capítols dobles | `1x01-02`, `1x01-1x02` |
+| Número sol (últim recurs) | `El Capità Harlock 01 - La bandera pirata de l'espai` |
 
+- Primer compten els marcadors amb temporada i capítol (nom del fitxer i després
+  text del missatge), després els que només porten capítol (mateix ordre). Un
+  **número sol** només compta al nom del fitxer d'una sèrie, com a últim recurs, i
+  mai un any, `720p`, `x264`, `5.1`, `700 MB` o un número dins d'una paraula. Un
+  capítol sense temporada es publica com a temporada 1 (`S01E01`); la temporada 0 és
+  la d'especials de Sonarr.
 - El **títol del capítol** és el text que hi ha després del marcador; als canals
   assignats, el text d'abans s'ignora.
 - **`(1a Part)` / `(2a Part)`** es mantenen al títol i es resolen al número de capítol

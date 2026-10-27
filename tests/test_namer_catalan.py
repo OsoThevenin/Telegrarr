@@ -176,3 +176,62 @@ def test_release_name_double_episode():
     name = namer.release_name("Show", 1, 1, "1080p", episode_end=2)
 
     assert name == "Show.S01E01E02.CAT.1080p.WEB-DL.x264-TELEGRARR"
+
+
+# --------------------------------------------------------------------------
+# bare-number fallback: "Show 01 - Title" (issue #20)
+# --------------------------------------------------------------------------
+HARLOCK_SAMPLES = [
+    ("El Capità Harlock 01 - La bandera pirata de l'espai.mkv", 1, "La bandera pirata de l'espai"),
+    ("El_Capità_Harlock_02_Un_objecte_arriba_d'espais_desconeguts.mkv", 2,
+     "Un objecte arriba d'espais desconeguts"),
+]
+
+
+@pytest.mark.parametrize("filename, episode", [
+    *((filename, episode) for filename, episode, _title in HARLOCK_SAMPLES),
+    ("Harlock.01.720p.mkv", 1),
+    ("Harlock 03.720p.x264.mkv", 3),
+    ("Harlock.04.Title.mkv", 4),
+])
+def test_bare_number_after_show_name_is_the_episode(filename, episode):
+    info = namer.extract_episode(filename, bare=True)
+    assert (info["season"], info["episode"]) == (None, episode)
+
+
+def test_bare_number_is_off_unless_asked_for():
+    assert namer.extract_episode(HARLOCK_SAMPLES[0][0])["episode"] is None
+
+
+@pytest.mark.parametrize("filename, episode, title", HARLOCK_SAMPLES)
+def test_bare_number_episode_title_is_text_after_number(filename, episode, title):
+    assert namer.extract_episode_title("", filename, 1, episode, show_title="El Capità Harlock",
+                                       mapped=True, bare=True) == title
+
+
+@pytest.mark.parametrize("text", [
+    "Pel·lícula 1978 restaurada.mkv",
+    "Show.2019.720p.mkv",
+    "Show 1080p x264.mkv",
+    "Show h265 AAC 5.1.mkv",
+    "Show H.264 x 265.mkv",
+    "Show Part2 final.mkv",
+    "Show 700 MB.mkv",
+    "Show 1.5 GB.mkv",
+    "Show 10 bit.mkv",
+    "Show Part 2.mkv",
+    "Show Vol. 3.mkv",
+    "Show CD 1.mkv",
+    "Show 12-03-2021.mkv",
+])
+def test_non_episode_numbers_are_not_bare_episodes(text):
+    assert namer.extract_episode(text, bare=True)["episode"] is None
+
+
+@pytest.mark.parametrize("text, season, episode", [
+    ("Show 05 S02E07.mkv", 2, 7),
+    ("Show 05 Cap 3.mkv", None, 3),
+])
+def test_existing_markers_beat_the_bare_number(text, season, episode):
+    info = namer.extract_episode(text, bare=True)
+    assert (info["season"], info["episode"]) == (season, episode)

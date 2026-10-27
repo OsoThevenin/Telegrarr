@@ -29,6 +29,15 @@ T_C_RE = re.compile(r"(?<![a-z0-9])T(\d{1,2})[CE](\d{1,3})(?![a-z0-9])", re.I)
 ALT_SE_RE = re.compile(r"(?<!\d)(\d{1,2})x(\d{1,3})(?:-(?:\d{1,2}x)?(\d{1,3}))?(?![\da-z])", re.I)
 EP_ONLY_RE = re.compile(
     r"(?<![a-z0-9])(?:(?:Cap[ií]tol|Cap|Episodi|Episode|Ep)[\s.\-]*|C)(\d{1,3})(?!\d)", re.I)
+# Opt-in last resort for series file names: a standalone 1-3 digit number between
+# separators ("Harlock 01 - Title", "Harlock.01.720p"). Not part of a decimal (5.1,
+# 1.5 GB), a day-first date (12-03-2021) or followed by a unit (700 MB, 10 bit).
+BARE_NUMBER_RE = re.compile(
+    r"(?<![^\s.\-])(?<!\d[.\-])(\d{1,3})(?![^\s.\-])(?!\.\d(?!\d))(?![.\-]\d{1,2}[.\-]\d{2,4})"
+    r"(?!\s*(?:mb|gb|kb|kbps|fps|bit)\b)", re.I)
+# a number right after one of these words is a codec, disc or part, not an episode
+_NOT_EPISODE_WORDS = {"h", "x", "part", "vol", "disc", "disk", "cd", "dvd", "top"}
+_LAST_WORD_RE = re.compile(r"(\w+)[\s.\-]*$")
 _SEASON_EPISODE_RES = (SEASON_EPISODE_WORD_RE, TEMPORADA_RE, SEASON_EP_RE, T_C_RE, ALT_SE_RE)
 DATE_RE = re.compile(r"(20\d{2})[.\-_ ](\d{1,2})[.\-_ ](\d{1,2})")
 # underscore/dot are word chars, so \b fails around them — use explicit boundaries
@@ -75,27 +84,37 @@ def _range_end(episode: int, raw_end: str | None) -> int | None:
     return end if end and end > episode else None
 
 
-def find_episode_marker(text: str) -> EpisodeMarker | None:
-    """First episode marker in already-normalised text, with its span."""
+def _bare_number(text: str) -> re.Match | None:
+    for m in BARE_NUMBER_RE.finditer(text):
+        word = _LAST_WORD_RE.search(text[:m.start()])
+        if not (word and word.group(1).lower() in _NOT_EPISODE_WORDS):
+            return m
+    return None
+
+
+def find_episode_marker(text: str, bare: bool = False) -> EpisodeMarker | None:
+    """First episode marker in already-normalised text, with its span.
+
+    ``bare`` adds the bare-number fallback, after every explicit marker."""
     for rx in _SEASON_EPISODE_RES:
         m = rx.search(text)
         if m:
             episode = int(m.group(2))
             raw_end = m.group(3) if rx is ALT_SE_RE else None
             return EpisodeMarker(int(m.group(1)), episode, _range_end(episode, raw_end), m.start(), m.end())
-    m = EP_ONLY_RE.search(text)
+    m = EP_ONLY_RE.search(text) or (_bare_number(text) if bare else None)
     if m:
         return EpisodeMarker(None, int(m.group(1)), None, m.start(), m.end())
     return None
 
 
-def extract_episode(text: str) -> dict:
+def extract_episode(text: str, bare: bool = False) -> dict:
     """Best-effort {season, episode, episode_end, date, quality}."""
     out = {"season": None, "episode": None, "episode_end": None, "date": None, "quality": None}
     if not text:
         return out
     text = _normalise(text)
-    marker = find_episode_marker(text)
+    marker = find_episode_marker(text, bare)
     if marker:
         out["season"], out["episode"], out["episode_end"] = marker.season, marker.episode, marker.episode_end
     d = DATE_RE.search(text)
@@ -140,10 +159,10 @@ _JUNK = [
 ]
 
 
-def _title_line(src: str) -> str:
+def _title_line(src: str, bare: bool) -> str:
     """The caption line carrying the episode marker, else the first meaningful line."""
     lines = [ln.strip() for ln in src.split("\n") if ln.strip()]
-    with_marker = next((ln for ln in lines if find_episode_marker(ln)), "")
+    with_marker = next((ln for ln in lines if find_episode_marker(ln, bare)), "")
     if with_marker:
         return with_marker
     meaningful = next((ln for ln in lines if not _LABEL_LINE_RE.match(ln)), "")
@@ -174,16 +193,19 @@ def _clean_title_text(text: str, show_title: str) -> str:
 
 
 def extract_episode_title(msg_text: str, filename: str, season: int, episode: int,
-                          show_title: str = "", mapped: bool = False) -> str:
+                          show_title: str = "", mapped: bool = False, bare: bool = False) -> str:
     """Episode title = text after the episode marker.
 
     Text before the marker (usually the channel's own show name) is ignored on
-    mapped channels; unmapped channels fall back to it when nothing follows."""
-    src = (msg_text or "").strip() or (filename or "")
+    mapped channels; unmapped channels fall back to it when nothing follows.
+    ``bare`` allows a bare-number marker, only when the title comes from the file name."""
+    caption = (msg_text or "").strip()
+    src = caption or (filename or "")
     if not src:
         return ""
-    line = _title_line(_normalise(_EXTENSION_RE.sub("", src)))
-    marker = find_episode_marker(line)
+    bare = bare and not caption
+    line = _title_line(_normalise(_EXTENSION_RE.sub("", src)), bare)
+    marker = find_episode_marker(line, bare)
     if not marker:
         return _clean_title_text(line, show_title)
     after = _clean_title_text(line[marker.end:], show_title)
@@ -192,10 +214,21 @@ def extract_episode_title(msg_text: str, filename: str, season: int, episode: in
     return _clean_title_text(line[:marker.start], show_title)
 
 
+def message_episode(msg_text: str, filename: str, bare: bool = False) -> dict:
+    """``extract_episode`` of a message, best marker first: season+episode (file
+    name, then caption), episode alone (same order), then with ``bare`` the file
+    name's bare number. Otherwise whatever the caption has (e.g. a date)."""
+    from_file, from_caption = extract_episode(filename or ""), extract_episode(msg_text or "")
+    for field in ("season", "episode"):
+        found = next((info for info in (from_file, from_caption) if info[field]), None)
+        if found:
+            return found
+    from_bare = extract_episode(filename or "", bare=True) if bare else {}
+    return from_bare if from_bare.get("episode") else from_caption
+
+
 def group_key(msg_text: str, filename: str, message_id: int) -> str:
-    info = extract_episode(filename or "") if filename else {}
-    if not info.get("season"):
-        info = extract_episode(msg_text or "")
+    info = message_episode(msg_text, filename)
     if info.get("season") and info.get("episode"):
         key = f"S{info['season']:02d}E{info['episode']:02d}"
         key = f"{key}E{info['episode_end']:02d}" if info.get("episode_end") else key

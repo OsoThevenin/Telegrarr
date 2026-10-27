@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Series files that name the episode only with a bare number after the show name
+  (`El Capità Harlock 01 - La bandera pirata de l'espai.mkv`) are published as
+  numbered releases (`S01E01`), so Sonarr can match and grab them. The bare number
+  is the last fallback and never matches years, `720p`, `x264` or numbers inside
+  words. Re-index (backfill) a channel to re-title releases it already indexed.
+- An episode-only series release uses season 1, not season 0 (Sonarr's specials).
+- An episode found in the file name is kept when the caption has no marker; the
+  caption wins only with a better marker (season + episode, or an explicit episode
+  marker over a bare number). Bare numbers in captions are never episodes.
+- Newznab `tvsearch` with `season=` or `ep=` returns only matching releases and
+  leaves out releases without a season or episode. Searches without them still
+  list everything.
+
 ## 1.0.0 — Telegrarr: Catalan content for the \*arr stack (2026-10-27)
 
 First Telegrarr release. Telegrarr is a fork of
