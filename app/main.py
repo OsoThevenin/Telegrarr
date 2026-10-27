@@ -676,13 +676,14 @@ async def _sab_add(cid, mid):
     if not cid or not mid:
         return None
     dlid = await scanner.grab_message(cid, mid)
-    return f"telearr{dlid}" if dlid else None
+    return arr.nzo_id(dlid) if dlid else None
 
 
 def _sab_delete(nzo):
-    try:
-        dlid = int(str(nzo).replace("telearr", ""))
-    except (TypeError, ValueError):
+    """A finished row is only hidden from *arr history (never its files, whatever
+    del_files says); a queued/downloading one is cancelled."""
+    dlid = arr.parse_nzo(nzo)
+    if dlid is None or arr.hide_from_history(dlid):
         return
     scanner.cancel_download(dlid)
     with db.conn() as c:
