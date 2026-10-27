@@ -72,6 +72,7 @@ class FakeChannel:
     payloads: dict[int, bytes] = field(default_factory=dict)
     forum: bool = False
     topics: dict[int, str] = field(default_factory=dict)
+    group: bool = False         # a plain (non-forum) supergroup rather than a channel
 
     def topic_id(self, title: str) -> int:
         """The id of the named topic ``title`` (``GENERAL_TOPIC_ID`` for General)."""
@@ -126,6 +127,12 @@ class FakeTelegram:
         channel = FakeChannel(chat_id=chat_id, title=title, username=username)
         self.channels[chat_id] = channel
         return channel
+
+    def add_group(self, chat_id: int, title: str, *, username: str | None = None) -> FakeChannel:
+        """A plain supergroup: not a broadcast channel, and not a forum."""
+        group = FakeChannel(chat_id=chat_id, title=title, username=username, group=True)
+        self.channels[chat_id] = group
+        return group
 
     def add_forum(self, chat_id: int, title: str, *, topics: tuple[str, ...] = (),
                   username: str | None = None) -> FakeChannel:
@@ -182,8 +189,9 @@ class FakeTelegram:
 
     def _entity(self, channel: FakeChannel) -> types.Channel:
         bare_id, _ = utils.resolve_id(channel.chat_id)
+        megagroup = channel.forum or channel.group
         return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
-                             broadcast=not channel.forum, megagroup=channel.forum, forum=channel.forum,
+                             broadcast=not megagroup, megagroup=megagroup, forum=channel.forum,
                              access_hash=1, username=channel.username)
 
     def _lookup(self, query: int | str) -> None:

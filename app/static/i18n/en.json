@@ -554,5 +554,16 @@
  "review.assign": "Assign",
  "review.discard": "Discard",
  "review.empty_title": "Nothing to review",
- "review.empty_body": "Movie channel messages without a confident TMDB match appear here."
+ "review.empty_body": "Movie channel messages without a confident TMDB match appear here.",
+ "err.topics.rate_limited": "Telegram asked to slow down; list the topics again later",
+ "err.topics.rate_limit_active": "Telegram rate limit active; try again in about {minutes} min",
+ "err.topics.read_failed": "Could not list the chat's topics: {error}",
+ "chm.topics.title": "Forum topics",
+ "chm.topics.hint": "This chat is a forum group: tick the topics to add. Each one becomes its own source.",
+ "chm.topics.loading": "Loading topics…",
+ "chm.topics.empty": "This forum group has no topics",
+ "chm.topics.kind_aria": "Kind for {topic}",
+ "chm.topics.pick_first": "Tick at least one topic",
+ "chm.topics.added.one": "{n} topic source added",
+ "chm.topics.added.other": "{n} topic sources added"
 }
