@@ -82,13 +82,21 @@ class FakeChannel:
     def next_message_id(self) -> int:
         return max(self.messages, default=0) + 1
 
-    def topic_header(self, topic: int | None) -> types.MessageReplyHeader | None:
-        """How Telegram marks a message posted in ``topic``: named topics carry a
-        forum-topic reply header; General (or no topic) carries none."""
+    def topic_header(self, topic: int | None, reply_to: int | None = None) -> types.MessageReplyHeader | None:
+        """How Telegram marks a message posted in ``topic``, optionally as a reply
+        to message ``reply_to`` there.
+
+        In a named topic every message has a ``forum_topic`` header: a top-level
+        post points at the topic (``reply_to_msg_id``), and a reply points at the
+        replied message, with the topic in ``reply_to_top_id``. In General (or no
+        topic) a top-level post has no header, and a reply has a plain header
+        without ``forum_topic``."""
         if topic is None or topic == GENERAL_TOPIC_ID:
-            return None
+            return types.MessageReplyHeader(reply_to_msg_id=reply_to) if reply_to else None
         if topic not in self.topics:
             raise AssertionError(f"chat {self.chat_id} has no topic {topic}")
+        if reply_to:
+            return types.MessageReplyHeader(forum_topic=True, reply_to_msg_id=reply_to, reply_to_top_id=topic)
         return types.MessageReplyHeader(forum_topic=True, reply_to_msg_id=topic)
 
 
@@ -148,15 +156,17 @@ class FakeTelegram:
         return msg
 
     def post(self, chat_id: int, *, text: str, file_name: str, content: bytes = b"x" * 1024,
-             message_id: int | None = None, topic: int | None = None) -> FakeMessage:
+             message_id: int | None = None, topic: int | None = None,
+             reply_to: int | None = None) -> FakeMessage:
         """Post a media message with ``content`` as its file bytes, in forum
-        ``topic`` if given (None or ``GENERAL_TOPIC_ID``: the General topic)."""
+        ``topic`` if given (None or ``GENERAL_TOPIC_ID``: the General topic),
+        as a reply to message ``reply_to`` (in that same topic) if given."""
         channel = self.channels[chat_id]
         mid = message_id if message_id is not None else channel.next_message_id()
         doc = FakeDocument(id=self._next_doc_id, size=len(content), file_name=file_name)
         self._next_doc_id += 1
         msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=doc,
-                          reply_to=channel.topic_header(topic))
+                          reply_to=channel.topic_header(topic, reply_to))
         channel.messages[mid] = msg
         channel.payloads[mid] = content
         return msg
@@ -245,11 +255,19 @@ class FakeTelegram:
                                           chats=[], users=[], pts=0)
 
     def _in_topic(self, chat: FakeChannel, topic: int) -> Callable[[FakeMessage], bool]:
-        """Telethon's ``reply_to=topic`` filter: the topic's posts, not its creation
-        message. Like Telegram, it can't read the General topic or a non-forum chat."""
+        """Telethon's ``reply_to=topic`` filter: the topic's posts and replies, not
+        its creation message. Like Telegram, it can't read the General topic or a
+        non-forum chat."""
         if not chat.forum or topic not in chat.topics:
             raise MsgIdInvalidError(request=None)
-        return lambda m: m.reply_to is not None and m.reply_to.reply_to_msg_id == topic
+
+        def in_topic(m: FakeMessage) -> bool:
+            header = m.reply_to
+            if header is None or not header.forum_topic:
+                return False
+            return (header.reply_to_top_id or header.reply_to_msg_id) == topic
+
+        return in_topic
 
     async def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None):
         self.history_reads.append(chat_id)

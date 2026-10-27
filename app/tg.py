@@ -16,6 +16,7 @@ log = logging.getLogger("tg")
 _client: TelegramClient | None = None
 _dialogs_cache = {"ts": 0, "data": []}
 _login = {}   # transient state during the interactive sign-in flow
+GENERAL_TOPIC_ID = 1   # Telegram's fixed id for a forum group's General topic
 
 
 def _api_creds():
@@ -224,10 +225,29 @@ def source_messages(c, chat_id: int, *, limit: int | None = None, topic_id: int 
     backfills and directory scans read a chat's history.
 
     `topic_id` restricts the read to one forum topic (Telethon's `reply_to`
-    filter); None reads the whole chat, as for a channel."""
+    filter); None reads the whole chat, as for a channel. Telegram refuses that
+    filter for the General topic, so General reads the whole group and keeps
+    the messages of no named topic (`limit` then counts messages read, not kept)."""
     if topic_id is None:
         return c.iter_messages(chat_id, limit=limit)
+    if topic_id == GENERAL_TOPIC_ID:
+        return _general_messages(c.iter_messages(chat_id, limit=limit))
     return c.iter_messages(chat_id, limit=limit, reply_to=topic_id)
+
+
+def _in_named_topic(msg) -> bool:
+    """Whether `msg` belongs to a named forum topic. Telegram flags every message
+    of a named topic, posts and replies alike, with `reply_to.forum_topic`; a
+    General message has no reply header, or (a reply) one without that flag."""
+    return bool(msg.reply_to is not None and getattr(msg.reply_to, "forum_topic", False))
+
+
+async def _general_messages(messages):
+    """The General topic's posts among a forum group's `messages` (service
+    messages such as topic creations are left out)."""
+    async for msg in messages:
+        if not _in_named_topic(msg) and not getattr(msg, "action", None):
+            yield msg
 
 
 async def list_dialogs(limit=250):
