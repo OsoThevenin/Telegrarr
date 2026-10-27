@@ -360,7 +360,8 @@ async def _retry_failed(client, channel):
 async def scan_channel(client, channel):
     cid = channel["id"]
     last = channel["last_message_id"] or 0
-    best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last)
+    best, max_seen = await _iter_best(client, channel["chat_id"], limit=80, stop_at=last,
+                                      topic_id=channel["topic_id"])
     auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
         offered = await _index_release(channel, msg, size, fn, gk)
@@ -374,7 +375,7 @@ async def scan_channel(client, channel):
 
 async def backfill_channel(client, channel, full=True):
     cid = channel["id"]
-    best, _ = await _iter_best(client, channel["chat_id"], limit=None)
+    best, _ = await _iter_best(client, channel["chat_id"], limit=None, topic_id=channel["topic_id"])
     auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():

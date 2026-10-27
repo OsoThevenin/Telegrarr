@@ -7,6 +7,9 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from fake_tmdb import API_KEY
+from http_harness import eventually
+
 FORUM = -1007100000001
 MERLI = -1007100000002
 
@@ -76,3 +79,79 @@ async def test_a_topic_source_is_stored_and_listed_with_its_topic(arr_app):
     assert row["id"] == added["id"]
     assert (row["chat_id"], row["topic_id"], row["topic_title"]) == (FORUM, tid, "Pel·lícules HD")
     assert row["title"] == "Anime en català"
+
+
+THEORY_TMDB, THEORY_IMDB = 266856, "tt2980516"
+PA_NEGRE_TMDB, PA_NEGRE_IMDB = 50797, "tt1302067"
+
+
+@pytest.fixture()
+def films(fake_tmdb):
+    fake_tmdb.add_movie(THEORY_TMDB, titles={"ca-ES": "La teoria del tot", "en-US": "The Theory of Everything"},
+                        release_date="2014-11-07", imdb_id=THEORY_IMDB)
+    fake_tmdb.add_movie(PA_NEGRE_TMDB, titles={"ca-ES": "Pa negre", "en-US": "Black Bread"},
+                        original_title="Pa negre", release_date="2010-10-15", imdb_id=PA_NEGRE_IMDB)
+    return fake_tmdb
+
+
+async def _movie_search(arr_app, **params) -> set[str]:
+    r = await arr_app.http.get("/api/newznab", params={"t": "movie", "apikey": arr_app.apikey, **params})
+    return _titles(r.raise_for_status().text)
+
+
+async def _review(arr_app) -> list[dict]:
+    return (await arr_app.http.get("/api/review")).raise_for_status().json()
+
+
+async def _film_forum(arr_app):
+    """A forum whose "Pel·lícules HD" topic is a movie source; returns (forum, source)."""
+    (await arr_app.http.patch("/api/settings", json={"tmdb_key": API_KEY})).raise_for_status()
+    forum = arr_app.telegram.add_forum(FORUM, "Anime en català", topics=("Pel·lícules HD", "Novetats"))
+    source = await arr_app.add_channel(FORUM, kind="movie", topic_id=forum.topic_id("Pel·lícules HD"),
+                                       topic_title="Pel·lícules HD")
+    return forum, source
+
+
+THEORY_POST = dict(text="La teoria del tot (2014) - Català - 1080p", file_name="La.teoria.del.tot.2014.1080p.mkv")
+THEORY_RELEASE = "The.Theory.of.Everything.2014.CAT.1080p.WEB-DL.x264-TELEGRARR"
+
+
+@pytest.mark.asyncio
+async def test_a_movie_topic_offers_only_its_own_films_to_radarr(arr_app, films):
+    forum, source = await _film_forum(arr_app)
+    arr_app.telegram.post(FORUM, **THEORY_POST, topic=forum.topic_id("Pel·lícules HD"))
+    arr_app.telegram.post(FORUM, text="Pa negre (2010)", file_name="Pa_negre_2010_720p.mkv",
+                          topic=forum.topic_id("Novetats"))
+    arr_app.telegram.post(FORUM, text="Una pel·lícula sense any", file_name="sense_any.mkv")
+
+    await arr_app.scan(source["id"])
+
+    assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
+    assert await _movie_search(arr_app, tmdbid=str(PA_NEGRE_TMDB)) == set()
+    assert await _review(arr_app) == []
+
+
+async def _backfill(arr_app, channel_id):
+    """Re-index the source's whole history and wait for it to finish."""
+    (await arr_app.http.post(f"/api/channels/{channel_id}/backfill")).raise_for_status()
+
+    async def finished():
+        logs = (await arr_app.http.get("/api/logs", params={"channel_id": channel_id})).json()
+        return any("[Backfill]" in line["message"] for line in logs)
+
+    await eventually(finished)
+
+
+@pytest.mark.asyncio
+async def test_backfill_of_a_topic_indexes_only_that_topics_history(arr_app, films):
+    forum, source = await _film_forum(arr_app)
+    arr_app.telegram.post(FORUM, **THEORY_POST, topic=forum.topic_id("Pel·lícules HD"))
+    arr_app.telegram.post(FORUM, text="Pa negre (2010)", file_name="Pa_negre_2010_720p.mkv",
+                          topic=forum.topic_id("Novetats"))
+    arr_app.telegram.post(FORUM, text="Una pel·lícula sense any", file_name="sense_any.mkv")
+
+    await _backfill(arr_app, source["id"])
+
+    assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
+    assert await _movie_search(arr_app, tmdbid=str(PA_NEGRE_TMDB)) == set()
+    assert await _review(arr_app) == []
