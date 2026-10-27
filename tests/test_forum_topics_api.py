@@ -31,8 +31,8 @@ async def test_topics_of_a_forum_group_are_listed_with_ids_and_titles(arr_app):
 
     body = r.raise_for_status().json()
     assert body["forum"] is True
-    named = [t for t in body["topics"] if t["title"] != "General"]
-    assert named == [
+    assert body["topics"] == [
+        {"topic_id": 1, "title": "General"},       # General is listed (and pickable) like any topic
         {"topic_id": forum.topic_id("Pel·lícules HD"), "title": "Pel·lícules HD"},
         {"topic_id": forum.topic_id("Sèries HD"), "title": "Sèries HD"},
     ]
