@@ -404,25 +404,26 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     ids = payload.get("ids", [])
     if action not in ("cancel", "retry", "delete"):
         raise _bad(400, "err.downloads.bad_action")
+    count = 0
     for i in ids:
-        await _single_action(action, int(i))
-    return {"ok": True, "count": len(ids)}
+        count += await _single_action(action, int(i))
+    return {"ok": True, "count": count}
 
 
-async def _single_action(action: str, dl_id: int):
+async def _single_action(action: str, dl_id: int) -> bool:
+    """Apply ``action`` to one download; True when it acted on the row."""
     if action == "cancel":
-        scanner.cancel_download(dl_id)
-        return
+        return scanner.cancel_download(dl_id)
     with db.conn() as c:
         row = c.execute("""SELECT d.*, c.chat_id FROM downloads d
                            JOIN channels c ON c.id=d.channel_id WHERE d.id=?""",
                         (dl_id,)).fetchone()
     if not row:
-        return
+        return False
     if action == "delete":
         with db.conn() as c:
             c.execute("DELETE FROM downloads WHERE id=?", (dl_id,))
-        return
+        return True
     if action == "retry":
         client = get_client()
         if not client.is_connected():
@@ -434,6 +435,8 @@ async def _single_action(action: str, dl_id: int):
                           "retry_count=0 WHERE id=?", (dl_id,))
             scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
                                                  row["save_path"], row["group_key"]))
+            return True
+    return False
 
 
 @app.post("/api/downloads/{dl_id}/cancel")

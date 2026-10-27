@@ -67,6 +67,23 @@ async def test_cancelling_a_row_with_no_running_task_says_so(arr_app):
 
 
 @pytest.mark.asyncio
+async def test_bulk_cancel_counts_only_the_downloads_it_stopped(arr_app):
+    [url1, url2] = await arr_app.publish_episodes(CHAT, "The Show", 1, 2)
+    await arr_app.sab(mode="addurl", name=url2, cat="tv")
+    idle = await eventually(lambda: _row_in(arr_app, "The.Show.S01E02.mkv", "completed"))
+    arr_app.telegram.hold_downloads()
+    await arr_app.sab(mode="addurl", name=url1, cat="tv")
+    running = await eventually(lambda: _row_in(arr_app, FILE, "downloading"))
+
+    r = await arr_app.http.post("/api/downloads/bulk",
+                                json={"action": "cancel", "ids": [running["id"], idle["id"]]})
+    await eventually(lambda: _row_in(arr_app, FILE, "cancelled"))
+    arr_app.telegram.release_downloads()
+
+    assert r.raise_for_status().json() == {"ok": True, "count": 1}
+
+
+@pytest.mark.asyncio
 async def test_sab_queue_delete_of_a_downloading_item_cancels_it_and_removes_the_partial(
         arr_app, library_dirs):
     [nzo], [url] = await _grab_held(arr_app, 1, partial=True)
