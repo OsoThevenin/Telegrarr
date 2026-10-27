@@ -225,6 +225,7 @@
  "ep.source.tmdb-en": "TMDB (English)",
  "ep.source.sonarr": "Sonarr",
  "dl.stop": "Stop",
+ "dl.nothing_to_cancel": "Nothing to cancel: this download is not running",
  "dl.waiting": "waiting",
  "dl.select_all": "Select all",
  "dl.col.file": "File",

@@ -81,7 +81,7 @@ function activeCard(d, ctx) {
     h("div", { class: "ac-top" },
       h("span", { class: "ac-name", title: d.save_path }, base(d.save_path) || d.file_name),
       statusPill(d.status),
-      h("button", { class: "btn ghost sm", onClick: async () => { await api(`/api/downloads/${d.id}/cancel`, { method: "POST" }); ctx.refresh(); } },
+      h("button", { class: "btn ghost sm", onClick: async () => { const r = await api(`/api/downloads/${d.id}/cancel`, { method: "POST" }); if (r && r.ok === false) toast(t("dl.nothing_to_cancel"), "err"); ctx.refresh(); } },
         h("span", { html: icon("pause") }), t("dl.stop"))),
     h("div", { class: "ac-meta" },
       `${sourceTitle(d.channel_title, d.topic_title) || ""} · ${d.file_size ? gb(d.file_size) : "—"} · ` +

@@ -225,6 +225,7 @@
  "ep.source.tmdb-en": "TMDB (anglès)",
  "ep.source.sonarr": "Sonarr",
  "dl.stop": "Atura",
+ "dl.nothing_to_cancel": "No hi ha res a cancel·lar: aquesta baixada no s’està executant",
  "dl.waiting": "en espera",
  "dl.select_all": "Selecciona-ho tot",
  "dl.col.file": "Fitxer",
