@@ -371,9 +371,8 @@ async def _retry_failed(client, channel):
                 _set_error(c, r["id"], "failed", message(MESSAGE_GONE))
             continue
         with db.conn() as c:
-            c.execute("UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
-                      "error_key=NULL, error_params=NULL, retry_count=COALESCE(retry_count,0)+1 WHERE id=?",
-                      (r["id"],))
+            if not requeue_stopped(c, r["id"], count_retry=True):
+                continue
         db.log("INFO", message("event.auto_retry", n=r["rc"] + 1, max=MAX_DOWNLOAD_RETRIES, file=r["file_name"]),
                channel_id=cid)
         _spawn(_run_download(client, cid, msg, r["save_path"], r["group_key"]))

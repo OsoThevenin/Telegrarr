@@ -59,3 +59,33 @@ async def test_a_re_grab_of_a_failed_download_is_tracked_under_a_new_id(arr_app)
     assert new != old
     assert queue == [new]
     assert slot["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_a_ui_retry_of_a_failed_arr_download_shows_a_new_id_in_the_queue(arr_app):
+    _url, old, payload = await _grab_failed(arr_app)
+    _restore(arr_app, payload)
+    failed = await arr_app.download(FILE)
+    arr_app.telegram.hold_downloads()
+
+    r = await arr_app.http.post(f"/api/downloads/{failed['id']}/retry")
+    queue = await _queue_ids(arr_app)
+    arr_app.telegram.release_downloads()
+
+    assert r.raise_for_status().json() == {"ok": True}
+    assert len(queue) == 1 and queue != [old]
+    assert (await arr_app.history_slot(queue[0]))["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_an_auto_retry_on_the_next_scan_reports_a_new_id(arr_app):
+    _url, old, payload = await _grab_failed(arr_app)
+    _restore(arr_app, payload)
+    [channel] = (await arr_app.http.get("/api/channels")).raise_for_status().json()
+
+    await arr_app.scan(channel["id"])
+    await eventually(lambda: _status(arr_app, "completed"))
+    history = await _history_ids(arr_app)
+
+    assert old not in history
+    assert len(history) == 1

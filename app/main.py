@@ -427,13 +427,13 @@ async def _single_action(action: str, dl_id: int) -> bool:
     return await _retry(row)
 
 
-RETRYABLE = ("failed", "cancelled")
+RETRYABLE = scanner.STOPPED_STATUSES
 
 
 async def _retry(row) -> bool:
     """Re-queue a stopped download. Only a failed or cancelled row is
-    re-queued; the status-conditional UPDATE keeps racing requests from
-    resetting a row that is already queued or downloading."""
+    re-queued, as a new attempt; the status-conditional UPDATE keeps racing
+    requests from resetting a row that is already queued or downloading."""
     if row["status"] not in RETRYABLE:
         return False
     client = get_client()
@@ -443,10 +443,7 @@ async def _retry(row) -> bool:
     if not msg:
         return False
     with db.conn() as c:
-        requeued = c.execute(
-            "UPDATE downloads SET status='queued', error=NULL, progress=0, retry_count=0 "
-            f"WHERE id=? AND status IN ({','.join('?' * len(RETRYABLE))})",
-            (row["id"], *RETRYABLE)).rowcount
+        requeued = scanner.requeue_stopped(c, row["id"])
     if not requeued:
         return False
     scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
