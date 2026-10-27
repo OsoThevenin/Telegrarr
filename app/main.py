@@ -692,8 +692,8 @@ async def newznab_nzb(id: str = "", apikey: str = ""):
 async def _sab_add(cid, mid):
     if not cid or not mid:
         return None
-    dlid = await scanner.grab_message(cid, mid)
-    return arr.nzo_id(dlid) if dlid else None
+    grabbed = await scanner.grab_message(cid, mid)
+    return arr.nzo_id(*grabbed) if grabbed else None
 
 
 def _sab_delete(nzo):

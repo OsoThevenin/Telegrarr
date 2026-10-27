@@ -206,9 +206,10 @@ _NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)$")
 HIDEABLE_STATUSES = ("failed", "cancelled", "completed")   # finished: a history delete hides them
 
 
-def nzo_id(download_id: int) -> str:
-    """The download id Sonarr/Radarr track a download row by."""
-    return f"{NZO_PREFIX}{download_id}"
+def nzo_id(download_id: int, attempt: int = 0) -> str:
+    """The download id Sonarr/Radarr track an attempt at a download row by. The
+    first attempt keeps the legacy ``telearr<id>``; later ones add ``-<attempt>``."""
+    return f"{NZO_PREFIX}{download_id}" + (f"-{attempt}" if attempt else "")
 
 
 def parse_nzo(nzo) -> int | None:
@@ -279,7 +280,7 @@ def sab_queue():
         prog = r["progress"] or 0
         left = size * (1 - prog)
         slots.append({
-            "nzo_id": nzo_id(r["id"]),
+            "nzo_id": nzo_id(r["id"], r["attempt"]),
             "filename": (r["save_path"] or r["file_name"] or "").split("/")[-1],
             "cat": category_for(r["kind"]),
             "storage": storage_path(r["save_path"]),
@@ -305,7 +306,7 @@ def sab_history(limit=100):
         storage = storage_path(r["save_path"])
         name = (r["save_path"] or r["file_name"] or "").split("/")[-1]
         slots.append({
-            "nzo_id": nzo_id(r["id"]),
+            "nzo_id": nzo_id(r["id"], r["attempt"]),
             "name": name, "nzb_name": r["file_name"] or name,
             "category": category_for(r["kind"]),
             "status": "Completed" if ok else "Failed",
