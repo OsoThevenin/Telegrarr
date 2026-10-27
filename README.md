@@ -156,7 +156,13 @@ recognised anywhere in the text:
 | Capítol / Episodi | `Cap. 13`, `Cap 13`, `C13`, `Episodi 13`, `Ep. 13` |
 | English forms | `S03E13`, … |
 | Double episodes | `1x01-02`, `1x01-1x02` |
+| Bare number (last resort) | `El Capità Harlock 01 - La bandera pirata de l'espai` |
 
+- Season + episode markers win (file name first, then caption), then episode-only
+  markers (same order). A **bare number** counts only in a series file name, as the
+  last resort, and never a year, `720p`, `x264`, `5.1`, `700 MB` or a number inside
+  a word. An episode without a season is published as season 1 (`S01E01`); season 0
+  is Sonarr's specials.
 - The **episode title** is the text after the marker; on mapped channels, text before
   the marker is ignored.
 - **`(1a Part)` / `(2a Part)`** stay in the title and are resolved to the real

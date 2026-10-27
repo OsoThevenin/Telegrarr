@@ -213,3 +213,12 @@ def test_flat_save_path_builds_category_release_file():
 ])
 def test_flat_save_path_neutralises_hostile_names(release, file_name, expected):
     assert namer.flat_save_path("/dl", "tv", release, file_name) == expected
+
+
+def test_group_key_keeps_filename_episode_when_caption_has_none():
+    assert namer.group_key("some caption", "Show Cap 2 - Title.mkv", 7) == "E002"
+
+
+def test_group_key_ignores_bare_numbers():
+    # movie channels group too: "Apollo 13" and "Ocean's 13" must stay apart
+    assert namer.group_key("", "Apollo 13.mkv", 5) == "MID5"

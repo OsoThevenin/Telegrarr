@@ -70,3 +70,53 @@ def test_release_from_underscore_filename_double_episode():
     rel = scanner.build_release(_channel(imdb_title="Serie"), msg, fn)
 
     assert rel["title"] == "Serie.S01E01E02.CAT.1080p.WEB-DL.x264-TELEGRARR"
+
+
+HARLOCK_FILE = "El Capità Harlock 01 - La bandera pirata de l'espai.mkv"
+
+
+def test_episode_only_file_publishes_as_season_one():
+    from app import scanner
+    msg = _message("", HARLOCK_FILE, dims=(1280, 720))
+
+    rel = scanner.build_release(_channel(imdb_title="Space Pirate Captain Harlock"), msg, HARLOCK_FILE)
+
+    assert rel["title"] == "Space.Pirate.Captain.Harlock.S01E01.CAT.720p.WEB-DL.x264-TELEGRARR"
+    assert (rel["season"], rel["episode"]) == (1, 1)
+    assert rel["episode_title"] == "La bandera pirata de l'espai"
+
+
+def test_file_episode_is_kept_when_caption_has_no_marker():
+    from app import scanner
+    msg = _message("El capità Harlock en català", HARLOCK_FILE)
+
+    rel = scanner.build_release(_channel(), msg, HARLOCK_FILE)
+
+    assert (rel["season"], rel["episode"]) == (1, 1)
+
+
+def test_caption_season_episode_beats_episode_only_file():
+    from app import scanner
+    msg = _message("2x05 Un altre títol", HARLOCK_FILE)
+
+    rel = scanner.build_release(_channel(), msg, HARLOCK_FILE)
+
+    assert (rel["season"], rel["episode"]) == (2, 5)
+
+
+def test_caption_episode_marker_beats_bare_number_in_file():
+    from app import scanner
+    msg = _message("Cap 5", HARLOCK_FILE)
+
+    rel = scanner.build_release(_channel(), msg, HARLOCK_FILE)
+
+    assert (rel["season"], rel["episode"]) == (1, 5)
+
+
+def test_bare_number_in_caption_is_not_an_episode():
+    from app import scanner
+    msg = _message("Pujat el 12 de març", "video.mp4")
+
+    rel = scanner.build_release(_channel(), msg, "video.mp4")
+
+    assert (rel["season"], rel["episode"]) == (None, None)

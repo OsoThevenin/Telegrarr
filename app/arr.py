@@ -106,6 +106,11 @@ def _id_where(tvdbid, tmdbid, imdbid) -> tuple[list[str], list] | None:
 _SCAN_WINDOW = 2000   # newest releases considered by one search (id filters apply before it)
 
 
+def _number_matches(wanted: str | int | None, actual: int | None) -> bool:
+    """A requested season/ep matches only that number; unnumbered releases never match it."""
+    return wanted in (None, "") or (actual is not None and int(wanted) == actual)
+
+
 def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=100,
                     tvdbid=None, tmdbid=None):
     id_where = _id_where(tvdbid, tmdbid, imdbid)
@@ -135,9 +140,7 @@ def search_releases(t="search", q="", season=None, ep=None, imdbid=None, limit=1
         show = (r["imdb_title"] or r["chtitle"] or "").lower()
         if ql and ql not in show and ql not in (r["title"] or "").lower().replace(".", " "):
             continue
-        if season not in (None, "") and r["season"] is not None and int(season) != r["season"]:
-            continue
-        if ep not in (None, "") and r["episode"] is not None and int(ep) != r["episode"]:
+        if not (_number_matches(season, r["season"]) and _number_matches(ep, r["episode"])):
             continue
         out.append(r)
         if len(out) >= limit:

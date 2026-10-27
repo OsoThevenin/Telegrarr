@@ -14,7 +14,7 @@ from . import db, plex, notify, settings, safety, resolver, movies
 from .arr import category_for
 from .i18n import message, translate
 from .tg import get_client
-from .namer import (group_key, extract_episode, extract_episode_title,
+from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE, extract_movie)
 from .config import (TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR,
@@ -33,6 +33,7 @@ _bg_tasks = set()                       # strong refs so backfill isn't GC'd
 _shutting_down = False                  # set on graceful shutdown
 MAX_DOWNLOAD_RETRIES = 3                 # auto-retry a failed download this many times
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
+DEFAULT_SEASON = 1                      # season of an episode-only series release
 ON_DISK_RATIO = 0.98                    # a file this complete on disk counts as already downloaded
 BUDGET_RECHECK_SECONDS = 60             # how often a budget-paused download re-checks the budget
 MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
@@ -111,11 +112,18 @@ def _video_dims(doc) -> tuple[int | None, int | None]:
     return None, None
 
 
-def _parse_episode(msg, fn) -> dict:
-    """Episode info from the file name, falling back to the caption."""
-    info = extract_episode(fn) if fn else {}
-    if not info.get("season"):
-        info = extract_episode(msg.message or "")
+def _is_series(channel) -> bool:
+    return channel["kind"] != "movie"
+
+
+def _parse_episode(channel, msg, fn) -> dict:
+    """Episode info of a message (see ``message_episode`` for file name vs caption).
+
+    Series channels also take a bare number in the file name, and an episode
+    without a season goes to season 1 (season 0 is Sonarr's specials)."""
+    info = message_episode(msg.message, fn, bare=_is_series(channel))
+    if _is_series(channel) and info["episode"] and not info["season"]:
+        return {**info, "season": DEFAULT_SEASON}
     return info
 
 
@@ -138,7 +146,7 @@ def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
     """What a Telegram media message is published as on the Newznab feed.
 
     ``episode`` overrides the parsed episode number (a resolved two-part episode)."""
-    info = _parse_episode(msg, fn)
+    info = _parse_episode(channel, msg, fn)
     if episode is not None:
         info = {**info, "episode": episode}
     season, episode = info.get("season") or 0, info.get("episode") or 0
@@ -148,18 +156,19 @@ def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
                          language=channel["language"] or DEFAULT_LANGUAGE,
                          episode_end=info.get("episode_end"))
     episode_title = extract_episode_title(msg.message or "", fn, season, episode,
-                                          show_title=show, mapped=_is_mapped(channel))
+                                          show_title=show, mapped=_is_mapped(channel),
+                                          bare=_is_series(channel))
     return {"title": title, "season": info.get("season"), "episode": info.get("episode"),
             "episode_end": info.get("episode_end"), "quality": quality, "episode_title": episode_title}
 
 
 def _resolve_path(channel, msg, fn):
-    info = _parse_episode(msg, fn)
+    info = _parse_episode(channel, msg, fn)
     show = _show_title(channel)
     ep_title = extract_episode_title(msg.message or "", fn,
                                      info.get("season") or 0,
                                      info.get("episode") or 0, show_title=show,
-                                     mapped=_is_mapped(channel))
+                                     mapped=_is_mapped(channel), bare=_is_series(channel))
     base = base_dir_for(channel, info.get("quality"))
     return build_save_path(base, show, info.get("season") or 0,
                            info.get("episode") or 0, fn, ep_title)
