@@ -156,8 +156,14 @@ COLUMN_MIGRATIONS = (
     ("channels", "topic_title", "TEXT"),
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
-    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),     # bumped on each re-queue of a stopped row
+    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
 )
+
+# download row statuses, grouped by what the code asks of a row
+ACTIVE_STATUSES = ("queued", "downloading")      # waiting for or holding a download task
+STOPPED_STATUSES = ("failed", "cancelled")       # re-queuing one of these starts a new attempt
+FINISHED_STATUSES = ("completed", *STOPPED_STATUSES)   # an *arr history delete hides these
+HISTORY_STATUSES = ("completed", "failed")       # what the SABnzbd history reports
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 
 

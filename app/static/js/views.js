@@ -351,7 +351,7 @@ function rowsTable(rows, ctx, selectAll = true) {
     h("td", {}, statusPill(d.status)),
     h("td", { class: "muted small" }, d.finished_at ? new Date(d.finished_at * 1000).toLocaleDateString(locale) : ""),
     h("td", { class: "actions" },
-      (d.status === "failed" || d.status === "cancelled") ? h("button", { class: "btn ghost sm", onClick: async () => { showToast(retryToast(await api(`/api/downloads/${d.id}/retry`, { method: "POST" }))); ctx.refresh(); } }, t("dl.retry")) : null,
+      isRetryable(d) ? h("button", { class: "btn ghost sm", onClick: async () => { showToast(retryToast(await api(`/api/downloads/${d.id}/retry`, { method: "POST" }))); ctx.refresh(); } }, t("dl.retry")) : null,
       h("button", { class: "btn ghost sm icon", title: t("common.delete"), "aria-label": t("dl.delete_record"), onClick: async () => { await api(`/api/downloads/${d.id}`, { method: "DELETE" }); ctx.refresh(); } }, h("span", { html: icon("trash") })))));
   return h("table", {}, h("thead", {}, head), h("tbody", {}, ...body));
 }

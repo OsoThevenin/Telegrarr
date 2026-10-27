@@ -40,6 +40,11 @@ async def _grab_failed(arr_app) -> tuple[str, str, bytes]:
     return url, nzo, payload
 
 
+async def _retried_and_failed(arr_app, retry_count: int) -> dict | None:
+    row = await _status(arr_app, "failed")
+    return row if row and row["retry_count"] == retry_count else None
+
+
 def _restore(arr_app, payload: bytes) -> None:
     arr_app.telegram.channels[CHAT].payloads[1] = payload
 
@@ -173,3 +178,18 @@ async def test_a_queue_delete_with_the_current_attempt_id_cancels_it(arr_app):
 
     assert cancelled["status"] == "cancelled"
     assert await _queue_ids(arr_app) == []
+
+
+@pytest.mark.asyncio
+async def test_a_re_grab_keeps_the_auto_retries_already_used(arr_app):
+    url, old, _payload = await _grab_failed(arr_app)
+    [channel] = (await arr_app.http.get("/api/channels")).raise_for_status().json()
+    await arr_app.scan(channel["id"])
+    retried = await eventually(lambda: _retried_and_failed(arr_app, 1))
+
+    again = await _grab(arr_app, url)
+    slot = await arr_app.history_slot(again)
+    after = await arr_app.download(FILE)
+
+    assert again != old and slot["status"] == "Failed"
+    assert (retried["retry_count"], after["retry_count"]) == (1, 1)

@@ -415,36 +415,10 @@ async def _single_action(action: str, dl_id: int) -> bool:
     """Apply ``action`` to one download; True if it acted on the row."""
     if action == "cancel":
         return scanner.cancel_download(dl_id)
+    if action == "retry":
+        return await scanner.retry_download(dl_id) is None
     with db.conn() as c:
-        row = c.execute("""SELECT d.*, c.chat_id FROM downloads d
-                           JOIN channels c ON c.id=d.channel_id WHERE d.id=?""",
-                        (dl_id,)).fetchone()
-    if not row:
-        return False
-    if action == "delete":
-        with db.conn() as c:
-            c.execute("DELETE FROM downloads WHERE id=?", (dl_id,))
-        return True
-    return await _retry(row)
-
-
-async def _retry(row) -> bool:
-    """Re-queue a stopped download. Only a failed or cancelled row is
-    re-queued, as a new attempt; ``requeue_stopped`` is the guard, so racing
-    requests can't reset a row that is already queued or downloading."""
-    client = get_client()
-    if not client.is_connected():
-        await client.connect()
-    msg = await client.get_messages(row["chat_id"], ids=row["message_id"])
-    if not msg:
-        return False
-    with db.conn() as c:
-        attempt = scanner.requeue_stopped(c, row["id"])
-    if attempt is None:
-        return False
-    scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
-                                         row["save_path"], row["group_key"]))
-    return True
+        return c.execute("DELETE FROM downloads WHERE id=?", (dl_id,)).rowcount > 0
 
 
 @app.post("/api/downloads/{dl_id}/cancel")
@@ -454,7 +428,8 @@ async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
 
 @app.post("/api/downloads/{dl_id}/retry")
 async def api_retry(dl_id: int, user=Depends(auth.require_user)):
-    return {"ok": await _single_action("retry", dl_id)}
+    reason = await scanner.retry_download(dl_id)
+    return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
 @app.delete("/api/downloads/{dl_id}")
@@ -690,21 +665,10 @@ async def _sab_add(cid, mid):
 
 
 def _sab_delete(nzo):
-    """A finished row is only hidden from *arr history (never its files, whatever
-    del_files says); a queued/downloading one is cancelled. An id from an earlier
-    attempt changes nothing."""
+    """A queue or history delete (files are never deleted, whatever del_files says)."""
     ref = arr.parse_nzo(nzo)
-    if ref is None:
-        return
-    hidden = arr.hide_from_history(*ref)
-    if hidden or not arr.is_current_attempt(*ref):
-        return
-    scanner.cancel_download(ref.download_id)
-    active = scanner.ACTIVE_STATUSES
-    with db.conn() as c:
-        c.execute("UPDATE downloads SET status='cancelled' "
-                  f"WHERE id=? AND attempt=? AND status IN ({db.placeholders(active)})",
-                  (*ref, *active))
+    if ref is not None:
+        scanner.delete_for_arr(ref)
 
 
 async def _sab(request: Request):

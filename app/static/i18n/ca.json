@@ -307,6 +307,7 @@
  "dl.err.cancelled": "Cancel·lat per l'usuari",
  "dl.err.failed": "La descàrrega ha fallat: {error}",
  "dl.err.duplicate": "Ja s'està descarregant des d'un altre missatge",
+ "dl.err.stalled_handoff": "L'intent anterior no s'ha aturat a temps; torna-ho a provar més tard",
  "dur.dh": "{d} d {h} h",
  "dur.hm": "{h} h {m} min",
  "dur.m": "{m} min",

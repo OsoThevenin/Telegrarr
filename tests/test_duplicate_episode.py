@@ -83,3 +83,22 @@ def test_duplicate_reason_is_translated_in_every_shipped_language(lang):
     catalog = json.loads((I18N_DIR / f"{lang}.json").read_text(encoding="utf-8"))
 
     assert catalog.get(DUPLICATE_REASON)
+
+
+@pytest.mark.asyncio
+async def test_a_resume_does_not_download_the_cancelled_duplicate(arr_app):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    other = arr_app.telegram.post(CHAT, text="The Show S01E01 720p", file_name=OTHER_FILE)
+    arr_app.telegram.hold_downloads()
+    await arr_app.sab(mode="addurl", name=url, cat="tv")
+    await eventually(lambda: _row_in(arr_app, FILE, "downloading"))
+    await arr_app.sab(mode="addurl", name=_with_message(url, other.id), cat="tv")
+    await eventually(lambda: _row_in(arr_app, OTHER_FILE, "cancelled"))
+    arr_app.telegram.release_downloads()
+    await eventually(lambda: _row_in(arr_app, FILE, "completed"))
+
+    (await arr_app.http.post("/api/queue/resume")).raise_for_status()
+    await asyncio.sleep(SETTLE_S)
+
+    assert (await arr_app.download(OTHER_FILE))["status"] == "cancelled"
+    assert (CHAT, other.id) not in arr_app.telegram.downloaded

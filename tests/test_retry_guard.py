@@ -38,7 +38,7 @@ async def test_retrying_a_downloading_row_leaves_it_downloading(arr_app):
     r = await arr_app.http.post(f"/api/downloads/{before['id']}/retry")
     after = await arr_app.download(FILE_1)
 
-    assert r.raise_for_status().json() == {"ok": False}
+    assert r.raise_for_status().json() == {"ok": False, "reason": "dl.not_requeued"}
     assert (after["status"], after["progress"], after["started_at"]) == \
         ("downloading", before["progress"], before["started_at"])
     arr_app.telegram.release_downloads()
@@ -122,3 +122,31 @@ async def test_bulk_retry_in_the_ui_sends_only_failed_or_cancelled_ids(arr_app):
 
     assert ids == [1, 3]
     assert 'from "./retry.js"' in views
+
+
+@pytest.mark.asyncio
+async def test_retrying_a_downloading_row_does_not_ask_telegram(arr_app, monkeypatch):
+    [before] = await _grab_held(arr_app, 1)
+    async def unreachable(*_a, **_k):
+        raise ConnectionError("Telegram is unreachable")
+    monkeypatch.setattr(arr_app.telegram, "get_messages", unreachable)
+
+    r = await arr_app.http.post(f"/api/downloads/{before['id']}/retry")
+    after = await arr_app.download(FILE_1)
+
+    assert r.raise_for_status().json() == {"ok": False, "reason": "dl.not_requeued"}
+    assert after["status"] == "downloading"
+    arr_app.telegram.release_downloads()
+    await eventually(lambda: _status(arr_app, FILE_1, "completed"))
+
+
+@pytest.mark.asyncio
+async def test_retrying_a_row_whose_message_is_gone_says_why(arr_app):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    failed, _payload = await _grab_failed(arr_app, url, 1)
+    arr_app.telegram.channels[CHAT].messages.pop(failed["message_id"])
+
+    r = await arr_app.http.post(f"/api/downloads/{failed['id']}/retry")
+
+    assert r.raise_for_status().json() == {"ok": False, "reason": "dl.err.message_gone"}
+    assert (await arr_app.download(FILE_1))["status"] == "failed"

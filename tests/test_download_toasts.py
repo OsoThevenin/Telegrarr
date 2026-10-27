@@ -36,8 +36,9 @@ async def test_stop_says_when_there_was_nothing_to_cancel(arr_app, answer, expec
 @pytest.mark.parametrize("answer, expected", [
     ({"ok": True}, {"key": "dl.requeued", "kind": "ok"}),
     ({"ok": False}, {"key": "dl.not_requeued", "kind": "err"}),
+    ({"ok": False, "reason": "dl.err.message_gone"}, {"key": "dl.err.message_gone", "kind": "err"}),
     (None, None),
-], ids=["re-queued", "not-re-queued", "request-failed"])
+], ids=["re-queued", "not-re-queued", "message-gone", "request-failed"])
 async def test_retry_says_requeued_only_when_the_server_re_queued(arr_app, answer, expected):
     assert await _toast(arr_app, f"retryToast({json.dumps(answer)})") == expected
 

@@ -67,6 +67,25 @@ async def test_cancelling_a_row_with_no_running_task_says_so(arr_app):
 
 
 @pytest.mark.asyncio
+async def test_cancelling_a_row_held_by_a_pause_cancels_it_for_good(arr_app, library_dirs):
+    [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
+    (await arr_app.http.post("/api/queue/pause")).raise_for_status()
+    await arr_app.sab(mode="addurl", name=url, cat="tv")
+    held = await eventually(lambda: _row_in(arr_app, FILE, "queued"))
+    await asyncio.sleep(SETTLE_S)
+
+    cancel = (await arr_app.http.post(f"/api/downloads/{held['id']}/cancel")).json()
+    (await arr_app.http.post("/api/queue/resume")).raise_for_status()
+    await asyncio.sleep(SETTLE_S)
+    after = await arr_app.download(FILE)
+
+    assert cancel == {"ok": True}
+    assert (after["status"], after["error_msg"]) == \
+        ("cancelled", {"key": "dl.err.cancelled", "params": {}})
+    assert _files_named(library_dirs["DOWNLOADS_DIR"], FILE) == []
+
+
+@pytest.mark.asyncio
 async def test_bulk_cancel_counts_only_the_downloads_it_stopped(arr_app):
     [url1, url2] = await arr_app.publish_episodes(CHAT, "The Show", 1, 2)
     await arr_app.sab(mode="addurl", name=url2, cat="tv")

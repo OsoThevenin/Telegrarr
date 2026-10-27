@@ -8,8 +8,14 @@
   The UI says "Re-queued" only when something was, and bulk Retry reports how many.
 - Cancel always stops the task really downloading a row, and the UI says when there
   was nothing to cancel. Bulk Cancel reports how many it stopped.
+  A row waiting while downloads are paused can be cancelled too, and stays cancelled
+  on Resume.
 - A Retry right after a Cancel no longer leaves a row stuck in Queued, and the
   stopping download can't overwrite the new attempt's status.
+  If the old transfer hasn't stopped within a minute, the new attempt fails with
+  "The previous attempt didn't stop in time; retry later" instead of waiting forever.
+- A failed Retry says why (e.g. the Telegram message is gone), and Telegrarr no longer
+  asks Telegram before checking the row can be retried.
 - A second message for an episode that is already downloading is marked cancelled
   ("Already downloading from another message") instead of staying Queued forever.
 - Every re-queue of a failed or cancelled download (Retry, auto-retry, or a Sonarr/

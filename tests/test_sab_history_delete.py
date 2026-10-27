@@ -8,6 +8,7 @@ import os
 
 import pytest
 
+from app import arr
 from http_harness import eventually
 
 CHAT = -1001000000033
@@ -85,3 +86,16 @@ async def test_a_delete_with_an_id_that_is_not_ours_changes_nothing(arr_app, mod
 
     assert still["status"] == "downloading"
     assert [s["nzo_id"] for s in queue] == [nzo]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["queue", "history"])
+async def test_queue_and_history_deletes_read_the_id_with_the_same_parser(
+        arr_app, monkeypatch, mode):
+    parsed = []
+    real = arr.parse_nzo
+    monkeypatch.setattr(arr, "parse_nzo", lambda nzo: parsed.append(nzo) or real(nzo))
+
+    await arr_app.sab(mode=mode, name="delete", value="telearr999")
+
+    assert parsed == ["telearr999"]

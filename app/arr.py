@@ -204,7 +204,6 @@ def parse_ref(text):
 # Download ids handed to the *arr ("nzo ids") are built and parsed only here.
 NZO_PREFIX = "telearr"
 _NZO_RE = re.compile(rf"^{NZO_PREFIX}(\d+)(?:-([1-9]\d*))?$")   # telearr<id>[-<attempt>]
-HIDEABLE_STATUSES = ("failed", "cancelled", "completed")   # finished: a history delete hides them
 
 
 class AttemptRef(NamedTuple):
@@ -238,10 +237,11 @@ def hide_from_history(download_id: int, attempt: int) -> bool:
     """Leave a finished row's current attempt out of the history reported to the
     *arr; the row and its files stay. False when the row is missing, not finished,
     or on another attempt."""
+    finished = db.FINISHED_STATUSES
     with db.conn() as c:
         cur = c.execute("UPDATE downloads SET arr_hidden=1 "
-                        f"WHERE id=? AND attempt=? AND status IN ({db.placeholders(HIDEABLE_STATUSES)})",
-                        (download_id, attempt, *HIDEABLE_STATUSES))
+                        f"WHERE id=? AND attempt=? AND status IN ({db.placeholders(finished)})",
+                        (download_id, attempt, *finished))
     return cur.rowcount > 0
 
 
@@ -314,9 +314,12 @@ def sab_queue():
 
 def sab_history(limit=100):
     with db.conn() as c:
-        rows = c.execute("""SELECT d.*, ch.kind FROM downloads d JOIN channels ch ON ch.id = d.channel_id
-                            WHERE d.status IN ('completed','failed') AND d.arr_hidden = 0 ORDER BY d.id DESC LIMIT ?""",
-                         (limit,)).fetchall()
+        rows = c.execute(f"""SELECT d.*, ch.kind FROM downloads d
+                             JOIN channels ch ON ch.id = d.channel_id
+                             WHERE d.status IN ({db.placeholders(db.HISTORY_STATUSES)})
+                               AND d.arr_hidden = 0
+                             ORDER BY d.id DESC LIMIT ?""",
+                         (*db.HISTORY_STATUSES, limit)).fetchall()
     slots = []
     for r in rows:
         ok = r["status"] == "completed"

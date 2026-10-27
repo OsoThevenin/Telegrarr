@@ -5,16 +5,20 @@
 const NOT_REQUEUED = { key: "dl.not_requeued", kind: "err" };
 
 // POST /api/downloads/{id}/cancel → { ok }: false when nothing was running
-export const cancelToast = (r) => (r && r.ok === false ? { key: "dl.nothing_to_cancel", kind: "err" } : null);
+export const cancelToast = (r) =>
+  r && r.ok === false ? { key: "dl.nothing_to_cancel", kind: "err" } : null;
 
-// POST /api/downloads/{id}/retry → { ok }: false when the row wasn't re-queued
+// POST /api/downloads/{id}/retry → { ok, reason? }: reason is the i18n key of
+// why the row wasn't re-queued
 export const retryToast = (r) => {
   if (!r) return null;
-  return r.ok ? { key: "dl.requeued", kind: "ok" } : NOT_REQUEUED;
+  if (r.ok) return { key: "dl.requeued", kind: "ok" };
+  return r.reason ? { key: r.reason, kind: "err" } : NOT_REQUEUED;
 };
 
 // POST /api/downloads/bulk (retry) → { ok, count }: count = rows re-queued
 export const bulkRetryToast = (r) => {
   if (!r) return null;
-  return r.count > 0 ? { key: "dl.requeued_n", params: { count: r.count }, kind: "ok" } : NOT_REQUEUED;
+  if (!(r.count > 0)) return NOT_REQUEUED;
+  return { key: "dl.requeued_n", params: { count: r.count }, kind: "ok" };
 };
