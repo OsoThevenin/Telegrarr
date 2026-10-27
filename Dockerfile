@@ -25,6 +25,7 @@ RUN groupadd --gid "${APP_GID}" telegrarr \
         && chown "${APP_UID}:${APP_GID}" /data
 WORKDIR /app
 COPY app /app/app
+COPY authorize.py /app/authorize.py
 USER ${APP_UID}:${APP_GID}
 EXPOSE 8790
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
