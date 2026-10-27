@@ -128,9 +128,12 @@ class TelegramScan:
     complete: bool = True            # False when a FloodWait cut resolution short
 
 
+ScanKey = tuple[int, int | None]   # (directory chat id, forum topic id or None for the whole chat)
+
+
 @dataclass
 class _Cache:
-    scans: dict[int, TelegramScan] = field(default_factory=dict)
+    scans: dict[ScanKey, TelegramScan] = field(default_factory=dict)
 
 
 _cache = _Cache()
@@ -184,11 +187,12 @@ async def _resolve_all(client, links: list[ChannelLink], self_id: int) -> tuple[
     return out, True
 
 
-async def _read_telegram(client, chat_id: int, now: float) -> TelegramScan:
+async def _read_telegram(client, chat_id: int, topic_id: int | None, now: float) -> TelegramScan:
     _gate_check(now)
     try:
         ent = await client.get_entity(chat_id)
-        messages = [m async for m in tg.source_messages(client, chat_id, limit=SCAN_MESSAGE_LIMIT)]
+        messages = [m async for m in tg.source_messages(client, chat_id, limit=SCAN_MESSAGE_LIMIT,
+                                                        topic_id=topic_id)]
     except FloodWaitError as e:
         await downloader.flood_gate.trip(e.seconds)
         raise ScanRefused(RATE_LIMITED["key"]) from e
@@ -217,19 +221,21 @@ async def _suggestions(entries) -> tuple[dict[str, dict | None], dict | None]:
     return out, None
 
 
-async def scan(client, chat_id: int, now: float | None = None) -> dict:
-    """Scan directory `chat_id`; Telegram is read at most once per RESCAN_AFTER_S."""
+async def scan(client, chat_id: int, now: float | None = None, *, topic_id: int | None = None) -> dict:
+    """Scan directory `chat_id` (only forum topic `topic_id` when given); each
+    (chat, topic) is read from Telegram at most once per RESCAN_AFTER_S."""
     now = time.time() if now is None else now
-    cached = _cache.scans.get(chat_id)
+    key = (chat_id, topic_id)
+    cached = _cache.scans.get(key)
     fresh = cached is not None and now - cached.scanned_at < RESCAN_AFTER_S
-    result = cached if fresh else await _read_telegram(client, chat_id, now)
+    result = cached if fresh else await _read_telegram(client, chat_id, topic_id, now)
     if not fresh and result.complete:
-        _cache.scans = {**_cache.scans, chat_id: result}
+        _cache.scans = {**_cache.scans, key: result}
     added = channels.existing_chat_ids()
     suggestions, tmdb_error = await _suggestions(result.entries)
     links = [{**e.__dict__, "already_added": e.chat_id in added, "channel_id": added.get(e.chat_id),
               "suggestion": suggestions.get(e.link)} for e in result.entries]
-    return {"directory": result.directory, "messages_scanned": result.messages_scanned,
+    return {"directory": result.directory, "topic_id": topic_id, "messages_scanned": result.messages_scanned,
             "links": links, "cached": fresh, "scanned_at": result.scanned_at,
             "next_scan_at": result.scanned_at + RESCAN_AFTER_S, "tmdb_error": tmdb_error}
 

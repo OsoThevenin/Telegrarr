@@ -2,9 +2,11 @@
 // per-series channels, then import the ticked ones as mapped series channels.
 // The server resolves links without joining anything and reuses the last scan of
 // a directory for the poll floor (account safety); this dialog only drives it.
+// A forum group can be scanned whole or on one topic (e.g. "Sèries HD").
 import { h, api, jpost, mount, toast } from "./core.js";
 import { icon } from "./icons.js";
 import { t, tn, msg, fmtTime as fmtClock } from "./i18n.js";
+import { topicPicker } from "./topics.js";
 
 const SEARCH_DEBOUNCE_MS = 350;
 const RESULT_TONE = { added: "ok", skipped: "muted", failed: "err" };
@@ -97,18 +99,29 @@ export function openDirectoryImport(ctx) {
   const host = document.querySelector("#modal-root");
   const picker = h("select", {}, h("option", { value: "" }, t("directory.loading_chats")));
   const body = h("div", {});
+  const topics = topicPicker({ multiple: false, hint: t("directory.topics_hint") });
+  let topicsReady = Promise.resolve(false);
+  picker.addEventListener("change", () => {
+    mount(body);
+    if (!picker.value) { topics.clear(); topicsReady = Promise.resolve(false); return; }
+    topicsReady = topics.load(picker.value);
+  });
   const scanBtn = h("button", { class: "btn primary sm" }, h("span", { html: icon("scan") }), t("common.scan"));
   const scan = async () => {
     if (!picker.value) return toast(t("directory.pick_first"), "err");
     scanBtn.disabled = true;
+    await topicsReady;
+    // a forum group with no topic picked is scanned whole
+    const topicId = topics.isForum() ? (topics.picked()[0]?.topic_id ?? null) : null;
     mount(body, h("div", { class: "muted small pad" }, t("directory.scanning")));
-    const res = await jpost("/api/directory/scan", { chat_id: picker.value });
+    const res = await jpost("/api/directory/scan", { chat_id: picker.value, topic_id: topicId });
     scanBtn.disabled = false;
     mount(body, res ? resultsView(res, () => ctx.refresh()) : []);
   };
   scanBtn.addEventListener("click", scan);
   api("/api/telegram/dialogs").then((dialogs) => {
-    const list = (dialogs || []).filter((d) => d.kind === "channel");
+    // groups too: a forum group's topic can be the directory
+    const list = (dialogs || []).filter((d) => d.kind === "channel" || d.kind === "group");
     mount(picker, h("option", { value: "" }, list.length ? t("directory.choose") : t("directory.no_channels")),
       ...list.map((d) => h("option", { value: d.chat_id }, d.title + (d.username ? ` (@${d.username})` : ""))));
   });
@@ -123,6 +136,7 @@ export function openDirectoryImport(ctx) {
       h("div", { class: "muted small" },
         t("directory.intro")),
       h("label", {}, t("directory.channel"), h("div", { class: "dir-pick" }, picker, scanBtn)),
+      topics.node,
       body));
   host.replaceChildren(overlay);
 }

@@ -3,13 +3,17 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from .. import auth, directory, tg
-from .common import BAD_REQUEST, CONFLICT, TOO_MANY, LooseId, bad, keyed, keyed_router, normalize_chat_id
+from .common import (BAD_REQUEST, CONFLICT, TOO_MANY, LooseId, bad, keyed, keyed_router, normalize_chat_id,
+                     normalize_topic_id)
 
 router = keyed_router()
 
 
 class DirectoryScan(BaseModel):
     chat_id: LooseId = None
+    # a forum topic; None scans the whole chat. bool is listed so a JSON true
+    # reaches normalize_topic_id (and is refused) instead of being coerced to 1.
+    topic_id: bool | LooseId = None
 
 
 class ImportChannel(BaseModel):
@@ -27,11 +31,12 @@ class DirectoryImport(BaseModel):
 @router.post("/api/directory/scan")
 async def api_directory_scan(payload: DirectoryScan, user=Depends(auth.require_user)):
     chat_id = normalize_chat_id(payload.chat_id)
+    topic_id = normalize_topic_id(payload.topic_id)
     client = await tg.authorized_client()
     if not client:
         raise bad(CONFLICT, "err.tg.not_connected")
     try:
-        return await directory.scan(client, chat_id)
+        return await directory.scan(client, chat_id, topic_id=topic_id)
     except directory.ScanRefused as e:
         raise keyed(TOO_MANY, e)
 
