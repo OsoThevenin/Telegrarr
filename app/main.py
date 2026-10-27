@@ -404,36 +404,54 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     ids = payload.get("ids", [])
     if action not in ("cancel", "retry", "delete"):
         raise _bad(400, "err.downloads.bad_action")
+    count = 0
     for i in ids:
-        await _single_action(action, int(i))
-    return {"ok": True, "count": len(ids)}
+        count += await _single_action(action, int(i))
+    return {"ok": True, "count": count}
 
 
-async def _single_action(action: str, dl_id: int):
+async def _single_action(action: str, dl_id: int) -> bool:
+    """Apply ``action`` to one download; True if it acted on the row."""
     if action == "cancel":
-        scanner.cancel_download(dl_id)
-        return
+        return scanner.cancel_download(dl_id)
     with db.conn() as c:
         row = c.execute("""SELECT d.*, c.chat_id FROM downloads d
                            JOIN channels c ON c.id=d.channel_id WHERE d.id=?""",
                         (dl_id,)).fetchone()
     if not row:
-        return
+        return False
     if action == "delete":
         with db.conn() as c:
             c.execute("DELETE FROM downloads WHERE id=?", (dl_id,))
-        return
-    if action == "retry":
-        client = get_client()
-        if not client.is_connected():
-            await client.connect()
-        msg = await client.get_messages(row["chat_id"], ids=row["message_id"])
-        if msg:
-            with db.conn() as c:
-                c.execute("UPDATE downloads SET status='queued', error=NULL, progress=0, "
-                          "retry_count=0 WHERE id=?", (dl_id,))
-            scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
-                                                 row["save_path"], row["group_key"]))
+        return True
+    return await _retry(row)
+
+
+RETRYABLE = ("failed", "cancelled")
+
+
+async def _retry(row) -> bool:
+    """Re-queue a stopped download. Only a failed or cancelled row is
+    re-queued; the status-conditional UPDATE keeps racing requests from
+    resetting a row that is already queued or downloading."""
+    if row["status"] not in RETRYABLE:
+        return False
+    client = get_client()
+    if not client.is_connected():
+        await client.connect()
+    msg = await client.get_messages(row["chat_id"], ids=row["message_id"])
+    if not msg:
+        return False
+    with db.conn() as c:
+        requeued = c.execute(
+            "UPDATE downloads SET status='queued', error=NULL, progress=0, retry_count=0 "
+            f"WHERE id=? AND status IN ({','.join('?' * len(RETRYABLE))})",
+            (row["id"], *RETRYABLE)).rowcount
+    if not requeued:
+        return False
+    scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
+                                         row["save_path"], row["group_key"]))
+    return True
 
 
 @app.post("/api/downloads/{dl_id}/cancel")
@@ -443,8 +461,7 @@ async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
 
 @app.post("/api/downloads/{dl_id}/retry")
 async def api_retry(dl_id: int, user=Depends(auth.require_user)):
-    await _single_action("retry", dl_id)
-    return {"ok": True}
+    return {"ok": await _single_action("retry", dl_id)}
 
 
 @app.delete("/api/downloads/{dl_id}")
