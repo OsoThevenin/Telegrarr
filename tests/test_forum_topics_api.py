@@ -92,6 +92,17 @@ async def test_listing_topics_of_an_unknown_chat_is_a_keyed_error(arr_app):
 
 
 @pytest.mark.asyncio
+async def test_the_topic_picker_module_is_served_and_used_by_the_add_channel_dialog(arr_app):
+    picker = await arr_app.http.get("/static/js/topics.js")
+    views = await arr_app.http.get("/static/js/views.js")
+
+    assert picker.status_code == 200
+    assert "javascript" in picker.headers["content-type"]
+    assert "/api/telegram/topics" in picker.text
+    assert 'from "./topics.js"' in views.raise_for_status().text
+
+
+@pytest.mark.asyncio
 async def test_a_non_numeric_chat_id_is_refused(arr_app):
     r = await _topics(arr_app, "abc")
 
