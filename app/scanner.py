@@ -374,12 +374,12 @@ async def _read_source(client, channel, *, limit, stop_at=0):
 async def scan_channel(client, channel):
     cid = channel["id"]
     last = channel["last_message_id"] or 0
-    read = await _read_source(client, channel, limit=80, stop_at=last)
-    if read is None:   # retried at the next poll, not every loop cycle
+    scanned = await _read_source(client, channel, limit=80, stop_at=last)
+    if scanned is None:   # retried at the next poll, not every loop cycle
         with db.conn() as c:
             c.execute("UPDATE channels SET last_scanned_at=? WHERE id=?", (int(time.time()), cid))
         return
-    best, max_seen = read
+    best, max_seen = scanned
     auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
     for gk, (msg, size, fn) in best.items():
         offered = await _index_release(channel, msg, size, fn, gk)
@@ -393,10 +393,10 @@ async def scan_channel(client, channel):
 
 async def backfill_channel(client, channel, full=True):
     cid = channel["id"]
-    read = await _read_source(client, channel, limit=None)
-    if read is None:
+    scanned = await _read_source(client, channel, limit=None)
+    if scanned is None:
         return 0
-    best, _ = read
+    best, _ = scanned
     auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
     queued = 0
     for gk, (msg, size, fn) in best.items():

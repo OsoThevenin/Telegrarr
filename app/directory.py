@@ -247,7 +247,8 @@ async def scan(client, chat_id: int, now: float | None = None, *,
     links = [{**e.__dict__, "already_added": e.chat_id in added, "channel_id": added.get(e.chat_id),
               "suggestion": suggestions.get(e.link)} for e in result.entries]
     return {"directory": result.directory, "topic_id": topic_id,
-            "messages_scanned": result.messages_scanned, "links": links, "cached": fresh, "scanned_at": result.scanned_at,
+            "messages_scanned": result.messages_scanned, "links": links, "cached": fresh,
+            "scanned_at": result.scanned_at,
             "next_scan_at": result.scanned_at + RESCAN_AFTER_S, "tmdb_error": tmdb_error}
 
 

@@ -50,13 +50,13 @@ def normalize_topic_id(raw) -> int | None:
     """A forum topic id (a number or its text, > 0); None/"" means the whole chat."""
     if raw is None or raw == "":
         return None
-    if isinstance(raw, bool):
-        raise bad(BAD_REQUEST, "err.channel.topic_id_numeric")
-    try:
-        tid = int(raw)
-    except (TypeError, ValueError):
-        raise bad(BAD_REQUEST, "err.channel.topic_id_numeric")
-    if tid <= 0:
+    tid = None
+    if not isinstance(raw, bool):   # True/False are ints to Python, not topic ids
+        try:
+            tid = int(raw)
+        except (TypeError, ValueError):
+            pass
+    if tid is None or tid <= 0:
         raise bad(BAD_REQUEST, "err.channel.topic_id_numeric")
     return tid
 

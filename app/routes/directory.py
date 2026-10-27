@@ -3,8 +3,8 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from .. import auth, directory, tg
-from .common import (BAD_REQUEST, CONFLICT, TOO_MANY, LooseId, bad, keyed, keyed_router, normalize_chat_id,
-                     normalize_topic_id)
+from .common import (BAD_REQUEST, CONFLICT, TOO_MANY, LooseId, bad, keyed, keyed_router,
+                     normalize_chat_id, normalize_topic_id)
 
 router = keyed_router()
 

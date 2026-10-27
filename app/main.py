@@ -59,7 +59,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
-for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes, topic_routes):
+for _router in (channel_series, connect_routes, directory_routes, review, tmdb_routes,
+                topic_routes):
     app.include_router(_router.router)
 
 
