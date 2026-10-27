@@ -235,6 +235,8 @@
  "dl.col.when": "Quan",
  "dl.select_row": "Selecciona la fila",
  "dl.requeued": "S’ha tornat a posar a la cua",
+ "dl.requeued_n": "Baixades tornades a la cua: {count}",
+ "dl.not_requeued": "No s’ha tornat a posar res a la cua: només es poden reintentar les baixades fallides o cancel·lades",
  "dl.retry": "Torna-ho a provar",
  "dl.delete_record": "Suprimeix el registre",
  "dl.no_matches": "Cap coincidència.",
