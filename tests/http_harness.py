@@ -155,8 +155,12 @@ class FakeTelegram:
         go, so reading it (``reply_to=topic``) fails with ``MsgIdInvalidError``."""
         forum = self.channels[chat_id]
         del forum.topics[topic]
-        forum.messages = {mid: m for mid, m in forum.messages.items()
-                          if mid != topic and not (m.reply_to and m.reply_to.reply_to_msg_id == topic)}
+        def in_topic(m: FakeMessage) -> bool:
+            header = m.reply_to
+            return bool(header and header.forum_topic
+                        and (header.reply_to_top_id or header.reply_to_msg_id) == topic)
+
+        forum.messages = {mid: m for mid, m in forum.messages.items() if mid != topic and not in_topic(m)}
 
     def lose_access(self, chat_id: int) -> None:
         """The account left, or was removed from, ``chat_id``: as in Telegram,
