@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — Telegrarr: Catalan content for the \*arr stack (2026-10-25)
+## 1.0.0 — Telegrarr: Catalan content for the \*arr stack (2026-10-27)
 
 First Telegrarr release. Telegrarr is a fork of
 [Wishaal/Telearr](https://github.com/Wishaal/Telearr) v2.3.3 and restarts
@@ -11,8 +11,14 @@ versioning at 1.0.0. Changes against upstream v2.3.3:
   update check against `OsoThevenin/Telegrarr`). Internal identifiers stay as
   upstream: `TELEARR_*` env vars, the `telearr_sess` cookie, `telearr.db`, module
   names and the `telearr` NZB/nzo prefixes.
-- CI publishes `ghcr.io/osothevenin/telegrarr` on `v*` tags after the tests pass,
-  and runs `pip-audit`.
+- CI publishes a multi-arch (amd64/arm64) image to the public
+  `ghcr.io/osothevenin/telegrarr`: `1.0.0`, `1.0` and `latest` on version tags
+  after the tests pass, and `main` on manual runs. CI also runs `pip-audit`.
+- Compose works out of the box: `.env.example` ships no placeholder host paths
+  (media and downloads default to `./media` and `./downloads`), and
+  `TELEARR_MEDIA_ROOT` is only needed for standalone mode.
+- `authorize.py` ships in the image, uses the service's device fingerprint, and
+  exits with a clear message when the Telegram API credentials are missing.
 - README in Catalan (`README.ca.md`) and English (`README.md`).
 
 ### \*arr mode (the supported path)
@@ -69,12 +75,17 @@ versioning at 1.0.0. Changes against upstream v2.3.3:
 
 ### Interface
 - Catalan UI by default with an English switch (Settings → Account →
-  Appearance). UI strings, API errors and notifications are translated.
+  Appearance). UI strings, API errors, notifications, the Activity log and
+  download failure reasons are translated.
+- Disk-usage widgets measure the downloads folder in \*arr mode.
 
 ### Hardening
 - FastAPI bumped so Starlette ≥ 1.3.1 (PYSEC advisories).
 - The image runs as non-root UID/GID 1000 by itself (`USER` in the Dockerfile).
 - The session cookie reissued after a username change keeps the `Secure` flag.
+- API errors no longer echo raw exception text (TMDB, directory import); the
+  detail goes to the server log. New endpoints validate their request bodies and
+  answer a translated 400 on bad input.
 
 ## 2.3.3 — Proxy / VPN support (2026-09-26)
 - **Route Telegram through a proxy/VPN** to get past ISP throttling or blocking of
