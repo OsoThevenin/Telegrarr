@@ -25,7 +25,7 @@ log = logging.getLogger("scanner")
 
 _active = None
 _queue_lock = asyncio.Lock()
-_inflight = set()                       # (channel_id, group_key)
+_inflight = {}                          # (channel_id, group_key) -> download id holding the slot
 _sem = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
 _sem_limit = MAX_CONCURRENT_DOWNLOADS
 _task_registry = {}                     # download_id -> asyncio.Task
@@ -75,7 +75,13 @@ def _spawn(coro):
 
 def register_task(dl_id, task):
     _task_registry[dl_id] = task
-    task.add_done_callback(lambda _t, i=dl_id: _task_registry.pop(i, None))
+    task.add_done_callback(lambda t, i=dl_id: _unregister_task(i, t))
+
+
+def _unregister_task(dl_id, task) -> None:
+    """Drop the registration only while it still points at ``task``."""
+    if _task_registry.get(dl_id) is task:
+        del _task_registry[dl_id]
 
 
 def cancel_download(dl_id) -> bool:
@@ -506,24 +512,25 @@ def _on_failed(channel_id: int, msg, error: Exception) -> None:
     db.log("ERROR", message("event.download_failed", error=str(error)), channel_id=channel_id)
 
 
-def _register_current_task(channel_id: int, message_id: int) -> None:
+def _download_id(channel_id: int, message_id: int) -> int | None:
     with db.conn() as c:
         row = c.execute("SELECT id FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, message_id)).fetchone()
-    if row:
-        register_task(row["id"], asyncio.current_task())
+    return row["id"] if row else None
 
 
 async def _run_download(client, channel_id, msg, save_path, gk):
     key = (channel_id, gk)
-    _register_current_task(channel_id, msg.id)
     if settings.get_bool("paused", False):
         _update_message(channel_id, msg.id, "status='queued'")
         return
+    dl_id = _download_id(channel_id, msg.id)
     async with _queue_lock:
         if key in _inflight:
-            return
-        _inflight.add(key)
+            return   # another task owns this episode; leave its cancel registration alone
+        _inflight[key] = dl_id
+    if dl_id is not None:
+        register_task(dl_id, asyncio.current_task())
     try:
         await _wait_for_budget(channel_id, msg.id)
         async with _sem_current():
@@ -540,7 +547,7 @@ async def _run_download(client, channel_id, msg, save_path, gk):
         _on_failed(channel_id, msg, e)
     finally:
         async with _queue_lock:
-            _inflight.discard(key)
+            _inflight.pop(key, None)
 
 
 def _prune_history(channel_id):
