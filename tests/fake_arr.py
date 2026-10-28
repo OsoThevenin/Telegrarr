@@ -61,6 +61,9 @@ class FakeArr:
     # radarr only: Radarr JSON shapes ({"id", "name"} / {"id", "path", "freeSpace"})
     quality_profiles: list[dict] = field(default_factory=list)
     root_folders: list[dict] = field(default_factory=list)
+    # radarr only: Radarr movie JSON ({"id", "tmdbId", "title", "year", "hasFile",
+    # "movieFile": {"quality": {"quality": {"resolution": int}}}, "images"}); see radarr_movie()
+    movies: list[dict] = field(default_factory=list)
 
     @property
     def provider_path(self) -> str:
@@ -95,6 +98,8 @@ class FakeArr:
             sid, season = request.url.params.get("seriesId"), request.url.params.get("seasonNumber")
             return httpx.Response(200, json=[e for e in self.episodes if str(e["seriesId"]) == sid
                                              and (season is None or str(e["seasonNumber"]) == season)])
+        if path == f"{self.api}/movie" and method == "GET" and self.app == "radarr":
+            return httpx.Response(200, json=self.movies)
         radarr = self._radarr_defaults(path, method)
         if radarr is not None:
             return radarr
@@ -117,6 +122,17 @@ class FakeArr:
         saved = {**body, "id": len(self.providers) + 1}
         self.providers.append(saved)
         return httpx.Response(201, json=saved)
+
+
+def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, title: str = "",
+                 year: int | None = None) -> dict:
+    """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file."""
+    movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year, "hasFile": resolution is not None,
+             "images": []}
+    if resolution is not None:
+        movie["movieFile"] = {"id": movie_id, "quality": {"quality": {"id": 0, "name": f"{resolution}p",
+                                                                      "resolution": resolution}}}
+    return movie
 
 
 PROWLARR_KEY = "prowlarr-secret-key"

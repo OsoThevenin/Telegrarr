@@ -10,12 +10,20 @@
 #   unidentified: {kind: "unidentified", review: {channel_id, message_id}, title (raw file name),
 #                  quality, size, language}
 # `quality` is a resolution label on RESOLUTION_LADDER; `language` a release token (CAT, SPA, …).
-from . import channels, db
+#
+# Radarr status (served apart, so the list shows before Radarr answers):
+#   {channel_id, radarr: {available, error ({key, params} | null)},
+#    rows: [{tmdb_id, status, radarr_quality?, best_quality?}]}
+# `status` is missing | requested | downloaded | upgrade; `radarr_quality` (the file Radarr has)
+# accompanies downloaded and upgrade, `best_quality` (the channel's best) only upgrade.
+from . import channels, connect, db
 from .i18n import KeyedError
 from .movies import STATUS_PENDING
 from .namer import CHANNEL_QUALITIES, DEFAULT_LANGUAGE, LANGUAGE_TOKENS, QUALITY_SD
 
 KIND_FILM, KIND_UNIDENTIFIED = "film", "unidentified"
+STATUS_MISSING, STATUS_REQUESTED = "missing", "requested"
+STATUS_DOWNLOADED, STATUS_UPGRADE = "downloaded", "upgrade"
 SD_LABEL = "SD"
 # Lowest to highest; a quality not on it (NULL, unparsed) ranks as SD.
 RESOLUTION_LADDER = tuple(SD_LABEL if q == QUALITY_SD else q for q in CHANNEL_QUALITIES)
@@ -119,3 +127,53 @@ def build(cid: int) -> dict:
     dated += [(_newest(p), _unidentified_row(p, language)) for p in pending]
     rows = [row for _, row in sorted(dated, key=lambda d: d[0], reverse=True)]
     return {"channel_id": cid, "count": len(rows), "rows": rows}
+
+
+# ── Radarr status ─────────────────────────────────────────────────────
+# Lines per label above SD (720p → 720); a file below every one of them is SD.
+_LADDER_LINES = tuple((int(label.removesuffix("p")), label) for label in RESOLUTION_LADDER if label != SD_LABEL)
+
+
+def _file_resolution(movie: dict) -> str:
+    """The RESOLUTION_LADDER label of the file Radarr holds for ``movie`` (unknown → SD)."""
+    try:
+        lines = int(movie["movieFile"]["quality"]["quality"]["resolution"])
+    except (KeyError, TypeError, ValueError):
+        return SD_LABEL
+    return next((label for need, label in reversed(_LADDER_LINES) if lines >= need), SD_LABEL)
+
+
+def film_status(best: str, movie: dict | None, requested: bool = False) -> dict:
+    """One film's Radarr status, given the channel's best resolution label, Radarr's movie
+    (None when Radarr doesn't have it) and whether a Download was requested locally.
+
+    Resolution only: the movie's Radarr quality profile is deliberately ignored."""
+    if movie is None or not movie.get("hasFile"):
+        return {"status": STATUS_MISSING if movie is None and not requested else STATUS_REQUESTED}
+    have = _file_resolution(movie)
+    if resolution_rank(have) >= resolution_rank(best):
+        return {"status": STATUS_DOWNLOADED, "radarr_quality": have}
+    return {"status": STATUS_UPGRADE, "radarr_quality": have, "best_quality": best}
+
+
+def _by_tmdb(movies: object) -> dict[int, dict]:
+    """Radarr's movie list indexed by TMDB id (entries without one are skipped)."""
+    if not isinstance(movies, list):
+        return {}
+    return {m["tmdbId"]: m for m in movies if isinstance(m, dict) and isinstance(m.get("tmdbId"), int)}
+
+
+async def radarr_status(cid: int, requested: frozenset[int] = frozenset()) -> dict:
+    """Radarr's view of every film in channel ``cid``'s Catalog, from one movie-list request.
+
+    ``requested`` holds the TMDB ids of local Download requests. When Radarr is not
+    configured or fails, ``radarr.available`` is false, ``error`` says why and no row has
+    a status. Raises CatalogError for a missing or non-movie channel."""
+    films = [row for row in build(cid)["rows"] if row["kind"] == KIND_FILM]
+    try:
+        movies = _by_tmdb(await connect.radarr_movies())
+    except connect.ArrError as e:
+        return {"channel_id": cid, "radarr": {"available": False, "error": e.message()}, "rows": []}
+    rows = [{"tmdb_id": f["tmdb_id"], **film_status(f["quality"], movies.get(f["tmdb_id"]), f["tmdb_id"] in requested)}
+            for f in films]
+    return {"channel_id": cid, "radarr": {"available": True, "error": None}, "rows": rows}
