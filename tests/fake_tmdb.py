@@ -40,6 +40,7 @@ class FakeMovie:
     original_title: str
     release_date: str = ""
     imdb_id: str | None = None
+    poster_path: str | None = None
 
     def title_in(self, language: str) -> str:
         return self.titles.get(language) or self.original_title
@@ -62,8 +63,10 @@ class FakeTMDB:
         return show
 
     def add_movie(self, tmdb_id: int, *, titles: dict[str, str], release_date: str = "",
-                  imdb_id: str | None = None, original_title: str | None = None) -> FakeMovie:
+                  imdb_id: str | None = None, original_title: str | None = None,
+                  has_poster: bool = True) -> FakeMovie:
         movie = FakeMovie(tmdb_id=tmdb_id, titles=titles, release_date=release_date, imdb_id=imdb_id,
+                          poster_path=f"/movie{tmdb_id}.jpg" if has_poster else None,
                           original_title=original_title or titles.get("en-US") or next(iter(titles.values())))
         self.movies[tmdb_id] = movie
         return movie
@@ -72,6 +75,11 @@ class FakeTMDB:
         """(query, language, year) of every /search/movie call received, in order."""
         return [(r.url.params.get("query", ""), r.url.params.get("language", ""), r.url.params.get("year", ""))
                 for r in self.requests if r.url.path == f"{API_PREFIX}/search/movie"]
+
+    def movie_details_requests(self) -> list[int]:
+        """TMDB ids of every /movie/{id} call received, in order."""
+        return [int(r.url.path.rsplit("/", 1)[1]) for r in self.requests
+                if r.url.path.startswith(f"{API_PREFIX}/movie/")]
 
     def add_season(self, tmdb_id: int, season: int, episodes: dict[int, dict[str, str]]) -> None:
         """Episode names of ``season`` per language; a language missing from an
@@ -135,7 +143,7 @@ class FakeTMDB:
                 if query and (query in m.titles.get(language, "").lower() or query in m.original_title.lower())
                 and (not year or m.year() == year)]
         results = [{"id": m.tmdb_id, "title": m.title_in(language), "original_title": m.original_title,
-                    "release_date": m.release_date, "poster_path": f"/movie{m.tmdb_id}.jpg"} for m in hits]
+                    "release_date": m.release_date, "poster_path": m.poster_path} for m in hits]
         return httpx.Response(200, json={"page": 1, "results": results, "total_results": len(results)})
 
     def _movie(self, tmdb_id: int, language: str) -> httpx.Response:
@@ -144,7 +152,8 @@ class FakeTMDB:
             return httpx.Response(404, json={"status_code": 34, "status_message": "Not found"})
         return httpx.Response(200, json={"id": tmdb_id, "title": movie.title_in(language),
                                          "original_title": movie.original_title,
-                                         "release_date": movie.release_date, "imdb_id": movie.imdb_id})
+                                         "release_date": movie.release_date, "imdb_id": movie.imdb_id,
+                                         "poster_path": movie.poster_path})
 
     def _external_ids(self, tmdb_id: int) -> httpx.Response:
         show = self.series.get(tmdb_id)

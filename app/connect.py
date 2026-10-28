@@ -212,7 +212,7 @@ class RadarrChoices:
 
 
 async def radarr_movies() -> list[dict]:
-    """Radarr's whole movie list, as its ``GET /movie`` returns it; raises ArrError."""
+    """Radarr's raw ``GET /movie`` JSON: every film in its library; raises ArrError."""
     return await _request(configured("radarr"), "GET", "/movie")
 
 

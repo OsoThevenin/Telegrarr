@@ -1,7 +1,7 @@
 # app/routes/catalog.py — movie channels: the Catalog of films a channel offers.
 from fastapi import Depends
 
-from .. import auth, catalog
+from .. import auth, catalog, catalog_posters
 from .common import BAD_REQUEST, NOT_FOUND, keyed, keyed_router
 
 router = keyed_router()
@@ -24,5 +24,14 @@ async def api_catalog_status(cid: int, user=Depends(auth.require_user)):
     """Radarr's status of each Catalog film, fetched after the list so it can show first."""
     try:
         return await catalog.radarr_status(cid)
+    except catalog.CatalogError as e:
+        raise _refused(e)
+
+
+@router.get("/api/channels/{cid}/catalog/posters")
+async def api_catalog_posters(cid: int, user=Depends(auth.require_user)):
+    """{posters: {tmdb_id: poster URL | null}}, fetched apart so the Catalog never waits on art."""
+    try:
+        return {"posters": await catalog_posters.posters(cid)}
     except catalog.CatalogError as e:
         raise _refused(e)

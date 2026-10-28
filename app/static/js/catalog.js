@@ -28,10 +28,49 @@ const meta = (row) => h("div", { class: "cat-meta" },
   h("span", { "aria-hidden": "true" }, "·"),
   h("span", { class: "cat-lang" }, row.language));
 
-// Placeholder tile until posters land; a dashed "?" tile for an unidentified message.
+// ── posters ──────────────────────────────────────────────────────────
+// A film row starts as a coloured placeholder tile with its short title; once
+// GET /catalog/posters answers (separately, so the list never waits on art),
+// tiles with a poster swap to the image. A missing or broken image keeps the tile.
+const postersUrl = (cid) => `/api/channels/${cid}/catalog/posters`;
+const TILE_TONES = ["#8a6a3c", "#6b4fa0", "#b8436f", "#2e2a26", "#7a2f4f", "#c0532f", "#6f7d3a", "#4d7a8a", "#3a4630"];
+const SHORT_TITLE_MAX = 22;
+
+const tileTone = (tmdbId) => TILE_TONES[Math.abs(Number(tmdbId) || 0) % TILE_TONES.length];
+const shortTitle = (title) => {
+  const s = String(title || "").toUpperCase();
+  return s.length > SHORT_TITLE_MAX ? `${s.slice(0, SHORT_TITLE_MAX - 1)}…` : s;
+};
+
+const placeholderTile = (row) => h("div", {
+  class: "cat-poster tile", role: "img", "aria-label": t("cat.poster_of", { title: row.title }),
+  style: `background:${tileTone(row.tmdb_id)}`, dataset: { tmdb: String(row.tmdb_id), title: row.title },
+}, shortTitle(row.title));
+
+function showPoster(tile, url) {
+  const img = h("img", { class: "cat-poster", src: url, alt: t("cat.poster_of", { title: tile.dataset.title }),
+    loading: "lazy", decoding: "async", width: "44", height: "66" });
+  img.addEventListener("load", () => tile.replaceWith(img), { once: true });
+}
+
+/** Fill the placeholder tiles under `root` with channel `cid`'s posters; silent on failure. */
+async function fillPosters(root, cid) {
+  let posters;
+  try {
+    const r = await fetch(postersUrl(cid), { credentials: "same-origin" });
+    if (!r.ok) return;
+    ({ posters } = await r.json());
+  } catch { return; }
+  for (const tile of root.querySelectorAll(".cat-poster.tile[data-tmdb]")) {
+    const url = posters?.[tile.dataset.tmdb];
+    if (url) showPoster(tile, url);
+  }
+}
+
+// A film's placeholder tile (filled later by fillPosters); a dashed "?" tile for an unidentified message.
 const poster = (row) => row.kind === KIND_UNIDENTIFIED
   ? h("div", { class: "cat-poster unknown", "aria-hidden": "true" }, "?")
-  : h("div", { class: "cat-poster", role: "img", "aria-label": t("cat.poster_of", { title: row.title }), html: icon("film") });
+  : placeholderTile(row);
 
 const skeleton = (cls) => h("span", { class: `skeleton ${cls}`, "aria-hidden": "true" });
 const badge = (cls, ico, label) => h("span", { class: `pill cat-badge ${cls}` }, h("span", { html: icon(ico) }), label);
@@ -98,6 +137,7 @@ function render(body, count, c, catalog) {
   count.textContent = tn("cat.films", catalog.count);
   const built = catalog.rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r), tmdbId: r.tmdb_id }));
   body.replaceChildren(built.length ? h("ul", { class: "cat-list" }, ...built.map((b) => b.li)) : emptyState(c));
+  if (catalog.rows.some((r) => r.kind !== KIND_UNIDENTIFIED)) fillPosters(body, c.id);
   return new Map(built.filter((b) => b.slot).map((b) => [b.tmdbId, b.slot]));
 }
 
