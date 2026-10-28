@@ -25,6 +25,13 @@
   TMDB's (cached, so reopening a Catalog asks TMDB nothing new); a coloured tile with
   the short title when there is none. Posters load after the list, from
   `GET /api/channels/{id}/catalog/posters`.
+- **Baixar** on Catalog rows asks Radarr for the film: a film Radarr lacks is added
+  (monitored, the Connect profile and root folder, searching on add); for an
+  upgradeable film (**Baixar 1080p**) Radarr only searches again, its settings
+  untouched. The row turns **Sol·licitada** at once and stays so after a reload.
+  Pressing twice never adds a duplicate. When Radarr refuses, nothing is saved and a
+  toast gives Radarr's reason with **Torna-ho a provar**. New endpoint
+  `POST /api/channels/{id}/catalog/{tmdb_id}/download`.
 
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 

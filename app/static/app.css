@@ -541,6 +541,36 @@ img.cat-poster { display: block; object-fit: cover; box-shadow: 0 1px 3px rgba(0
   .cat-chip { height: 36px; }
   .cat-clear, .cat-more { min-height: 44px; }
 }
+/* Catalog Download (Baixar) buttons and the error toast with retry */
+.cat-get { min-height: 36px; padding: 0 16px; gap: 6px; border-radius: var(--r-pill); font-size: 13px; font-weight: 600; }
+.cat-get .ico { width: 14px; height: 14px; stroke-width: 2.4; vertical-align: 0; }
+.cat-get.get { border: 0; background: var(--accent); color: var(--accent-ink); }
+.cat-get.get:hover { background: var(--accent-hover); }
+.cat-get.upgrade { padding: 0 14px; border: 1.5px solid var(--accent); background: transparent; color: var(--accent); }
+.cat-get.upgrade:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.cat-get:disabled { border: 0; background: var(--surface-2); color: var(--muted); cursor: not-allowed; transform: none; }
+.cat-toast { position: fixed; right: 20px; bottom: 20px; z-index: 95; max-width: 420px; display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px 12px 14px 16px; border-radius: 12px; background: #1d1d1f; color: #f5f5f7;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 12px 32px rgba(0,0,0,.24); }
+.cat-toast-ico { width: 22px; height: 22px; flex: none; margin-top: 1px; border-radius: var(--r-pill); background: var(--err); color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+.cat-toast-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cat-toast-txt strong { font-size: 14px; font-weight: 600; }
+.cat-toast-txt span { font-size: 13px; line-height: 1.4; color: #b0b0b5; }
+.cat-toast-retry { align-self: flex-start; margin-top: 4px; height: 32px; padding: 0 12px; border: 0; border-radius: var(--r-pill);
+  background: rgba(255,255,255,.14); color: #f5f5f7; font-size: 13px; }
+.cat-toast-retry:hover { border: 0; background: rgba(255,255,255,.22); }
+.cat-toast-close { width: 44px; height: 44px; margin: -10px -6px 0 0; flex: none; justify-content: center; padding: 0; border: 0;
+  background: transparent; color: #b0b0b5; }
+.cat-toast-close:hover { border: 0; background: transparent; color: #f5f5f7; }
+.cat-toast-close .ico { width: 16px; height: 16px; }
+/* dark theme (the default unless light is chosen or preferred), as the tokens at the top */
+:root[data-theme="dark"] .cat-toast, :root:not([data-theme="light"]) .cat-toast { background: #2c2c2e; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) .cat-toast { background: #1d1d1f; } }
+@media (max-width: 620px) {
+  .cat-get { min-height: 44px; }
+  .cat-toast { left: 16px; right: 16px; bottom: 24px; max-width: none; }
+}
 
 /* ============ System panel ============ */
 .sys-health { display: grid; gap: 0; }

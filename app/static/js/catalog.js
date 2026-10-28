@@ -9,6 +9,7 @@ import { h, api, toast, fmtBytes } from "./core.js";
 import { icon } from "./icons.js";
 import { t, tn, msg, fmtDateTime } from "./i18n.js";
 import { FILTER_ALL, chipStates, footerState, pageUrl } from "./catalog-filters.js";
+import { downloadButton, requestedStatus, failureToast } from "./catalog-download.js";
 
 const statusUrl = (cid) => `/api/channels/${cid}/catalog/status`;
 const scanUrl = (cid) => `/api/channels/${cid}/scan`;
@@ -81,7 +82,11 @@ const badge = (cls, ico, label) => h("span", { class: `pill cat-badge ${cls}` },
 
 /** Badges for one film's Radarr status (none when Radarr doesn't have it or is unavailable). */
 function statusBadges(s) {
-  if (s.status === STATUS_REQUESTED) return [badge("cat-requested", "clock", t("cat.requested"))];
+  if (s.status === STATUS_REQUESTED) {
+    const requested = badge("cat-requested", "clock", t("cat.requested"));
+    // a requested upgrade keeps the Baixada badge of the file Radarr already has
+    return s.radarr_quality ? [badge("cat-done", "check", t("cat.downloaded_at", { quality: s.radarr_quality })), requested] : [requested];
+  }
   if (s.status === STATUS_DOWNLOADED) return [badge("cat-done", "check", t("cat.downloaded"))];
   if (s.status === STATUS_UPGRADE) {
     return [badge("cat-done", "check", t("cat.downloaded_at", { quality: s.radarr_quality })),
@@ -90,13 +95,19 @@ function statusBadges(s) {
   return [];
 }
 
-/** The row's action for its status: a requested film shows a disabled "Sol·licitada". */
-const statusAction = (s) => (s.status === STATUS_REQUESTED
+/** The row's action for its status: a requested film shows a disabled "Sol·licitada", others Baixar (see Download). */
+const statusAction = (slot, s, available) => (s.status === STATUS_REQUESTED
   ? [h("button", { type: "button", class: "btn cat-requested-btn", disabled: true }, t("cat.requested"))]
-  : []);
+  : downloadAction(slot, s, available));
+
+/** Show status `s` in a film row's badge and action slots. */
+function showStatus(slot, s, available) {
+  slot.badges.replaceChildren(...statusBadges(s));
+  slot.action.replaceChildren(...statusAction(slot, s, available));
+}
 
 /** A film row plus the slots its Radarr status fills in (skeletons until then). */
-function filmRow(row) {
+function filmRow(row, cid) {
   const badges = h("div", { class: "cat-badges" }, skeleton("cat-skel-badge"));
   const action = h("div", { class: "cat-action" }, skeleton("cat-skel-btn"));
   const li = h("li", { class: "cat-row" }, poster(row),
@@ -104,7 +115,71 @@ function filmRow(row) {
       h("div", { class: "cat-title", title: row.title }, row.title, " ", row.year ? h("span", { class: "cat-year" }, String(row.year)) : null),
       meta(row), badges),
     action);
-  return { li, slot: { badges, action } };
+  return { li, slot: { badges, action, cid, tmdbId: row.tmdb_id, title: row.title } };
+}
+
+// ── Download (Baixar) ────────────────────────────────────────────────
+// Baixar asks Radarr for the film (POST …/catalog/{tmdb_id}/download); once it
+// accepts, the row turns Sol·licitada at once. A refusal keeps the row as it was
+// and shows a toast with Radarr's reason, a retry and a close button. fetch is
+// used directly: core.api() would add its own text-only toast.
+const REQUESTED_EVENT = "catalog:requested";
+const downloadUrl = (cid, tmdbId) => `/api/channels/${cid}/catalog/${tmdbId}/download`;
+let downloadToastEl = null;
+
+/** The Baixar button for status `s` ([] when the film needs none). */
+function downloadAction(slot, s, available) {
+  const b = downloadButton(s, available, slot.title);
+  if (!b) return [];
+  const aria = msg(b.aria);
+  const btn = h("button", {
+    type: "button", class: `btn cat-get ${b.kind}`, disabled: b.disabled, "aria-label": aria,
+    title: b.kind === "upgrade" ? aria : null, onClick: () => requestDownload(slot, s, btn),
+  }, h("span", { html: icon(b.kind === "upgrade" ? "arrow-up" : "downloads") }), msg(b.label));
+  return [btn];
+}
+
+/** POST the request; resolves to { ok, status, body } (status 0 when the server was never reached). */
+async function postDownload(slot) {
+  try {
+    const r = await fetch(downloadUrl(slot.cid, slot.tmdbId), { method: "POST", credentials: "same-origin" });
+    if (r.status === 401) { location.href = "/login"; return { ok: false, status: r.status, body: null }; }
+    return { ok: r.ok, status: r.status, body: await r.json().catch(() => null) };
+  } catch {
+    return { ok: false, status: 0, body: null };
+  }
+}
+
+async function requestDownload(slot, s, btn) {
+  btn.disabled = true;
+  dismissDownloadToast();
+  const answer = await postDownload(slot);
+  if (answer.ok) {
+    showStatus(slot, requestedStatus(s), true);
+    slot.action.dispatchEvent(new CustomEvent(REQUESTED_EVENT, { bubbles: true }));   // the chips recount
+    return;
+  }
+  btn.disabled = false;
+  showDownloadToast(failureToast(slot.title, answer), () => requestDownload(slot, s, btn));
+}
+
+function dismissDownloadToast() {
+  if (downloadToastEl) downloadToastEl.remove();
+  downloadToastEl = null;
+}
+
+/** The error toast: the film, Radarr's reason, "Torna-ho a provar" and a close button. Stays until closed. */
+function showDownloadToast(m, retry) {
+  dismissDownloadToast();
+  const reason = msg(m.reason).replace(/[.\s]+$/, "");
+  downloadToastEl = h("div", { class: "cat-toast", role: "alert" },
+    h("span", { class: "cat-toast-ico", "aria-hidden": "true" }, "!"),
+    h("div", { class: "cat-toast-txt" },
+      h("strong", {}, msg(m.title)),
+      h("span", {}, t("cat.nothing_added", { reason })),
+      h("button", { type: "button", class: "cat-toast-retry", onClick: () => { dismissDownloadToast(); retry(); } }, t("cat.retry"))),
+    h("button", { type: "button", class: "cat-toast-close", "aria-label": t("cat.dismiss"), html: icon("x"), onClick: dismissDownloadToast }));
+  document.body.append(downloadToastEl);
 }
 
 function unidentifiedRow(row) {
@@ -135,9 +210,9 @@ function emptyState(c) {
     h("button", { type: "button", class: "btn cat-scan", onClick: () => scanNow(c) }, h("span", { html: icon("refresh") }), t("cat.scan_now")));
 }
 
-/** The list rows; returns the `<li>`s and the status slots of the film rows by TMDB id. */
-function buildRows(rows) {
-  const built = rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r), row: r }));
+/** The list rows of channel `cid`; returns the `<li>`s and [row, status slot] pairs of the film rows. */
+function buildRows(rows, cid) {
+  const built = rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r, cid), row: r }));
   return { items: built.map((b) => b.li), slots: built.filter((b) => b.slot).map((b) => [b.row, b.slot]) };
 }
 
@@ -158,13 +233,9 @@ const offlineNotice = () => h("div", { class: "cat-offline", role: "status" },
     h("span", {}, t("cat.offline_body")),
     h("a", { class: "cat-connect", href: CONNECT_HASH }, t("cat.open_connect"), h("span", { html: icon("chevron-right") }))));
 
-/** Fills slots ([row, slot] pairs) with their status: a filtered page's own, else the status response's. */
-function applyStatuses(slots, statuses) {
-  for (const [row, slot] of slots) {
-    const s = row.status ? row : statuses.get(row.tmdb_id) || {};
-    slot.badges.replaceChildren(...statusBadges(s));
-    slot.action.replaceChildren(...statusAction(s));
-  }
+/** Fills slots ([row, slot] pairs) with their status: the status response's, else a filtered page's own. */
+function applyStatuses(slots, statuses, available) {
+  for (const [row, slot] of slots) showStatus(slot, statuses.get(row.tmdb_id) || (row.status ? row : {}), available);
 }
 
 // ── toolbar: search field and filter chips ───────────────────────────
@@ -240,12 +311,12 @@ export function catalogSection(c) {
     bar.el.hidden = all === 0;
     if (all === 0) { body.replaceChildren(emptyState(c)); return; }
     if (!rows.length) { body.replaceChildren(view.q ? noResults(view.q, clearSearch) : filterEmpty()); return; }
-    const built = buildRows(rows);
+    const built = buildRows(rows, c.id);
     view = { ...view, slots: built.slots };
     const more = () => load({ offset: page.next_offset });
     body.replaceChildren(h("ul", { class: "cat-list" }, ...built.items),
       footer({ loaded: rows.length, count: page.count, searching: Boolean(view.q), next_offset: page.next_offset }, more));
-    if (view.available !== null) applyStatuses(built.slots, view.statuses);
+    if (view.available !== null) applyStatuses(built.slots, view.statuses, view.available);
     if (rows.some((r) => r.kind !== KIND_UNIDENTIFIED)) fillPosters(body, postersP);
   }
 
@@ -273,20 +344,26 @@ export function catalogSection(c) {
     load({ q: "" });
   }
 
-  setRadarr(radarr, RADARR_CHECKING);
-  const status = api(statusUrl(c.id));       // in parallel with the list; applied once rows exist
-  load({}).then(() => status).then((s) => {
+  /** Applies a status response (null = request failed): header dot, notice, chip counts and row badges. */
+  function applyStatus(s) {
     const available = Boolean(s && s.radarr && s.radarr.available);
     setRadarr(radarr, available ? RADARR_OK : RADARR_DOWN);
     notice.replaceChildren(...(available ? [] : [offlineNotice()]));
     const statuses = new Map((available ? s.rows : []).map((row) => [row.tmdb_id, row]));
     view = { ...view, available, statuses, statusCounts: available ? s.counts : null };
     showChips();
-    applyStatuses(view.slots, statuses);
-  });
-  return h("section", { class: "drawer-eps catalog", "aria-labelledby": headingId },
+    applyStatuses(view.slots, statuses, available);
+  }
+
+  setRadarr(radarr, RADARR_CHECKING);
+  const status = api(statusUrl(c.id));       // in parallel with the list; applied once rows exist
+  load({}).then(() => status).then(applyStatus);
+  const section = h("section", { class: "drawer-eps catalog", "aria-labelledby": headingId },
     h("div", { class: "cat-head" }, h("div", { class: "cat-head-title" }, h("h3", { id: headingId }, t("cat.title")), count), radarr),
     notice,
     bar.el,
     body);
+  // A Download changes the counts: re-read the status (one Radarr movie-list request).
+  section.addEventListener(REQUESTED_EVENT, () => api(statusUrl(c.id)).then((s) => { if (s) applyStatus(s); }));
+  return section;
 }

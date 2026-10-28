@@ -186,6 +186,19 @@ async def test_the_status_response_carries_the_same_counts(arr_app, radarr_has, 
 
 
 @pytest.mark.asyncio
+async def test_a_download_moves_the_film_out_of_the_missing_count(arr_app, radarr_has, films):
+    radarr_has.radarr.quality_profiles = [{"id": 4, "name": "HD-1080p"}]
+    radarr_has.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]
+    channel = await _four_films(arr_app)
+
+    (await arr_app.http.post(f"/api/channels/{channel['id']}/catalog/{THEORY_TMDB}/download")).raise_for_status()
+    catalog = await _catalog(arr_app, channel["id"], filter="missing")
+
+    assert catalog["rows"] == []
+    assert catalog["counts"] == {"all": 5, "missing": 0, "downloaded": 2, "upgrade": 1}
+
+
+@pytest.mark.asyncio
 async def test_an_unknown_filter_is_a_keyed_error(arr_app, arrs, films):
     channel = await _channel_offering(arr_app, THEORY)
 

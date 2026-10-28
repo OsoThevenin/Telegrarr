@@ -23,6 +23,8 @@
 # `offset`; `next_offset` null on the last page. `counts` covers the whole channel
 # (search ignored): {all, missing, downloaded, upgrade}; the status ones are null
 # unless Radarr was read (a filtered page, or the status response).
+import time
+
 from . import channels, connect, db, tmdb
 from .i18n import KeyedError
 from .movies import STATUS_PENDING
@@ -211,11 +213,6 @@ FILTERS = (FILTER_ALL, *FILTER_STATUSES)
 DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE = 50, 200
 
 
-def requested_tmdb_ids() -> frozenset[int]:
-    """TMDB ids of films requested through the Catalog's Download (stub until #44 lands)."""
-    return frozenset()
-
-
 def _matches(row: dict, words: list[str]) -> bool:
     """Whether every search word appears in the row's title, accents and case ignored."""
     title = tmdb._fold(row["title"])
@@ -265,3 +262,36 @@ async def page(cid: int, q: str = "", status_filter: str = FILTER_ALL, offset: i
     return {"channel_id": cid, "count": len(rows), "offset": offset, "limit": limit,
             "next_offset": end if end < len(rows) else None,
             "counts": filter_counts(every, statuses), "rows": rows[offset:end]}
+
+
+# ── Download (Baixar) ─────────────────────────────────────────────────
+# POST …/catalog/{tmdb_id}/download → {tmdb_id, action: "added" | "searched"}.
+# Radarr is asked first; the local requested marker is saved only once it accepted.
+class NotInCatalog(CatalogError):
+    def __init__(self, tmdb_id: int):
+        super().__init__("err.catalog.not_in_catalog", tmdb_id=tmdb_id)
+
+
+def requested_tmdb_ids() -> frozenset[int]:
+    """TMDB ids of every film a Download was requested for (the catalog_requests markers)."""
+    with db.conn() as c:
+        return frozenset(row["tmdb_id"] for row in c.execute("SELECT tmdb_id FROM catalog_requests"))
+
+
+def _mark_requested(tmdb_id: int) -> None:
+    with db.conn() as c:
+        c.execute("INSERT INTO catalog_requests (tmdb_id, requested_at) VALUES (?, ?) "
+                  "ON CONFLICT(tmdb_id) DO UPDATE SET requested_at=excluded.requested_at",
+                  (tmdb_id, int(time.time())))
+
+
+async def download(cid: int, tmdb_id: int) -> dict:
+    """Ask Radarr for a film of channel ``cid``'s Catalog and mark it requested.
+
+    Raises CatalogError (unknown or non-movie channel, film not in the Catalog) or
+    connect.ArrError (Radarr unset, unreachable or refusing); neither saves a marker."""
+    if not any(row["kind"] == KIND_FILM and row["tmdb_id"] == tmdb_id for row in build(cid)["rows"]):
+        raise NotInCatalog(tmdb_id)
+    action = await connect.radarr_request(tmdb_id)
+    _mark_requested(tmdb_id)
+    return {"tmdb_id": tmdb_id, "action": action}
