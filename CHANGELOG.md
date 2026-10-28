@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Connect: choose the Radarr quality profile and root folder Telegrarr uses when it
+  adds a film, picked from Radarr's own lists. Until you pick, Radarr's first profile
+  and first root folder are used.
+
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 
 ### Fixed

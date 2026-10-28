@@ -1,9 +1,9 @@
 # app/routes/connect.py — Connect page: Prowlarr / Sonarr / Radarr.
 from fastapi import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import arr, auth, connect, db, i18n, settings
-from .common import BAD_REQUEST, bad, keyed_router
+from .common import BAD_GATEWAY, BAD_REQUEST, bad, keyed, keyed_router
 
 router = keyed_router()
 
@@ -40,3 +40,30 @@ async def api_connect_register(user=Depends(auth.require_user)):
     for res in results:
         _log_registration(res)
     return {"results": results}
+
+
+# ── default Radarr quality profile + root folder ──────────────────────
+def _choices_view(choices: connect.RadarrChoices) -> dict:
+    return {"quality_profiles": list(choices.quality_profiles), "root_folders": list(choices.root_folders),
+            "selected": {"quality_profile_id": choices.selected.quality_profile_id,
+                         "root_folder": choices.selected.root_folder}}
+
+
+@router.get("/api/connect/radarr/defaults")
+async def api_radarr_defaults(user=Depends(auth.require_user)):
+    try:
+        return _choices_view(await connect.radarr_choices())
+    except connect.ArrError as e:
+        raise keyed(BAD_GATEWAY, e)
+
+
+class RadarrDefaultsChoice(BaseModel):
+    quality_profile_id: int = Field(0, ge=0)   # 0 = Radarr's first
+    root_folder: str = ""                       # "" = Radarr's first
+
+
+@router.put("/api/connect/radarr/defaults")
+async def api_radarr_defaults_save(payload: RadarrDefaultsChoice, user=Depends(auth.require_user)):
+    saved = settings.apply({"radarr_quality_profile_id": payload.quality_profile_id,
+                            "radarr_root_folder": payload.root_folder})
+    return {"quality_profile_id": saved["radarr_quality_profile_id"], "root_folder": saved["radarr_root_folder"]}

@@ -58,6 +58,9 @@ class FakeArr:
     series: list[dict] = field(default_factory=list)           # sonarr only
     episodes: list[dict] = field(default_factory=list)         # sonarr only
     reject_create: str | None = None                            # validation error on POST
+    # radarr only: Radarr JSON shapes ({"id", "name"} / {"id", "path", "freeSpace"})
+    quality_profiles: list[dict] = field(default_factory=list)
+    root_folders: list[dict] = field(default_factory=list)
 
     @property
     def provider_path(self) -> str:
@@ -92,7 +95,20 @@ class FakeArr:
             sid, season = request.url.params.get("seriesId"), request.url.params.get("seasonNumber")
             return httpx.Response(200, json=[e for e in self.episodes if str(e["seriesId"]) == sid
                                              and (season is None or str(e["seasonNumber"]) == season)])
+        radarr = self._radarr_defaults(path, method)
+        if radarr is not None:
+            return radarr
         return httpx.Response(404, json={"message": "NotFound"})
+
+    def _radarr_defaults(self, path: str, method: str) -> httpx.Response | None:
+        """Radarr's quality profile and root folder lists (the Connect page's choices)."""
+        if self.app != "radarr" or method != "GET":
+            return None
+        if path == f"{self.api}/qualityprofile":
+            return httpx.Response(200, json=self.quality_profiles)
+        if path == f"{self.api}/rootfolder":
+            return httpx.Response(200, json=self.root_folders)
+        return None
 
     def _create(self, body: dict) -> httpx.Response:
         if self.reject_create:
