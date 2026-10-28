@@ -61,6 +61,8 @@ class FakeArr:
     # radarr only: Radarr JSON shapes ({"id", "name"} / {"id", "path", "freeSpace"})
     quality_profiles: list[dict] = field(default_factory=list)
     root_folders: list[dict] = field(default_factory=list)
+    # radarr only: Radarr's GET /movie JSON (id, tmdbId, title, year, hasFile, movieFile, images)
+    movies: list[dict] = field(default_factory=list)
 
     @property
     def provider_path(self) -> str:
@@ -101,11 +103,13 @@ class FakeArr:
         return httpx.Response(404, json={"message": "NotFound"})
 
     def _radarr_defaults(self, path: str, method: str) -> httpx.Response | None:
-        """Radarr's quality profile and root folder lists (the Connect page's choices)."""
+        """Radarr's read-only lists: quality profiles and root folders (the Connect page's choices), movies."""
         if self.app != "radarr" or method != "GET":
             return None
         if path == f"{self.api}/qualityprofile":
             return httpx.Response(200, json=self.quality_profiles)
+        if path == f"{self.api}/movie":
+            return httpx.Response(200, json=self.movies)
         if path == f"{self.api}/rootfolder":
             return httpx.Response(200, json=self.root_folders)
         return None

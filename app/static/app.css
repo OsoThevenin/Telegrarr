@@ -458,6 +458,8 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 .cat-row:last-child { border-bottom: 0; }
 .cat-row.unidentified { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
 .cat-poster { width: 44px; height: 66px; flex: none; border-radius: 6px; background: var(--surface-2); color: var(--meta); display: grid; place-items: center; }
+.cat-poster.tile { box-sizing: border-box; padding: 5px; place-items: end start; color: rgba(255,255,255,.92); font-size: 8px; font-weight: 700; line-height: 1.1; letter-spacing: .02em; overflow: hidden; overflow-wrap: anywhere; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+img.cat-poster { display: block; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 .cat-poster.unknown { background: transparent; border: 1.5px dashed var(--line); color: var(--muted); font-weight: 700; font-size: 17px; }
 .cat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
 .cat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }

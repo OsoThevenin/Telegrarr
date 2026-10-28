@@ -211,6 +211,11 @@ class RadarrChoices:
     selected: RadarrDefaults
 
 
+async def radarr_movies() -> list[dict]:
+    """Radarr's raw ``GET /movie`` JSON: every film in its library; raises ArrError."""
+    return await _request(configured("radarr"), "GET", "/movie")
+
+
 async def radarr_quality_profiles() -> list[dict]:
     """Radarr's quality profiles as [{"id", "name"}]; raises ArrError."""
     rows = await _request(configured("radarr"), "GET", "/qualityprofile")
