@@ -1,32 +1,16 @@
-# app/catalog_posters.py — poster thumbnails of a movie channel's Catalog.
+# app/catalog_posters.py — TMDB poster thumbnails of a movie channel's Catalog.
 #
 # Resolved in their own request (GET /api/channels/{cid}/catalog/posters) so the
-# Catalog itself never waits on artwork. Per film: Radarr's poster when Radarr has
-# the film, else TMDB's (tmdb.movie_poster, cached per film), else None — the UI
-# then shows its placeholder tile. Never contacts Telegram.
+# Catalog itself never waits on artwork. Radarr's own posters come with the status
+# response (one Radarr movie-list read per drawer opening), so this asks only TMDB
+# (tmdb.movie_poster, cached per film), for the films the UI still lacks one for.
+# A film without a poster maps to None: the UI keeps its placeholder tile.
+# Never contacts Telegram or Radarr.
 import asyncio
-import logging
 
-from . import catalog, connect, tmdb
+from . import catalog, tmdb
 
-log = logging.getLogger("catalog.posters")
 MAX_PARALLEL_TMDB = 4      # concurrent TMDB lookups for one Catalog
-
-
-def _radarr_poster(movie: dict) -> str | None:
-    return next((i.get("remoteUrl") for i in movie.get("images") or []
-                 if i.get("coverType") == "poster" and i.get("remoteUrl")), None)
-
-
-async def _radarr_posters() -> dict[int, str]:
-    """TMDB id → Radarr's poster URL; empty when Radarr is unset, down or failing."""
-    try:
-        movies = await connect.radarr_movies()
-    except connect.ArrError as e:
-        log.info("no Radarr posters: %s", e.key)
-        return {}
-    by_film = {m.get("tmdbId"): _radarr_poster(m) for m in movies if isinstance(m, dict)}
-    return {tmdb_id: url for tmdb_id, url in by_film.items() if tmdb_id and url}
 
 
 async def _tmdb_posters(tmdb_ids: list[int]) -> dict[int, str | None]:
@@ -40,11 +24,11 @@ async def _tmdb_posters(tmdb_ids: list[int]) -> dict[int, str | None]:
     return dict(zip(tmdb_ids, urls))
 
 
-async def posters(cid: int) -> dict[int, str | None]:
-    """TMDB id → poster URL (or None) for every identified film in channel `cid`'s Catalog.
+async def posters(cid: int, wanted: list[int] | None = None) -> dict[int, str | None]:
+    """TMDB id → TMDB poster URL (or None) for the films of channel `cid`'s Catalog in
+    ``wanted`` (every film when None; ids the Catalog doesn't offer are ignored).
 
     Raises catalog.CatalogError like catalog.build."""
-    tmdb_ids = [r["tmdb_id"] for r in catalog.build(cid)["rows"] if r["kind"] == catalog.KIND_FILM]
-    radarr = await _radarr_posters() if tmdb_ids else {}
-    tmdb_found = await _tmdb_posters([i for i in tmdb_ids if i not in radarr])
-    return {i: radarr.get(i) or tmdb_found.get(i) for i in tmdb_ids}
+    offered = [r["tmdb_id"] for r in catalog.film_rows(catalog.build(cid)["rows"])]
+    asked = offered if wanted is None else [i for i in offered if i in set(wanted)]
+    return await _tmdb_posters(asked)

@@ -211,9 +211,18 @@ class RadarrChoices:
     selected: RadarrDefaults
 
 
+async def _movie_list(target: ArrApp, params: dict | None = None) -> list[dict]:
+    """Radarr's ``GET /movie`` entries (objects only); raises ArrError, also when the
+    answer is not a list."""
+    found = await _request(target, "GET", "/movie", params=params)
+    if not isinstance(found, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return [m for m in found if isinstance(m, dict)]
+
+
 async def radarr_movies() -> list[dict]:
-    """Radarr's raw ``GET /movie`` JSON: every film in its library; raises ArrError."""
-    return await _request(configured("radarr"), "GET", "/movie")
+    """Radarr's ``GET /movie`` JSON: every film in its library; raises ArrError."""
+    return await _movie_list(configured("radarr"))
 
 
 async def radarr_quality_profiles() -> list[dict]:
@@ -229,7 +238,7 @@ async def radarr_root_folders() -> list[dict]:
 
 
 def _pick(saved: object, available: list) -> object:
-    """The saved value while Radarr still offers it, else Radarr's first (None if it offers nothing)."""
+    """The saved value while Radarr still offers it, else Radarr's first (None if none)."""
     if saved in available:
         return saved
     return available[0] if available else None
@@ -262,9 +271,8 @@ MOVIES_SEARCH = "MoviesSearch"
 
 async def _radarr_movie(target: ArrApp, tmdb_id: int) -> dict | None:
     """The library movie with ``tmdb_id``, or None when Radarr doesn't have it."""
-    found = await _request(target, "GET", "/movie", params={"tmdbId": tmdb_id})
-    return next((m for m in found if isinstance(m, dict) and m.get("tmdbId") == tmdb_id), None) \
-        if isinstance(found, list) else None
+    found = await _movie_list(target, {"tmdbId": tmdb_id})
+    return next((m for m in found if m.get("tmdbId") == tmdb_id), None)
 
 
 async def _radarr_add(target: ArrApp, tmdb_id: int) -> None:
@@ -285,5 +293,6 @@ async def radarr_request(tmdb_id: int) -> str:
     if movie is None:
         await _radarr_add(target, tmdb_id)
         return RADARR_ADDED
-    await _request(target, "POST", "/command", json={"name": MOVIES_SEARCH, "movieIds": [movie["id"]]})
+    search = {"name": MOVIES_SEARCH, "movieIds": [movie["id"]]}
+    await _request(target, "POST", "/command", json=search)
     return RADARR_SEARCHED

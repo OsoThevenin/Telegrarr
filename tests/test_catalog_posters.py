@@ -56,10 +56,23 @@ async def _connect_radarr(arr_app, url: str = RADARR_URL) -> None:
     (await arr_app.http.patch("/api/settings", json={"radarr_url": url, "radarr_key": RADARR_KEY})).raise_for_status()
 
 
-async def _posters(arr_app, cid) -> dict:
-    r = await arr_app.http.get(f"/api/channels/{cid}/catalog/posters")
+async def _posters(arr_app, cid, ids: list[int] | None = None) -> dict:
+    """GET …/catalog/posters (TMDB posters only), for ``ids`` or, without them, every film."""
+    r = await arr_app.http.get(f"/api/channels/{cid}/catalog/posters",
+                               params={} if ids is None else {"ids": ids})
     assert r.status_code == 200, r.text
     return r.json()["posters"]
+
+
+async def _open_drawer(arr_app, cid) -> dict[str, str | None]:
+    """Every poster one drawer opening shows, read the way catalog.js reads them: the list,
+    the status (which carries Radarr's posters), then TMDB posters for the films without one."""
+    rows = (await arr_app.http.get(f"/api/channels/{cid}/catalog")).raise_for_status().json()["rows"]
+    status = (await arr_app.http.get(f"/api/channels/{cid}/catalog/status")).raise_for_status().json()
+    radarr = {row["tmdb_id"]: row["poster"] for row in status["rows"] if row.get("poster")}
+    lacking = [row["tmdb_id"] for row in rows if row["kind"] == "film" and row["tmdb_id"] not in radarr]
+    tmdb = await _posters(arr_app, cid, lacking) if lacking else {}
+    return {**tmdb, **{str(i): url for i, url in radarr.items()}}
 
 
 @pytest.mark.asyncio
@@ -69,17 +82,52 @@ async def test_a_film_radarr_has_uses_radarrs_poster_and_tmdb_is_not_asked(arr_a
     arrs.radarr.movies = [_radarr_movie(THEORY_TMDB, "The Theory of Everything", RADARR_POSTER)]
     asked_before = len(films.movie_details_requests())
 
+    posters = await _open_drawer(arr_app, channel["id"])
+
+    assert posters == {str(THEORY_TMDB): RADARR_POSTER,
+                       str(PA_NEGRE_TMDB): f"{TMDB_THUMB}/movie{PA_NEGRE_TMDB}.jpg"}
+    assert THEORY_TMDB not in films.movie_details_requests()[asked_before:]
+
+
+@pytest.mark.asyncio
+async def test_one_drawer_opening_reads_radarrs_movie_list_once(arr_app, arrs, films):
+    channel = await _indexed_channel(arr_app)
+    await _connect_radarr(arr_app)
+    arrs.radarr.movies = [_radarr_movie(THEORY_TMDB, "The Theory of Everything", RADARR_POSTER)]
+
+    await _open_drawer(arr_app, channel["id"])
+
+    assert [(r.method, r.url.path) for r in arrs.radarr.requests] == [("GET", "/api/v3/movie")]
+
+
+@pytest.mark.asyncio
+async def test_the_posters_endpoint_never_asks_radarr(arr_app, arrs, films):
+    channel = await _indexed_channel(arr_app)
+    await _connect_radarr(arr_app)
+    arrs.radarr.movies = [_radarr_movie(THEORY_TMDB, "The Theory of Everything", RADARR_POSTER)]
+
     posters = await _posters(arr_app, channel["id"])
 
-    assert posters[str(THEORY_TMDB)] == RADARR_POSTER
-    assert THEORY_TMDB not in films.movie_details_requests()[asked_before:]
+    assert arrs.radarr.requests == []
+    assert posters[str(THEORY_TMDB)] == f"{TMDB_THUMB}/movie{THEORY_TMDB}.jpg"
+
+
+@pytest.mark.asyncio
+async def test_the_posters_endpoint_resolves_only_the_films_asked_for_in_this_catalog(arr_app, arrs, films):
+    channel = await _indexed_channel(arr_app)
+    asked_before = len(films.movie_details_requests())
+
+    posters = await _posters(arr_app, channel["id"], [PA_NEGRE_TMDB, 424242])     # 424242: not offered
+
+    assert posters == {str(PA_NEGRE_TMDB): f"{TMDB_THUMB}/movie{PA_NEGRE_TMDB}.jpg"}
+    assert films.movie_details_requests()[asked_before:] == [PA_NEGRE_TMDB]
 
 
 @pytest.mark.asyncio
 async def test_without_radarr_each_film_falls_back_to_its_tmdb_poster(arr_app, arrs, films):
     channel = await _indexed_channel(arr_app)
 
-    posters = await _posters(arr_app, channel["id"])
+    posters = await _open_drawer(arr_app, channel["id"])
 
     assert posters == {str(THEORY_TMDB): f"{TMDB_THUMB}/movie{THEORY_TMDB}.jpg",
                        str(PA_NEGRE_TMDB): f"{TMDB_THUMB}/movie{PA_NEGRE_TMDB}.jpg"}
@@ -91,7 +139,7 @@ async def test_a_film_radarr_lacks_or_has_without_a_poster_falls_back_to_tmdb(ar
     await _connect_radarr(arr_app)
     arrs.radarr.movies = [_radarr_movie(THEORY_TMDB, "The Theory of Everything", poster=None)]
 
-    posters = await _posters(arr_app, channel["id"])
+    posters = await _open_drawer(arr_app, channel["id"])
 
     assert posters == {str(THEORY_TMDB): f"{TMDB_THUMB}/movie{THEORY_TMDB}.jpg",
                        str(PA_NEGRE_TMDB): f"{TMDB_THUMB}/movie{PA_NEGRE_TMDB}.jpg"}
@@ -102,7 +150,7 @@ async def test_an_unreachable_radarr_falls_back_to_tmdb(arr_app, arrs, films):
     channel = await _indexed_channel(arr_app)
     await _connect_radarr(arr_app, url="http://nowhere.test:7878")
 
-    posters = await _posters(arr_app, channel["id"])
+    posters = await _open_drawer(arr_app, channel["id"])
 
     assert posters[str(THEORY_TMDB)] == f"{TMDB_THUMB}/movie{THEORY_TMDB}.jpg"
 

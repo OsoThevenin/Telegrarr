@@ -192,6 +192,8 @@ async def test_a_download_moves_the_film_out_of_the_missing_count(arr_app, radar
     channel = await _four_films(arr_app)
 
     (await arr_app.http.post(f"/api/channels/{channel['id']}/catalog/{THEORY_TMDB}/download")).raise_for_status()
+    # Radarr doesn't list the film yet: only the local marker keeps it out of Falten
+    radarr_has.radarr.movies = [m for m in radarr_has.radarr.movies if m["tmdbId"] != THEORY_TMDB]
     catalog = await _catalog(arr_app, channel["id"], filter="missing")
 
     assert catalog["rows"] == []

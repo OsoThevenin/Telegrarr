@@ -64,6 +64,7 @@ class FakeArr:
     # radarr only: Radarr's GET /movie JSON (id, tmdbId, title, year, hasFile, movieFile, images)
     movies: list[dict] = field(default_factory=list)
     reject_movie: str | None = None                             # radarr only: validation error on POST /movie
+    fail_status: int | None = None      # a 5xx answered to every authenticated request (server failing)
 
     @property
     def provider_path(self) -> str:
@@ -78,6 +79,8 @@ class FakeArr:
         self.requests.append(request)
         if request.headers.get("X-Api-Key") != self.api_key:
             return httpx.Response(401, json={"error": "Unauthorized"})
+        if self.fail_status is not None:
+            return httpx.Response(self.fail_status, text="Internal Server Error")
         path, method = request.url.path, request.method
         if path == f"{self.api}/system/status":
             return httpx.Response(200, json={"appName": self.app.title(), "version": self.version})
@@ -100,6 +103,8 @@ class FakeArr:
                                              and (season is None or str(e["seasonNumber"]) == season)])
         if path == f"{self.api}/movie" and method == "GET" and self.app == "radarr":
             tmdb = request.url.params.get("tmdbId")
+            if not isinstance(self.movies, list):         # a malformed answer, served as is
+                return httpx.Response(200, json=self.movies)
             return httpx.Response(200, json=[m for m in self.movies if tmdb is None or str(m["tmdbId"]) == tmdb])
         radarr = self._radarr_defaults(path, method)
         if radarr is not None:
@@ -173,13 +178,17 @@ class FakeArr:
 
 
 def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, title: str = "",
-                 year: int | None = None) -> dict:
-    """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file."""
-    movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year, "hasFile": resolution is not None,
-             "images": []}
+                 year: int | None = None, file_added: str | None = None, poster: str | None = None) -> dict:
+    """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file,
+    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl."""
+    images = [{"coverType": "poster", "url": f"/MediaCover/{movie_id}/poster.jpg", "remoteUrl": poster}] \
+        if poster else []
+    movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year,
+             "hasFile": resolution is not None, "images": images}
     if resolution is not None:
-        movie["movieFile"] = {"id": movie_id, "quality": {"quality": {"id": 0, "name": f"{resolution}p",
-                                                                      "resolution": resolution}}}
+        quality = {"quality": {"id": 0, "name": f"{resolution}p", "resolution": resolution}}
+        movie["movieFile"] = {"id": movie_id, "quality": quality,
+                              **({"dateAdded": file_added} if file_added else {})}
     return movie
 
 

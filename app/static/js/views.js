@@ -6,7 +6,7 @@ import { sourceTitle, isWholeForum } from "./topics.js";
 import { channelTopics } from "./channel-topics.js";
 import { isRetryable, retryableIds } from "./retry.js";
 import { cancelToast, retryToast, bulkRetryToast } from "./download-toasts.js";
-import { catalogSection, catalogBack } from "./catalog.js";
+import { catalogSection, catalogBack, catalogClosed } from "./catalog.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
@@ -262,9 +262,13 @@ export function openChannelDrawer(ctx, c, group = null) {
   if (!_artCache.has(c.imdb_id) && c.imdb_id) api(`/api/art?imdb=${encodeURIComponent(c.imdb_id)}`).then((a) => { _artCache.set(c.imdb_id, a || {}); fill(a || {}); });
 
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  const close = () => { document.removeEventListener("keydown", onKey); host.replaceChildren(); };
-  document.addEventListener("keydown", onKey);
   const isMovie = c.kind === "movie";
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    host.replaceChildren();
+    if (isMovie) catalogClosed();
+  };
+  document.addEventListener("keydown", onKey);
   const drawer = h("div", { class: "drawer" + (isMovie ? " catalog-drawer" : ""), onClick: (e) => { if (e.target === drawer) close(); } },
     h("div", { class: "drawer-card" },
       h("div", { class: "hero-wrap" }, hero, h("div", { class: "hero-fade" }),
