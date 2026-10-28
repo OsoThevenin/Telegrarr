@@ -8,6 +8,7 @@
 import { h, api, toast, fmtBytes } from "./core.js";
 import { icon } from "./icons.js";
 import { t, tn, msg, fmtDateTime } from "./i18n.js";
+import { downloadButton, requestedStatus, failureToast } from "./catalog-download.js";
 
 const catalogUrl = (cid) => `/api/channels/${cid}/catalog`;
 const statusUrl = (cid) => `/api/channels/${cid}/catalog/status`;
@@ -77,7 +78,11 @@ const badge = (cls, ico, label) => h("span", { class: `pill cat-badge ${cls}` },
 
 /** Badges for one film's Radarr status (none when Radarr doesn't have it or is unavailable). */
 function statusBadges(s) {
-  if (s.status === STATUS_REQUESTED) return [badge("cat-requested", "clock", t("cat.requested"))];
+  if (s.status === STATUS_REQUESTED) {
+    const requested = badge("cat-requested", "clock", t("cat.requested"));
+    // a requested upgrade keeps the Baixada badge of the file Radarr already has
+    return s.radarr_quality ? [badge("cat-done", "check", t("cat.downloaded_at", { quality: s.radarr_quality })), requested] : [requested];
+  }
   if (s.status === STATUS_DOWNLOADED) return [badge("cat-done", "check", t("cat.downloaded"))];
   if (s.status === STATUS_UPGRADE) {
     return [badge("cat-done", "check", t("cat.downloaded_at", { quality: s.radarr_quality })),
@@ -86,13 +91,19 @@ function statusBadges(s) {
   return [];
 }
 
-/** The row's action for its status: a requested film shows a disabled "Sol·licitada". */
-const statusAction = (s) => (s.status === STATUS_REQUESTED
+/** The row's action for its status: a requested film shows a disabled "Sol·licitada", others Baixar (see Download). */
+const statusAction = (slot, s, available) => (s.status === STATUS_REQUESTED
   ? [h("button", { type: "button", class: "btn cat-requested-btn", disabled: true }, t("cat.requested"))]
-  : []);
+  : downloadAction(slot, s, available));
+
+/** Show status `s` in a film row's badge and action slots. */
+function showStatus(slot, s, available) {
+  slot.badges.replaceChildren(...statusBadges(s));
+  slot.action.replaceChildren(...statusAction(slot, s, available));
+}
 
 /** A film row plus the slots its Radarr status fills in (skeletons until then). */
-function filmRow(row) {
+function filmRow(row, cid) {
   const badges = h("div", { class: "cat-badges" }, skeleton("cat-skel-badge"));
   const action = h("div", { class: "cat-action" }, skeleton("cat-skel-btn"));
   const li = h("li", { class: "cat-row" }, poster(row),
@@ -100,7 +111,66 @@ function filmRow(row) {
       h("div", { class: "cat-title", title: row.title }, row.title, " ", row.year ? h("span", { class: "cat-year" }, String(row.year)) : null),
       meta(row), badges),
     action);
-  return { li, slot: { badges, action } };
+  return { li, slot: { badges, action, cid, tmdbId: row.tmdb_id, title: row.title } };
+}
+
+// ── Download (Baixar) ────────────────────────────────────────────────
+// Baixar asks Radarr for the film (POST …/catalog/{tmdb_id}/download); once it
+// accepts, the row turns Sol·licitada at once. A refusal keeps the row as it was
+// and shows a toast with Radarr's reason, a retry and a close button. fetch is
+// used directly: core.api() would add its own text-only toast.
+const downloadUrl = (cid, tmdbId) => `/api/channels/${cid}/catalog/${tmdbId}/download`;
+let downloadToastEl = null;
+
+/** The Baixar button for status `s` ([] when the film needs none). */
+function downloadAction(slot, s, available) {
+  const b = downloadButton(s, available, slot.title);
+  if (!b) return [];
+  const aria = msg(b.aria);
+  const btn = h("button", {
+    type: "button", class: `btn cat-get ${b.kind}`, disabled: b.disabled, "aria-label": aria,
+    title: b.kind === "upgrade" ? aria : null, onClick: () => requestDownload(slot, s, btn),
+  }, h("span", { html: icon(b.kind === "upgrade" ? "arrow-up" : "downloads") }), msg(b.label));
+  return [btn];
+}
+
+/** POST the request; resolves to { ok, status, body } (status 0 when the server was never reached). */
+async function postDownload(slot) {
+  try {
+    const r = await fetch(downloadUrl(slot.cid, slot.tmdbId), { method: "POST", credentials: "same-origin" });
+    if (r.status === 401) { location.href = "/login"; return { ok: false, status: r.status, body: null }; }
+    return { ok: r.ok, status: r.status, body: await r.json().catch(() => null) };
+  } catch {
+    return { ok: false, status: 0, body: null };
+  }
+}
+
+async function requestDownload(slot, s, btn) {
+  btn.disabled = true;
+  dismissDownloadToast();
+  const answer = await postDownload(slot);
+  if (answer.ok) { showStatus(slot, requestedStatus(s), true); return; }
+  btn.disabled = false;
+  showDownloadToast(failureToast(slot.title, answer), () => requestDownload(slot, s, btn));
+}
+
+function dismissDownloadToast() {
+  if (downloadToastEl) downloadToastEl.remove();
+  downloadToastEl = null;
+}
+
+/** The error toast: the film, Radarr's reason, "Torna-ho a provar" and a close button. Stays until closed. */
+function showDownloadToast(m, retry) {
+  dismissDownloadToast();
+  const reason = msg(m.reason).replace(/[.\s]+$/, "");
+  downloadToastEl = h("div", { class: "cat-toast", role: "alert" },
+    h("span", { class: "cat-toast-ico", "aria-hidden": "true" }, "!"),
+    h("div", { class: "cat-toast-txt" },
+      h("strong", {}, msg(m.title)),
+      h("span", {}, t("cat.nothing_added", { reason })),
+      h("button", { type: "button", class: "cat-toast-retry", onClick: () => { dismissDownloadToast(); retry(); } }, t("cat.retry"))),
+    h("button", { type: "button", class: "cat-toast-close", "aria-label": t("cat.dismiss"), html: icon("x"), onClick: dismissDownloadToast }));
+  document.body.append(downloadToastEl);
 }
 
 function unidentifiedRow(row) {
@@ -135,7 +205,7 @@ function emptyState(c) {
 function render(body, count, c, catalog) {
   if (!catalog) { body.replaceChildren(h("div", { class: "muted small pad" }, t("cat.load_failed"))); return new Map(); }
   count.textContent = tn("cat.films", catalog.count);
-  const built = catalog.rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r), tmdbId: r.tmdb_id }));
+  const built = catalog.rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r, c.id), tmdbId: r.tmdb_id }));
   body.replaceChildren(built.length ? h("ul", { class: "cat-list" }, ...built.map((b) => b.li)) : emptyState(c));
   if (catalog.rows.some((r) => r.kind !== KIND_UNIDENTIFIED)) fillPosters(body, c.id);
   return new Map(built.filter((b) => b.slot).map((b) => [b.tmdbId, b.slot]));
@@ -164,11 +234,7 @@ function applyStatus(slots, radarr, notice, status) {
   setRadarr(radarr, available ? RADARR_OK : RADARR_DOWN);
   notice.replaceChildren(...(available ? [] : [offlineNotice()]));
   const byTmdb = new Map((available ? status.rows : []).map((s) => [s.tmdb_id, s]));
-  for (const [tmdbId, slot] of slots) {
-    const s = byTmdb.get(tmdbId) || {};
-    slot.badges.replaceChildren(...statusBadges(s));
-    slot.action.replaceChildren(...statusAction(s));
-  }
+  for (const [tmdbId, slot] of slots) showStatus(slot, byTmdb.get(tmdbId) || {}, available);
 }
 
 /** The drawer's Catalog section for movie channel `c`; fills itself once loaded. */

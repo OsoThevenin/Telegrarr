@@ -612,5 +612,13 @@
  "cat.requested": "Requested",
  "cat.downloaded": "Downloaded",
  "cat.downloaded_at": "Downloaded · {quality}",
- "cat.upgrade": "Quality upgrade"
+ "cat.upgrade": "Quality upgrade",
+ "cat.download": "Download",
+ "cat.download_aria": "Download {title}",
+ "cat.download_quality": "Download {quality}",
+ "cat.upgrade_aria": "Download upgrade from {from} to {to}",
+ "cat.download_failed": "Couldn’t request “{title}”",
+ "cat.nothing_added": "{reason}. Nothing was added to the list.",
+ "cat.retry": "Try again",
+ "cat.dismiss": "Close notice"
 }

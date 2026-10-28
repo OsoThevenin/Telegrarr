@@ -612,5 +612,13 @@
  "cat.requested": "Sol·licitada",
  "cat.downloaded": "Baixada",
  "cat.downloaded_at": "Baixada · {quality}",
- "cat.upgrade": "Millora qualitat"
+ "cat.upgrade": "Millora qualitat",
+ "cat.download": "Baixar",
+ "cat.download_aria": "Baixar {title}",
+ "cat.download_quality": "Baixar {quality}",
+ "cat.upgrade_aria": "Baixar millora de {from} a {to}",
+ "cat.download_failed": "No s’ha pogut demanar «{title}»",
+ "cat.nothing_added": "{reason}. No s’ha afegit res a la llista.",
+ "cat.retry": "Torna-ho a provar",
+ "cat.dismiss": "Tanca l’avís"
 }
