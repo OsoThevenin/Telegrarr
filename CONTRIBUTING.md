@@ -154,8 +154,3 @@ in [CHANGELOG.md](CHANGELOG.md) for anything user-visible.
 
 Please **do not** open a public issue for security vulnerabilities. Follow the
 process in [SECURITY.md](SECURITY.md).
-
-## Code of conduct
-
-This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By
-participating you agree to uphold it.

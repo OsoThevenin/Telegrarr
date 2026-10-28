@@ -153,13 +153,13 @@ def test_app_auth_username_change(fresh_db):
 
     with db.conn() as c:
         c.execute("INSERT INTO users(username, pw_hash) VALUES(?,?)",
-                  ("wishaal", auth._hash("pw123456")))
-    assert auth.verify("wishaal", "pw123456")
-    assert auth.username_exists("wishaal")
+                  ("alice", auth._hash("pw123456")))
+    assert auth.verify("alice", "pw123456")
+    assert auth.username_exists("alice")
     assert not auth.username_exists("newname")
 
-    auth.set_username("wishaal", "newname")
+    auth.set_username("alice", "newname")
     assert auth.username_exists("newname")
-    assert not auth.username_exists("wishaal")
+    assert not auth.username_exists("alice")
     # the password still verifies under the new username
     assert auth.verify("newname", "pw123456")

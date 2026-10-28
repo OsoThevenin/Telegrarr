@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Question / Discussion
-    url: https://github.com/Wishaal/Telearr/discussions
-    about: Ask a question or discuss ideas before filing an issue.
   - name: Security report
-    url: https://github.com/Wishaal/Telearr/security/advisories/new
+    url: https://github.com/OsoThevenin/Telegrarr/security/advisories/new
     about: Report a vulnerability privately (see SECURITY.md).
