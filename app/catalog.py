@@ -16,6 +16,8 @@
 #    rows: [{tmdb_id, status, radarr_quality?, best_quality?}]}
 # `status` is missing | requested | downloaded | upgrade; `radarr_quality` (the file Radarr has)
 # accompanies downloaded and upgrade, `best_quality` (the channel's best) only upgrade.
+import time
+
 from . import channels, connect, db
 from .i18n import KeyedError
 from .movies import STATUS_PENDING
@@ -177,3 +179,36 @@ async def radarr_status(cid: int, requested: frozenset[int] = frozenset()) -> di
     rows = [{"tmdb_id": f["tmdb_id"], **film_status(f["quality"], movies.get(f["tmdb_id"]), f["tmdb_id"] in requested)}
             for f in films]
     return {"channel_id": cid, "radarr": {"available": True, "error": None}, "rows": rows}
+
+
+# ── Download (Baixar) ─────────────────────────────────────────────────
+# POST …/catalog/{tmdb_id}/download → {tmdb_id, action: "added" | "searched"}.
+# Radarr is asked first; the local requested marker is saved only once it accepted.
+class NotInCatalog(CatalogError):
+    def __init__(self, tmdb_id: int):
+        super().__init__("err.catalog.not_in_catalog", tmdb_id=tmdb_id)
+
+
+def requested_tmdb_ids() -> frozenset[int]:
+    """TMDB ids of every film a Download was requested for (the catalog_requests markers)."""
+    with db.conn() as c:
+        return frozenset(row["tmdb_id"] for row in c.execute("SELECT tmdb_id FROM catalog_requests"))
+
+
+def _mark_requested(tmdb_id: int) -> None:
+    with db.conn() as c:
+        c.execute("INSERT INTO catalog_requests (tmdb_id, requested_at) VALUES (?, ?) "
+                  "ON CONFLICT(tmdb_id) DO UPDATE SET requested_at=excluded.requested_at",
+                  (tmdb_id, int(time.time())))
+
+
+async def download(cid: int, tmdb_id: int) -> dict:
+    """Ask Radarr for a film of channel ``cid``'s Catalog and mark it requested.
+
+    Raises CatalogError (unknown or non-movie channel, film not in the Catalog) or
+    connect.ArrError (Radarr unset, unreachable or refusing); neither saves a marker."""
+    if not any(row["kind"] == KIND_FILM and row["tmdb_id"] == tmdb_id for row in build(cid)["rows"]):
+        raise NotInCatalog(tmdb_id)
+    action = await connect.radarr_request(tmdb_id)
+    _mark_requested(tmdb_id)
+    return {"tmdb_id": tmdb_id, "action": action}

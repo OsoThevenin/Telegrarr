@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS pending_review (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (channel_id, message_id)
 );
+CREATE TABLE IF NOT EXISTS catalog_requests (
+  tmdb_id      INTEGER PRIMARY KEY,
+  requested_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_rel_chan ON releases(channel_id);
 CREATE INDEX IF NOT EXISTS idx_dl_chan_gk   ON downloads(channel_id, group_key);
 CREATE INDEX IF NOT EXISTS idx_dl_status    ON downloads(status);

@@ -587,6 +587,7 @@
  "chm.topics.series_hint": "Sèrie associada a l’únic tema de sèries marcat:",
  "err.catalog.unknown_channel": "No hi ha cap canal amb l’identificador {id}",
  "err.catalog.not_movie_channel": "Només els canals de pel·lícules tenen catàleg",
+ "err.catalog.not_in_catalog": "Aquesta pel·lícula no és al catàleg del canal (TMDB {tmdb_id})",
  "cat.title": "Catàleg",
  "cat.films.one": "{n} pel·lícula",
  "cat.films.other": "{n} pel·lícules",
@@ -611,5 +612,13 @@
  "cat.requested": "Sol·licitada",
  "cat.downloaded": "Baixada",
  "cat.downloaded_at": "Baixada · {quality}",
- "cat.upgrade": "Millora qualitat"
+ "cat.upgrade": "Millora qualitat",
+ "cat.download": "Baixar",
+ "cat.download_aria": "Baixar {title}",
+ "cat.download_quality": "Baixar {quality}",
+ "cat.upgrade_aria": "Baixar millora de {from} a {to}",
+ "cat.download_failed": "No s’ha pogut demanar «{title}»",
+ "cat.nothing_added": "{reason}. No s’ha afegit res a la llista.",
+ "cat.retry": "Torna-ho a provar",
+ "cat.dismiss": "Tanca l’avís"
 }
