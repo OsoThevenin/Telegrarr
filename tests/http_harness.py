@@ -73,6 +73,7 @@ class FakeChannel:
     forum: bool = False
     topics: dict[int, str] = field(default_factory=dict)
     group: bool = False         # a plain (non-forum) supergroup rather than a channel
+    hide_forum_flag: bool = False   # a "min"/partial Channel whose forum flag is unset though it is a forum
 
     def topic_id(self, title: str) -> int:
         """The id of the named topic ``title`` (``GENERAL_TOPIC_ID`` for General)."""
@@ -156,12 +157,16 @@ class FakeTelegram:
         return group
 
     def add_forum(self, chat_id: int, title: str, *, topics: tuple[str, ...] = (),
-                  username: str | None = None) -> FakeChannel:
+                  username: str | None = None, hide_forum_flag: bool = False) -> FakeChannel:
         """A forum group with the named ``topics`` (plus the implicit General topic).
 
         As in Telegram, message 1 is the group's creation and each topic's id is
-        the id of the service message that created it."""
-        forum = FakeChannel(chat_id=chat_id, title=title, username=username, forum=True)
+        the id of the service message that created it. With ``hide_forum_flag`` the
+        entity ``get_entity`` returns is a "min"/partial ``Channel`` whose ``forum``
+        flag is unset, as Telegram sends for some channels, though the chat is a
+        forum and serves its topics."""
+        forum = FakeChannel(chat_id=chat_id, title=title, username=username, forum=True,
+                            hide_forum_flag=hide_forum_flag)
         self.channels[chat_id] = forum
         self._post_service(forum, types.MessageActionChannelCreate(title=title))
         for name in topics:
@@ -235,8 +240,9 @@ class FakeTelegram:
     def _entity(self, channel: FakeChannel) -> types.Channel:
         bare_id, _ = utils.resolve_id(channel.chat_id)
         megagroup = channel.forum or channel.group
+        forum_flag = channel.forum and not channel.hide_forum_flag
         return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
-                             broadcast=not megagroup, megagroup=megagroup, forum=channel.forum,
+                             broadcast=not megagroup, megagroup=megagroup, forum=forum_flag,
                              access_hash=1, username=channel.username)
 
     def _lookup(self, query: int | str) -> None:

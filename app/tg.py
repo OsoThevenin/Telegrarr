@@ -276,10 +276,16 @@ async def list_topics(c, chat_id: int, *,
     Pages through the forum's topics, FORUM_TOPICS_LIMIT at a time, up to
     FORUM_TOPICS_MAX. `before_request` runs before every Telegram request (the
     caller's FloodWait gate check; it raises to stop). Telegram errors
-    (FloodWaitError included) propagate to the caller."""
+    (FloodWaitError included) propagate to the caller.
+
+    Whether the chat is a forum is decided by the topics request itself, not by
+    the entity's `forum` flag: Telegram hands back a "min"/partial Channel for
+    some chats with that flag unset even when the chat is a forum, so trusting it
+    hid real forums' topics. Only chats that can never be forums (users, legacy
+    basic groups) are ruled out up front, before any topics request."""
     before_request()
     ent = await c.get_entity(chat_id)
-    if not getattr(ent, "forum", False):
+    if not isinstance(ent, types.Channel):
         return None
     found: dict[int, str] = {}
     offsets = {"offset_date": None, "offset_id": 0, "offset_topic": 0}
