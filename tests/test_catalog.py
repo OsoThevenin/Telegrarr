@@ -203,7 +203,7 @@ async def test_the_catalog_module_is_served_and_used_by_the_channel_drawer(arr_a
 
     assert module.status_code == 200
     assert "javascript" in module.headers["content-type"]
-    assert "/catalog`" in module.text and "/api/channels/" in module.text
+    assert "pageUrl(" in module.text and "/api/channels/" in module.text   # pages via catalog-filters.js
     assert "/scan`" in module.text          # the empty state's Escaneja ara uses the per-channel scan
     assert 'from "./catalog.js"' in views.raise_for_status().text
     assert '"/static/js/catalog.js"' in worker.raise_for_status().text

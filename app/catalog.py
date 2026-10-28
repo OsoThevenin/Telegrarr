@@ -16,9 +16,16 @@
 #    rows: [{tmdb_id, status, radarr_quality?, best_quality?}]}
 # `status` is missing | requested | downloaded | upgrade; `radarr_quality` (the file Radarr has)
 # accompanies downloaded and upgrade, `best_quality` (the channel's best) only upgrade.
+#
+# A page of the Catalog (search, status filter, paging — see `page`):
+#   {channel_id, count, offset, limit, next_offset, counts, rows}
+# `count` is how many rows match the search and filter; `rows` the page of them from
+# `offset`; `next_offset` null on the last page. `counts` covers the whole channel
+# (search ignored): {all, missing, downloaded, upgrade}; the status ones are null
+# unless Radarr was read (a filtered page, or the status response).
 import time
 
-from . import channels, connect, db
+from . import channels, connect, db, tmdb
 from .i18n import KeyedError
 from .movies import STATUS_PENDING
 from .namer import CHANNEL_QUALITIES, DEFAULT_LANGUAGE, LANGUAGE_TOKENS, QUALITY_SD
@@ -43,6 +50,18 @@ class UnknownChannel(CatalogError):
 class NotMovieChannel(CatalogError):
     def __init__(self):
         super().__init__("err.catalog.not_movie_channel")
+
+
+class UnknownFilter(CatalogError):
+    def __init__(self, name: str):
+        super().__init__("err.catalog.unknown_filter", filter=name)
+
+
+class FilterNeedsRadarr(CatalogError):
+    """A status filter was asked for while Radarr is not configured or not answering."""
+
+    def __init__(self):
+        super().__init__("err.catalog.filter_needs_radarr")
 
 
 def resolution(quality: str | None) -> str:
@@ -171,14 +190,78 @@ async def radarr_status(cid: int, requested: frozenset[int] = frozenset()) -> di
     ``requested`` holds the TMDB ids of local Download requests. When Radarr is not
     configured or fails, ``radarr.available`` is false, ``error`` says why and no row has
     a status. Raises CatalogError for a missing or non-movie channel."""
-    films = [row for row in build(cid)["rows"] if row["kind"] == KIND_FILM]
+    every = build(cid)["rows"]
     try:
-        movies = _by_tmdb(await connect.radarr_movies())
+        statuses = await _statuses(every, requested)
     except connect.ArrError as e:
-        return {"channel_id": cid, "radarr": {"available": False, "error": e.message()}, "rows": []}
-    rows = [{"tmdb_id": f["tmdb_id"], **film_status(f["quality"], movies.get(f["tmdb_id"]), f["tmdb_id"] in requested)}
-            for f in films]
-    return {"channel_id": cid, "radarr": {"available": True, "error": None}, "rows": rows}
+        return {"channel_id": cid, "radarr": {"available": False, "error": e.message()}, "rows": [],
+                "counts": filter_counts(every, None)}
+    rows = [{"tmdb_id": tmdb_id, **status} for tmdb_id, status in statuses.items()]
+    return {"channel_id": cid, "radarr": {"available": True, "error": None}, "rows": rows,
+            "counts": filter_counts(every, statuses)}
+
+
+# ── search, status filters and paging ─────────────────────────────────
+FILTER_ALL, FILTER_MISSING, FILTER_DOWNLOADED, FILTER_UPGRADE = "all", "missing", "downloaded", "upgrade"
+# The statuses each filter keeps: "downloaded" includes a download with an upgrade available.
+FILTER_STATUSES = {
+    FILTER_MISSING: frozenset({STATUS_MISSING}),
+    FILTER_DOWNLOADED: frozenset({STATUS_DOWNLOADED, STATUS_UPGRADE}),
+    FILTER_UPGRADE: frozenset({STATUS_UPGRADE}),
+}
+FILTERS = (FILTER_ALL, *FILTER_STATUSES)
+DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE = 50, 200
+
+
+def _matches(row: dict, words: list[str]) -> bool:
+    """Whether every search word appears in the row's title, accents and case ignored."""
+    title = tmdb._fold(row["title"])
+    return all(word in title for word in words)
+
+
+def _status_of(row: dict, statuses: dict[int, dict]) -> str | None:
+    return statuses[row["tmdb_id"]]["status"] if row["kind"] == KIND_FILM else None
+
+
+def filter_counts(rows: list[dict], statuses: dict[int, dict] | None) -> dict:
+    """Rows per filter over ``rows``; the status filters are null when Radarr wasn't read."""
+    counts: dict = {FILTER_ALL: len(rows)}
+    for name, wanted in FILTER_STATUSES.items():
+        counts[name] = None if statuses is None else sum(_status_of(r, statuses) in wanted for r in rows)
+    return counts
+
+
+async def _statuses(rows: list[dict], requested: frozenset[int]) -> dict[int, dict]:
+    """TMDB id → Radarr status of each film row, from one movie-list request. Raises ArrError."""
+    movies = _by_tmdb(await connect.radarr_movies())
+    return {r["tmdb_id"]: film_status(r["quality"], movies.get(r["tmdb_id"]), r["tmdb_id"] in requested)
+            for r in rows if r["kind"] == KIND_FILM}
+
+
+async def page(cid: int, q: str = "", status_filter: str = FILTER_ALL, offset: int = 0,
+               limit: int = DEFAULT_PAGE_SIZE) -> dict:
+    """One page of channel ``cid``'s Catalog, newest first, matching search ``q`` and ``status_filter``.
+
+    Only a status filter reads Radarr (once); its rows then carry their status. Raises
+    CatalogError for a missing or non-movie channel, an unknown filter, or a status filter
+    while Radarr is unavailable."""
+    if status_filter not in FILTERS:
+        raise UnknownFilter(status_filter)
+    every = build(cid)["rows"]
+    rows, statuses = every, None
+    if status_filter != FILTER_ALL:
+        try:
+            statuses = await _statuses(every, requested_tmdb_ids())
+        except connect.ArrError:
+            raise FilterNeedsRadarr() from None
+        wanted = FILTER_STATUSES[status_filter]
+        rows = [{**r, **statuses[r["tmdb_id"]]} for r in every if _status_of(r, statuses) in wanted]
+    words = tmdb._fold(q).split()
+    rows = [r for r in rows if _matches(r, words)]
+    end = offset + limit
+    return {"channel_id": cid, "count": len(rows), "offset": offset, "limit": limit,
+            "next_offset": end if end < len(rows) else None,
+            "counts": filter_counts(every, statuses), "rows": rows[offset:end]}
 
 
 # ── Download (Baixar) ─────────────────────────────────────────────────
