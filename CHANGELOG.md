@@ -34,6 +34,10 @@
   toast gives Radarr's reason with **Torna-ho a provar**. New endpoint
   `POST /api/channels/{id}/catalog/{tmdb_id}/download`.
 
+### Removed
+- Upstream `CODEOWNERS` and `CODE_OF_CONDUCT.md`; `SECURITY.md`, `NOTICE` and the
+  issue-template links now point at this repository only.
+
 ### Fixed
 - A requested quality upgrade stays **Sol·licitada** (with its Baixada quality) after a
   reload and counts under **Baixades**, until Radarr's file reaches the channel's best

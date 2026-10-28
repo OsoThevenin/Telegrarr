@@ -1,8 +1,11 @@
-Telearr
-Copyright (c) 2026 Wishaal Mathoera and contributors
+Telegrarr
+Copyright (c) 2026 OsoThevenin and contributors
+
+Telegrarr is a modified version of Telearr (https://github.com/Wishaal/Telearr)
+v2.3.3. Original work Copyright (c) 2026 Wishaal Mathoera and contributors.
 Licensed under the GNU General Public License v3.0 (see LICENSE).
 
-Telearr is an independent project. It is NOT affiliated with, endorsed by, or
+Telegrarr is an independent project. It is NOT affiliated with, endorsed by, or
 sponsored by Telegram, the Sonarr/Radarr projects, Plex, or The Movie Database
 (TMDB). All trademarks are the property of their respective owners.
 
@@ -12,7 +15,7 @@ This product uses the TMDB API but is not endorsed or certified by TMDB.
 Third-party components
 ================================================================================
 
-Telearr bundles/depends on the following open-source components. Each remains
+Telegrarr bundles/depends on the following open-source components. Each remains
 under its own license; consult each project for authoritative terms.
 
 Python dependencies

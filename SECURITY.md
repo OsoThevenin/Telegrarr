@@ -12,19 +12,15 @@ version only; please upgrade before reporting.
 | Version | Supported |
 | --- | --- |
 | 1.0.x | ✅ |
-| Upstream Telearr | ❌ — report to [Wishaal/Telearr](https://github.com/Wishaal/Telearr) |
 
 ## Reporting a vulnerability
 
 **Please do not report security vulnerabilities through public GitHub issues,
 pull requests, or discussions.**
 
-Instead, use one of the following private channels:
-
-1. **GitHub Security Advisories** (preferred): open a private report via the
-   repository's **Security → Report a vulnerability** tab.
-2. **Email:** send details to **security@telearr.app** (or the maintainer contact
-   listed in the repository metadata).
+Instead, open a private report via the repository's
+**Security → Report a vulnerability** tab
+([GitHub Security Advisories](https://github.com/OsoThevenin/Telegrarr/security/advisories/new)).
 
 Please include as much of the following as you can:
 
