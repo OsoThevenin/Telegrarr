@@ -1,14 +1,14 @@
 # app/routes/catalog.py — movie channels: the Catalog of films a channel offers.
 from fastapi import Depends
 
-from .. import auth, catalog, catalog_posters
-from .common import BAD_REQUEST, NOT_FOUND, keyed, keyed_router
+from .. import auth, catalog, catalog_posters, connect
+from .common import BAD_GATEWAY, BAD_REQUEST, NOT_FOUND, keyed, keyed_router
 
 router = keyed_router()
 
 
 def _refused(e: catalog.CatalogError):
-    return keyed(NOT_FOUND if isinstance(e, catalog.UnknownChannel) else BAD_REQUEST, e)
+    return keyed(NOT_FOUND if isinstance(e, catalog.UnknownChannel | catalog.NotInCatalog) else BAD_REQUEST, e)
 
 
 @router.get("/api/channels/{cid}/catalog")
@@ -23,9 +23,20 @@ async def api_catalog(cid: int, user=Depends(auth.require_user)):
 async def api_catalog_status(cid: int, user=Depends(auth.require_user)):
     """Radarr's status of each Catalog film, fetched after the list so it can show first."""
     try:
-        return await catalog.radarr_status(cid)
+        return await catalog.radarr_status(cid, requested=catalog.requested_tmdb_ids())
     except catalog.CatalogError as e:
         raise _refused(e)
+
+
+@router.post("/api/channels/{cid}/catalog/{tmdb_id}/download")
+async def api_catalog_download(cid: int, tmdb_id: int, user=Depends(auth.require_user)):
+    """Download (Baixar): ask Radarr for the film → {tmdb_id, action: added | searched}."""
+    try:
+        return await catalog.download(cid, tmdb_id)
+    except catalog.CatalogError as e:
+        raise _refused(e)
+    except connect.ArrError as e:
+        raise keyed(BAD_GATEWAY, e)
 
 
 @router.get("/api/channels/{cid}/catalog/posters")

@@ -587,6 +587,7 @@
  "chm.topics.series_hint": "Sèrie associada a l’únic tema de sèries marcat:",
  "err.catalog.unknown_channel": "No hi ha cap canal amb l’identificador {id}",
  "err.catalog.not_movie_channel": "Només els canals de pel·lícules tenen catàleg",
+ "err.catalog.not_in_catalog": "Aquesta pel·lícula no és al catàleg del canal (TMDB {tmdb_id})",
  "cat.title": "Catàleg",
  "cat.films.one": "{n} pel·lícula",
  "cat.films.other": "{n} pel·lícules",

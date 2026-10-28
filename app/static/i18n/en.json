@@ -587,6 +587,7 @@
  "chm.topics.series_hint": "Series mapping for the one ticked series topic:",
  "err.catalog.unknown_channel": "There is no channel with id {id}",
  "err.catalog.not_movie_channel": "Only movie channels have a Catalog",
+ "err.catalog.not_in_catalog": "This film is not in the channel’s catalog (TMDB {tmdb_id})",
  "cat.title": "Catalog",
  "cat.films.one": "{n} film",
  "cat.films.other": "{n} films",
