@@ -310,8 +310,14 @@ def release_name(show_title: str, season: int, episode: int, quality: str = "",
     show = re.sub(r"\s+", ".", show)
     q = _RELEASE_QUALITY.get((quality or "").lower(), DEFAULT_FALLBACK_QUALITY)
     lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
-    tag = str(year or "") if kind == "movie" else _episode_tag(season, episode, episode_end)
-    parts = [show, tag, lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
+    if kind == "movie":
+        # Movies: the year is the only episode-less tag (Title.2019.CAT...).
+        parts = [show, str(year or ""), lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
+    else:
+        # TV: a known series year goes before the SxxEyy tag, so Sonarr can match
+        # by name even when its series title carries the year (e.g. "… (1979)").
+        parts = [show, str(year or ""), _episode_tag(season, episode, episode_end),
+                 lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
     return ".".join(p for p in parts if p)
 
 

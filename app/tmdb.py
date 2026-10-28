@@ -177,6 +177,7 @@ class SeriesIds:
     tmdb_id: int
     imdb_id: str | None
     title: str
+    year: int | None = None
 
 
 def _as_id(value, name: str) -> int | None:
@@ -209,11 +210,13 @@ async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
     title = ""
     if tmdb_n is None:
         tmdb_n, title = await _tmdb_id_for_tvdb(tvdb_n)
+    details = await _get(f"/tv/{tmdb_n}")
     ext = await _get(f"/tv/{tmdb_n}/external_ids")
     tvdb_n = tvdb_n or ext.get("tvdb_id")
     if not tvdb_n:
         raise TMDBError("err.tmdb.series_without_tvdb")
-    return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None, title=title)
+    return SeriesIds(tvdb_id=int(tvdb_n), tmdb_id=tmdb_n, imdb_id=ext.get("imdb_id") or None,
+                     title=title, year=_year_of(details.get("first_air_date")))
 
 
 # ── films (movie channels) ───────────────────────────────────────────

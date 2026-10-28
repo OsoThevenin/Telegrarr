@@ -106,9 +106,9 @@ def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | N
     """Store derived series ids on channel `cid` (display title: `title`, else TMDB's)."""
     display = (title or "").strip() or ids.title
     with db.conn() as c:
-        c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?,
+        c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?, year=?,
                      imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
-                  (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, display, cid))
+                  (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, ids.year, display, cid))
         row = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
     return dict(row) if row else None
 
