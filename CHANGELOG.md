@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
+
 ### Added
 - Each Catalog **Baixar** (accepted or refused by Radarr) is logged to Activity.
 - The Catalog gets a search field (accents and case ignored), filter chips with
