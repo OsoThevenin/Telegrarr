@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Each Catalog **Baixar** (accepted or refused by Radarr) is logged to Activity.
 - The Catalog gets a search field (accents and case ignored), filter chips with
   whole-channel counts (**Totes**, **Per baixar**, **Baixades**, **Millora qualitat**;
   disabled while Radarr is offline) and paging with **Carrega'n més**.
@@ -32,6 +33,14 @@
   Pressing twice never adds a duplicate. When Radarr refuses, nothing is saved and a
   toast gives Radarr's reason with **Torna-ho a provar**. New endpoint
   `POST /api/channels/{id}/catalog/{tmdb_id}/download`.
+
+### Fixed
+- A requested quality upgrade stays **Sol·licitada** (with its Baixada quality) after a
+  reload and counts under **Baixades**, until Radarr's file reaches the channel's best
+  or a newer, still-lower file arrives.
+- Opening a Catalog reads Radarr's movie list once: the status brings Radarr's posters,
+  and `GET …/catalog/posters?ids=` only asks TMDB for the rest. A malformed Radarr
+  movie list now reads as unavailable instead of failing.
 
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 
