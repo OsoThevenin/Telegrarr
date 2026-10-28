@@ -601,5 +601,15 @@
  "cat.empty_body": "L’escàner no ha trobat cap vídeo en aquest canal. Quan s’hi publiqui una pel·lícula, apareixerà aquí.",
  "cat.last_scan": "Darrer escaneig: {when}",
  "cat.never_scanned": "Encara no s’ha escanejat",
- "cat.scan_now": "Escaneja ara"
+ "cat.scan_now": "Escaneja ara",
+ "cat.radarr_checking": "Consultant Radarr…",
+ "cat.radarr_ok": "Radarr connectat",
+ "cat.radarr_down": "Radarr sense connexió",
+ "cat.offline_title": "Radarr no connectat",
+ "cat.offline_body": "Es mostra el catàleg del canal, però no sabem què tens ni podem demanar-ne cap. Revisa l’adreça i la clau d’API.",
+ "cat.open_connect": "Obre Connecta",
+ "cat.requested": "Sol·licitada",
+ "cat.downloaded": "Baixada",
+ "cat.downloaded_at": "Baixada · {quality}",
+ "cat.upgrade": "Millora qualitat"
 }
