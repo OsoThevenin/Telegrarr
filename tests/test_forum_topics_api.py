@@ -39,6 +39,24 @@ async def test_topics_of_a_forum_group_are_listed_with_ids_and_titles(arr_app):
 
 
 @pytest.mark.asyncio
+async def test_a_forum_whose_entity_hides_the_forum_flag_is_still_listed(arr_app):
+    # Telegram can hand back a "min"/partial Channel whose forum flag is unset even
+    # though the chat is a forum; detection must trust the topics request, not the flag.
+    forum = arr_app.telegram.add_forum(
+        FORUM, "Anime en català", topics=("Pel·lícules HD", "Sèries HD"), hide_forum_flag=True)
+
+    r = await _topics(arr_app, FORUM)
+
+    body = r.raise_for_status().json()
+    assert body["forum"] is True
+    assert body["topics"] == [
+        {"topic_id": 1, "title": "General"},
+        {"topic_id": forum.topic_id("Pel·lícules HD"), "title": "Pel·lícules HD"},
+        {"topic_id": forum.topic_id("Sèries HD"), "title": "Sèries HD"},
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("add_chat", ["add_channel", "add_group"])
 async def test_a_channel_or_plain_group_answers_not_a_forum(arr_app, add_chat):
     getattr(arr_app.telegram, add_chat)(PLAIN_CHANNEL, "Merlí [CAT] 1080p")
