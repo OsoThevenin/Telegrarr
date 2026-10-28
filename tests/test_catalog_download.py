@@ -119,6 +119,130 @@ async def test_once_radarr_has_the_file_radarrs_state_wins_over_the_marker(arr_a
                                                                 "radarr_quality": "1080p"}
 
 
+# ── a requested upgrade ───────────────────────────────────────────────
+FILE_BEFORE_REQUEST = "2020-01-01T00:00:00Z"
+FILE_AFTER_REQUEST = "2099-01-01T00:00:00Z"
+REQUESTED_UPGRADE = {"tmdb_id": THEORY_TMDB, "status": "requested", "radarr_quality": "720p",
+                     "best_quality": "1080p"}
+
+
+def _radarr_has_theory_at(arrs, resolution: int, file_added: str) -> None:
+    arrs.radarr.movies = [radarr_movie(12, THEORY_TMDB, resolution=resolution, file_added=file_added)]
+
+
+async def _reopened_drawer(arr_app, cid) -> tuple[dict, dict]:
+    """What a fresh drawer opening reads: the list's first page, then the status."""
+    catalog = await arr_app.http.get(f"/api/channels/{cid}/catalog")
+    assert catalog.status_code == 200, catalog.text
+    return catalog.json(), await _status_of_theory(arr_app, cid)
+
+
+@pytest.mark.asyncio
+async def test_a_requested_upgrade_reads_requested_with_its_baixada_quality_before_and_after_a_reload(
+        arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    _radarr_has_theory_at(arrs, 720, FILE_BEFORE_REQUEST)
+    channel = await _channel_offering_theory(arr_app)
+    (await _download(arr_app, channel["id"])).raise_for_status()
+
+    right_after = await _status_of_theory(arr_app, channel["id"])     # the UI's re-read after Baixar
+    _, reopened = await _reopened_drawer(arr_app, channel["id"])
+
+    assert right_after == REQUESTED_UPGRADE
+    assert reopened == REQUESTED_UPGRADE
+
+
+@pytest.mark.asyncio
+async def test_a_requested_upgrade_counts_as_downloaded_not_as_an_upgrade(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    _radarr_has_theory_at(arrs, 720, FILE_BEFORE_REQUEST)
+    channel = await _channel_offering_theory(arr_app)
+    (await _download(arr_app, channel["id"])).raise_for_status()
+    page = f"/api/channels/{channel['id']}/catalog"
+
+    downloaded = (await arr_app.http.get(page, params={"filter": "downloaded"})).json()
+    upgrade = (await arr_app.http.get(page, params={"filter": "upgrade"})).json()
+
+    assert [(r["tmdb_id"], r["status"]) for r in downloaded["rows"]] == [(THEORY_TMDB, "requested")]
+    assert upgrade["rows"] == []
+    assert downloaded["counts"] == {"all": 1, "missing": 0, "downloaded": 1, "upgrade": 0}
+
+
+@pytest.mark.asyncio
+async def test_once_radarrs_file_reaches_the_channels_best_the_marker_is_dropped(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    _radarr_has_theory_at(arrs, 720, FILE_BEFORE_REQUEST)
+    channel = await _channel_offering_theory(arr_app)
+    (await _download(arr_app, channel["id"])).raise_for_status()
+    _radarr_has_theory_at(arrs, 1080, FILE_AFTER_REQUEST)
+    assert (await _status_of_theory(arr_app, channel["id"]))["status"] == "downloaded"
+
+    _radarr_has_theory_at(arrs, 720, FILE_BEFORE_REQUEST)       # the marker no longer counts
+
+    assert await _status_of_theory(arr_app, channel["id"]) == {
+        "tmdb_id": THEORY_TMDB, "status": "upgrade", "radarr_quality": "720p", "best_quality": "1080p"}
+
+
+@pytest.mark.asyncio
+async def test_a_file_below_the_best_that_arrived_after_the_request_ends_it(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    channel = await _channel_offering_theory(arr_app)
+    (await _download(arr_app, channel["id"])).raise_for_status()
+
+    _radarr_has_theory_at(arrs, 720, FILE_AFTER_REQUEST)
+
+    assert (await _status_of_theory(arr_app, channel["id"]))["status"] == "upgrade"
+
+
+# ── Activity log ──────────────────────────────────────────────────────
+async def _catalog_log(arr_app, cid) -> list[dict]:
+    """The channel's Catalog events on the Activity page, newest first."""
+    rows = (await arr_app.http.get("/api/logs", params={"channel_id": cid})).raise_for_status().json()
+    return [r["msg"] for r in rows if r["msg"] and r["msg"]["key"].startswith("event.catalog_")]
+
+
+@pytest.mark.asyncio
+async def test_each_download_is_logged_for_the_activity_page(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    channel = await _channel_offering_theory(arr_app)
+
+    (await _download(arr_app, channel["id"])).raise_for_status()
+    (await _download(arr_app, channel["id"])).raise_for_status()
+
+    assert await _catalog_log(arr_app, channel["id"]) == [
+        {"key": "event.catalog_searched", "params": {"title": "La teoria del tot"}},
+        {"key": "event.catalog_added", "params": {"title": "La teoria del tot"}}]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_download_is_logged_with_radarrs_reason(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    arrs.radarr.reject_movie = "Path '/movies4k' is not writable"
+    channel = await _channel_offering_theory(arr_app)
+
+    assert (await _download(arr_app, channel["id"])).status_code == 502
+
+    [logged] = await _catalog_log(arr_app, channel["id"])
+    assert logged["key"] == "event.catalog_download_failed"
+    assert logged["params"]["title"] == "La teoria del tot"
+    assert "is not writable" in logged["params"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_radarr_server_error_is_a_keyed_http_error_and_saves_no_marker(arr_app, arrs, films):
+    _radarr_with_choices(arrs)
+    channel = await _channel_offering_theory(arr_app)
+    arrs.radarr.fail_status = 503
+
+    r = await _download(arr_app, channel["id"])
+
+    assert r.status_code == 502
+    assert r.json()["detail"]["key"] == "err.arr.http"
+    assert r.json()["detail"]["params"]["status"] == 503
+    arrs.radarr.fail_status = None                                                    # Radarr back
+    assert await _status_of_theory(arr_app, channel["id"]) == {"tmdb_id": THEORY_TMDB, "status": "missing"}
+
+
 @pytest.mark.asyncio
 async def test_radarr_without_a_profile_or_root_folder_is_a_keyed_error_and_adds_nothing(arr_app, arrs, films):
     arrs.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]          # no quality profile

@@ -188,6 +188,18 @@ async def test_radarr_refusing_the_key_is_unavailable_with_its_reason(arr_app, a
 
 
 @pytest.mark.asyncio
+async def test_radarr_answering_something_other_than_a_movie_list_is_unavailable(arr_app, arrs, films):
+    arrs.radarr.movies = {"message": "not a list"}
+    channel = await _channel_offering(arr_app, THEORY_1080)
+
+    status = await _status(arr_app, channel["id"])
+
+    assert status["radarr"]["available"] is False
+    assert status["radarr"]["error"]["key"] == "err.arr.bad_shape"
+    assert status["rows"] == []
+
+
+@pytest.mark.asyncio
 async def test_the_status_of_a_series_channel_is_a_keyed_error(arr_app, arrs):
     arr_app.telegram.add_channel(MOVIE_CHAT, "Sèries")
     series = await arr_app.add_channel(MOVIE_CHAT, kind="tv")

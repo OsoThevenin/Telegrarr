@@ -259,7 +259,7 @@ class Film:
     local_title: str | None = None   # title in the search language that matched (Catalan first)
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
     """Lower-case, accent-free, punctuation-free text for fuzzy title comparison."""
     decomposed = unicodedata.normalize("NFKD", text or "")
     ascii_only = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
@@ -267,7 +267,7 @@ def _fold(text: str) -> str:
 
 
 def _similar(a: str, b: str) -> bool:
-    return bool(a and b) and SequenceMatcher(None, _fold(a), _fold(b)).ratio() >= MIN_TITLE_SIMILARITY
+    return bool(a and b) and SequenceMatcher(None, fold(a), fold(b)).ratio() >= MIN_TITLE_SIMILARITY
 
 
 def _year_of(date: str | None) -> int | None:

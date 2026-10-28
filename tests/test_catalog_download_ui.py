@@ -64,7 +64,7 @@ async def test_a_downloaded_or_requested_film_offers_no_baixar(arr_app, status):
 @pytest.mark.parametrize("before, after", [
     ({"status": "missing"}, {"status": "requested"}),
     ({"status": "upgrade", "radarr_quality": "720p", "best_quality": "1080p"},
-     {"status": "requested", "radarr_quality": "720p"}),
+     {"status": "requested", "radarr_quality": "720p", "best_quality": "1080p"}),   # as /status reads it
 ], ids=["missing", "upgrade-keeps-baixada"])
 async def test_an_accepted_request_turns_the_row_requested(arr_app, before, after):
     assert await _call(arr_app, f"requestedStatus({json.dumps(before)})") == after
