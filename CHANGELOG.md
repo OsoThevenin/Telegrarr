@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+### Added
+- Each Catalog **Baixar** (accepted or refused by Radarr) is logged to Activity.
+- The Catalog gets a search field (accents and case ignored), filter chips with
+  whole-channel counts (**Totes**, **Per baixar**, **Baixades**, **Millora qualitat**;
+  disabled while Radarr is offline) and paging with **Carrega'n més**.
+  `GET /api/channels/{id}/catalog` takes `q`, `filter`, `offset` and `limit`.
+- Movie channels' drawers show the channel's **Catalog**: one row per film it offers
+  (best release by resolution, then size), with quality, size and language, plus
+  "Cal identificar" rows linking to Review. Built from stored data only — opening it
+  sends nothing to Telegram. New endpoint `GET /api/channels/{id}/catalog`.
+- Catalog rows show what Radarr already has: **Sol·licitada** (in Radarr without a
+  file), **Baixada**, or **Baixada · 720p** plus **Millora qualitat** when the channel
+  offers a higher resolution (resolution only; the Radarr profile is ignored). The
+  list shows first and Radarr's state fills in, from one Radarr movie-list request per
+  load. A connection dot shows Radarr's state; when it is unconfigured or unreachable a
+  "Radarr no connectat" notice links to Connect. New endpoint
+  `GET /api/channels/{id}/catalog/status`.
+- Connect: choose the Radarr quality profile and root folder Telegrarr uses when it
+  adds a film, picked from Radarr's own lists. Until you pick, Radarr's first profile
+  and first root folder are used.
+- Catalog rows show the film's poster: Radarr's when Radarr has the film, otherwise
+  TMDB's (cached, so reopening a Catalog asks TMDB nothing new); a coloured tile with
+  the short title when there is none. Posters load after the list, from
+  `GET /api/channels/{id}/catalog/posters`.
+- **Baixar** on Catalog rows asks Radarr for the film: a film Radarr lacks is added
+  (monitored, the Connect profile and root folder, searching on add); for an
+  upgradeable film (**Baixar 1080p**) Radarr only searches again, its settings
+  untouched. The row turns **Sol·licitada** at once and stays so after a reload.
+  Pressing twice never adds a duplicate. When Radarr refuses, nothing is saved and a
+  toast gives Radarr's reason with **Torna-ho a provar**. New endpoint
+  `POST /api/channels/{id}/catalog/{tmdb_id}/download`.
+
+### Fixed
+- A requested quality upgrade stays **Sol·licitada** (with its Baixada quality) after a
+  reload and counts under **Baixades**, until Radarr's file reaches the channel's best
+  or a newer, still-lower file arrives.
+- Opening a Catalog reads Radarr's movie list once: the status brings Radarr's posters,
+  and `GET …/catalog/posters?ids=` only asks TMDB for the rest. A malformed Radarr
+  movie list now reads as unavailable instead of failing.
+
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 
 ### Fixed

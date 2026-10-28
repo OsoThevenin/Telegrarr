@@ -7,7 +7,7 @@ import time
 import logging
 import unicodedata
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 
 import httpx
@@ -99,6 +99,31 @@ async def art(imdb_id, title=""):
             data = imdb
     _cache[imdb_id] = (now, data)
     return data
+
+
+POSTER_THUMB = "w185"     # Catalog thumbnails (2:3, shown at 44×66 CSS px)
+_poster_cache: dict[int, tuple[float, str | None]] = {}   # tmdb_id -> (ts, poster URL or None)
+
+
+async def movie_poster(tmdb_id: int) -> str | None:
+    """A film's TMDB poster thumbnail URL, or None (no key, no art, TMDB failing).
+
+    Answers are cached for TTL, so a film costs one TMDB request per TTL; failures
+    are not cached and are retried on the next call."""
+    now = time.time()
+    hit = _poster_cache.get(tmdb_id)
+    if hit and now - hit[0] < TTL:
+        return hit[1]
+    if not (settings.get("tmdb_key", "") or "").strip():
+        return None
+    try:
+        j = await _get(f"/movie/{int(tmdb_id)}")
+    except TMDBError as e:
+        log.warning("tmdb poster failed for %s: %s", tmdb_id, e.key)
+        return None
+    url = (IMG + POSTER_THUMB + j["poster_path"]) if j.get("poster_path") else None
+    _poster_cache[tmdb_id] = (now, url)
+    return url
 
 
 async def test(key=None):
@@ -231,9 +256,10 @@ class Film:
     imdb_id: str | None
     title: str            # English title: what the release is named after
     year: int | None
+    local_title: str | None = None   # title in the search language that matched (Catalan first)
 
 
-def _fold(text: str) -> str:
+def fold(text: str) -> str:
     """Lower-case, accent-free, punctuation-free text for fuzzy title comparison."""
     decomposed = unicodedata.normalize("NFKD", text or "")
     ascii_only = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
@@ -241,7 +267,7 @@ def _fold(text: str) -> str:
 
 
 def _similar(a: str, b: str) -> bool:
-    return bool(a and b) and SequenceMatcher(None, _fold(a), _fold(b)).ratio() >= MIN_TITLE_SIMILARITY
+    return bool(a and b) and SequenceMatcher(None, fold(a), fold(b)).ratio() >= MIN_TITLE_SIMILARITY
 
 
 def _year_of(date: str | None) -> int | None:
@@ -315,7 +341,7 @@ async def match_film(title: str, year: int | None) -> Film | None:
         hits = await _search_movie_in(language, title, year)
         hit = next((h for h in hits if _is_confident(h, title, year)), None)
         if hit:
-            return await film(hit["tmdb_id"])
+            return replace(await film(hit["tmdb_id"]), local_title=hit["title"] or None)
     return None
 
 

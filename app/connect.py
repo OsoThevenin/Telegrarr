@@ -193,3 +193,106 @@ async def sonarr_episodes(tvdb_id: int, season: int) -> list[Episode]:
     episodes = [Episode(int(e["seasonNumber"]), int(e["episodeNumber"]), str(e.get("title") or ""))
                 for e in rows if int(e.get("seasonNumber", -1)) == season]
     return sorted(episodes, key=lambda e: e.episode)
+
+
+# ── Radarr ────────────────────────────────────────────────────────────
+@dataclass(frozen=True)
+class RadarrDefaults:
+    """The quality profile and root folder used when Telegrarr adds a film to Radarr."""
+    quality_profile_id: int | None
+    root_folder: str | None
+
+
+@dataclass(frozen=True)
+class RadarrChoices:
+    """Radarr's quality profiles and root folders, and the effective selection among them."""
+    quality_profiles: tuple[dict, ...]   # {"id", "name"}
+    root_folders: tuple[dict, ...]       # {"path"}
+    selected: RadarrDefaults
+
+
+async def _movie_list(target: ArrApp, params: dict | None = None) -> list[dict]:
+    """Radarr's ``GET /movie`` entries (objects only); raises ArrError, also when the
+    answer is not a list."""
+    found = await _request(target, "GET", "/movie", params=params)
+    if not isinstance(found, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return [m for m in found if isinstance(m, dict)]
+
+
+async def radarr_movies() -> list[dict]:
+    """Radarr's ``GET /movie`` JSON: every film in its library; raises ArrError."""
+    return await _movie_list(configured("radarr"))
+
+
+async def radarr_quality_profiles() -> list[dict]:
+    """Radarr's quality profiles as [{"id", "name"}]; raises ArrError."""
+    rows = await _request(configured("radarr"), "GET", "/qualityprofile")
+    return [{"id": int(p["id"]), "name": str(p.get("name") or "")} for p in rows]
+
+
+async def radarr_root_folders() -> list[dict]:
+    """Radarr's root folders as [{"path"}]; raises ArrError."""
+    rows = await _request(configured("radarr"), "GET", "/rootfolder")
+    return [{"path": str(f["path"])} for f in rows if f.get("path")]
+
+
+def _pick(saved: object, available: list) -> object:
+    """The saved value while Radarr still offers it, else Radarr's first (None if none)."""
+    if saved in available:
+        return saved
+    return available[0] if available else None
+
+
+async def radarr_choices() -> RadarrChoices:
+    """What the Connect page offers, read live from Radarr; raises ArrError."""
+    profiles, folders = await radarr_quality_profiles(), await radarr_root_folders()
+    saved_profile = settings.get_int("radarr_quality_profile_id", 0) or None
+    selected = RadarrDefaults(
+        quality_profile_id=_pick(saved_profile, [p["id"] for p in profiles]),
+        root_folder=_pick(settings.get("radarr_root_folder", ""), [f["path"] for f in folders]))
+    return RadarrChoices(tuple(profiles), tuple(folders), selected)
+
+
+async def radarr_defaults() -> RadarrDefaults:
+    """The effective profile id and root folder for adding a film; raises ArrError.
+
+    The saved choice wins while Radarr still has it, otherwise Radarr's first entry.
+    Raises ``err.radarr.no_defaults`` when Radarr has no profile or no root folder."""
+    selected = (await radarr_choices()).selected
+    if selected.quality_profile_id is None or selected.root_folder is None:
+        raise ArrError("err.radarr.no_defaults")
+    return selected
+
+
+RADARR_ADDED, RADARR_SEARCHED = "added", "searched"
+MOVIES_SEARCH = "MoviesSearch"
+
+
+async def _radarr_movie(target: ArrApp, tmdb_id: int) -> dict | None:
+    """The library movie with ``tmdb_id``, or None when Radarr doesn't have it."""
+    found = await _movie_list(target, {"tmdbId": tmdb_id})
+    return next((m for m in found if m.get("tmdbId") == tmdb_id), None)
+
+
+async def _radarr_add(target: ArrApp, tmdb_id: int) -> None:
+    """Add the film monitored, with the default profile and root folder, searching on add."""
+    defaults = await radarr_defaults()
+    lookup = await _request(target, "GET", "/movie/lookup/tmdb", params={"tmdbId": tmdb_id})
+    await _request(target, "POST", "/movie", json={
+        **(lookup if isinstance(lookup, dict) else {}), "tmdbId": tmdb_id, "monitored": True,
+        "qualityProfileId": defaults.quality_profile_id, "rootFolderPath": defaults.root_folder,
+        "addOptions": {"searchForMovie": True}})
+
+
+async def radarr_request(tmdb_id: int) -> str:
+    """Ask Radarr for the film: add it when missing (RADARR_ADDED), else only search it
+    again, leaving its settings untouched (RADARR_SEARCHED). Raises ArrError."""
+    target = configured("radarr")
+    movie = await _radarr_movie(target, tmdb_id)
+    if movie is None:
+        await _radarr_add(target, tmdb_id)
+        return RADARR_ADDED
+    search = {"name": MOVIES_SEARCH, "movieIds": [movie["id"]]}
+    await _request(target, "POST", "/command", json=search)
+    return RADARR_SEARCHED

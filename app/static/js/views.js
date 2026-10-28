@@ -6,6 +6,7 @@ import { sourceTitle, isWholeForum } from "./topics.js";
 import { channelTopics } from "./channel-topics.js";
 import { isRetryable, retryableIds } from "./retry.js";
 import { cancelToast, retryToast, bulkRetryToast } from "./download-toasts.js";
+import { catalogSection, catalogBack, catalogClosed } from "./catalog.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
@@ -261,11 +262,17 @@ export function openChannelDrawer(ctx, c, group = null) {
   if (!_artCache.has(c.imdb_id) && c.imdb_id) api(`/api/art?imdb=${encodeURIComponent(c.imdb_id)}`).then((a) => { _artCache.set(c.imdb_id, a || {}); fill(a || {}); });
 
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  const close = () => { document.removeEventListener("keydown", onKey); host.replaceChildren(); };
+  const isMovie = c.kind === "movie";
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    host.replaceChildren();
+    if (isMovie) catalogClosed();
+  };
   document.addEventListener("keydown", onKey);
-  const drawer = h("div", { class: "drawer", onClick: (e) => { if (e.target === drawer) close(); } },
+  const drawer = h("div", { class: "drawer" + (isMovie ? " catalog-drawer" : ""), onClick: (e) => { if (e.target === drawer) close(); } },
     h("div", { class: "drawer-card" },
       h("div", { class: "hero-wrap" }, hero, h("div", { class: "hero-fade" }),
+        isMovie ? catalogBack(close) : null,
         h("button", { class: "btn ghost icon drawer-x", "aria-label": t("common.close"), onClick: close }, h("span", { html: icon("x") }))),
       h("div", { class: "drawer-body" },
         h("div", { class: "drawer-head" }, posterBox,
@@ -289,7 +296,7 @@ export function openChannelDrawer(ctx, c, group = null) {
             h("button", { class: "btn ghost sm", onClick: async () => { await jpatch(`/api/channels/${s.id}`, { enabled: s.enabled ? 0 : 1 }); close(); ctx.refresh(); } }, s.enabled ? t("common.disable") : t("common.enable")),
             h("button", { class: "btn ghost sm", onClick: () => { close(); openChannelModal(ctx, s); } }, t("common.edit")),
             h("button", { class: "btn ghost sm icon", title: t("ch.remove_source"), "aria-label": t("ch.remove_source"), onClick: async () => { if (confirm(t("ch.remove_source_confirm"))) { await api(`/api/channels/${s.id}`, { method: "DELETE" }); toast(t("ch.source_removed"), "ok"); close(); ctx.refresh(); } } }, h("span", { html: icon("trash") }))))) : null,
-        h("div", { class: "drawer-eps" },
+        isMovie ? catalogSection(c) : h("div", { class: "drawer-eps" },
           h("div", { class: "card-h" }, tn("ch.episodes_downloaded", eps.length)),
           ...(eps.length ? eps.slice(0, 60).map((d) => h("div", { class: "ep-row" },
             h("span", { class: "ep-name" }, base(d.save_path) || d.file_name),

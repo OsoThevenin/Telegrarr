@@ -58,6 +58,13 @@ class FakeArr:
     series: list[dict] = field(default_factory=list)           # sonarr only
     episodes: list[dict] = field(default_factory=list)         # sonarr only
     reject_create: str | None = None                            # validation error on POST
+    # radarr only: Radarr JSON shapes ({"id", "name"} / {"id", "path", "freeSpace"})
+    quality_profiles: list[dict] = field(default_factory=list)
+    root_folders: list[dict] = field(default_factory=list)
+    # radarr only: Radarr's GET /movie JSON (id, tmdbId, title, year, hasFile, movieFile, images)
+    movies: list[dict] = field(default_factory=list)
+    reject_movie: str | None = None                             # radarr only: validation error on POST /movie
+    fail_status: int | None = None      # a 5xx answered to every authenticated request (server failing)
 
     @property
     def provider_path(self) -> str:
@@ -72,6 +79,8 @@ class FakeArr:
         self.requests.append(request)
         if request.headers.get("X-Api-Key") != self.api_key:
             return httpx.Response(401, json={"error": "Unauthorized"})
+        if self.fail_status is not None:
+            return httpx.Response(self.fail_status, text="Internal Server Error")
         path, method = request.url.path, request.method
         if path == f"{self.api}/system/status":
             return httpx.Response(200, json={"appName": self.app.title(), "version": self.version})
@@ -92,7 +101,72 @@ class FakeArr:
             sid, season = request.url.params.get("seriesId"), request.url.params.get("seasonNumber")
             return httpx.Response(200, json=[e for e in self.episodes if str(e["seriesId"]) == sid
                                              and (season is None or str(e["seasonNumber"]) == season)])
+        if path == f"{self.api}/movie" and method == "GET" and self.app == "radarr":
+            tmdb = request.url.params.get("tmdbId")
+            if not isinstance(self.movies, list):         # a malformed answer, served as is
+                return httpx.Response(200, json=self.movies)
+            return httpx.Response(200, json=[m for m in self.movies if tmdb is None or str(m["tmdbId"]) == tmdb])
+        radarr = self._radarr_defaults(path, method)
+        if radarr is not None:
+            return radarr
+        radarr = self._radarr_requests(request)
+        if radarr is not None:
+            return radarr
         return httpx.Response(404, json={"message": "NotFound"})
+
+    def _radarr_defaults(self, path: str, method: str) -> httpx.Response | None:
+        """Radarr's read-only lists: quality profiles and root folders (the Connect page's choices), movies."""
+        if self.app != "radarr" or method != "GET":
+            return None
+        if path == f"{self.api}/qualityprofile":
+            return httpx.Response(200, json=self.quality_profiles)
+        if path == f"{self.api}/movie":
+            return httpx.Response(200, json=self.movies)
+        if path == f"{self.api}/rootfolder":
+            return httpx.Response(200, json=self.root_folders)
+        return None
+
+    # ── radarr: Download requests (movie lookup, movie create, commands) ──
+    def added_movies(self) -> list[dict]:
+        """JSON bodies of every POST /movie (add a film) received."""
+        return self._posted(f"{self.api}/movie")
+
+    def commands(self) -> list[dict]:
+        """JSON bodies of every POST /command received."""
+        return self._posted(f"{self.api}/command")
+
+    def _posted(self, path: str) -> list[dict]:
+        return [json.loads(r.content) for r in self.requests if r.method == "POST" and r.url.path == path]
+
+    def _radarr_requests(self, request: httpx.Request) -> httpx.Response | None:
+        if self.app != "radarr":
+            return None
+        path, method = request.url.path, request.method
+        if path == f"{self.api}/movie/lookup/tmdb" and method == "GET":
+            return self._lookup(int(request.url.params.get("tmdbId", 0)))
+        if path == f"{self.api}/movie" and method == "POST":
+            return self._add_movie(json.loads(request.content))
+        if path == f"{self.api}/command" and method == "POST":
+            body = json.loads(request.content)
+            return httpx.Response(201, json={**body, "id": len(self.commands()), "status": "queued"})
+        return None
+
+    def _lookup(self, tmdb_id: int) -> httpx.Response:
+        """Radarr's TMDB lookup: the film's metadata, ready to be posted back to /movie."""
+        if tmdb_id <= 0:
+            return httpx.Response(404, json={"message": "NotFound"})
+        return httpx.Response(200, json={"tmdbId": tmdb_id, "title": f"TMDB {tmdb_id}", "year": 2014,
+                                         "titleSlug": f"tmdb-{tmdb_id}", "images": [], "minimumAvailability": "released"})
+
+    def _add_movie(self, body: dict) -> httpx.Response:
+        """POST /movie, refusing a TMDB id already in the library as Radarr does."""
+        reason = self.reject_movie or ("This movie has already been added"
+                                       if any(m["tmdbId"] == body.get("tmdbId") for m in self.movies) else None)
+        if reason:
+            return httpx.Response(400, json=[{"propertyName": "TmdbId", "errorMessage": reason, "severity": "error"}])
+        saved = {**body, "id": len(self.movies) + 1, "hasFile": False}
+        self.movies.append(saved)
+        return httpx.Response(201, json=saved)
 
     def _create(self, body: dict) -> httpx.Response:
         if self.reject_create:
@@ -101,6 +175,21 @@ class FakeArr:
         saved = {**body, "id": len(self.providers) + 1}
         self.providers.append(saved)
         return httpx.Response(201, json=saved)
+
+
+def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, title: str = "",
+                 year: int | None = None, file_added: str | None = None, poster: str | None = None) -> dict:
+    """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file,
+    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl."""
+    images = [{"coverType": "poster", "url": f"/MediaCover/{movie_id}/poster.jpg", "remoteUrl": poster}] \
+        if poster else []
+    movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year,
+             "hasFile": resolution is not None, "images": images}
+    if resolution is not None:
+        quality = {"quality": {"id": 0, "name": f"{resolution}p", "resolution": resolution}}
+        movie["movieFile"] = {"id": movie_id, "quality": quality,
+                              **({"dateAdded": file_added} if file_added else {})}
+    return movie
 
 
 PROWLARR_KEY = "prowlarr-secret-key"

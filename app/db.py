@@ -104,6 +104,10 @@ CREATE TABLE IF NOT EXISTS pending_review (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (channel_id, message_id)
 );
+CREATE TABLE IF NOT EXISTS catalog_requests (
+  tmdb_id      INTEGER PRIMARY KEY,
+  requested_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_rel_chan ON releases(channel_id);
 CREATE INDEX IF NOT EXISTS idx_dl_chan_gk   ON downloads(channel_id, group_key);
 CREATE INDEX IF NOT EXISTS idx_dl_status    ON downloads(status);
@@ -158,6 +162,7 @@ COLUMN_MIGRATIONS = (
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
     ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
+    ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
 )
 
 # download row statuses, grouped by what the code asks of a row
