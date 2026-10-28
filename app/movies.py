@@ -52,13 +52,14 @@ def _index_film(c, channel, posted_key: tuple[int, int], group_key: str, film: t
                          language=channel["language"] or DEFAULT_LANGUAGE, year=film.year)
     c.execute("""INSERT INTO releases
         (channel_id,message_id,group_key,title,season,episode,quality,size,added_at,
-         movie_tmdb_id,movie_imdb_id,year)
-        VALUES(?,?,?,?,NULL,NULL,?,?,?,?,?,?)
+         movie_tmdb_id,movie_imdb_id,year,movie_title)
+        VALUES(?,?,?,?,NULL,NULL,?,?,?,?,?,?,?)
         ON CONFLICT(channel_id,message_id) DO UPDATE SET
           title=excluded.title, quality=excluded.quality, size=excluded.size,
-          movie_tmdb_id=excluded.movie_tmdb_id, movie_imdb_id=excluded.movie_imdb_id, year=excluded.year""",
+          movie_tmdb_id=excluded.movie_tmdb_id, movie_imdb_id=excluded.movie_imdb_id, year=excluded.year,
+          movie_title=excluded.movie_title""",
         (*posted_key, group_key, title, quality, size, int(time.time()),
-         film.tmdb_id, film.imdb_id, film.year))
+         film.tmdb_id, film.imdb_id, film.year, film.local_title or film.title))
     return title
 
 

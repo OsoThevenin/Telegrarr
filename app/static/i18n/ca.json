@@ -578,5 +578,22 @@
  "chm.topics.pick_first": "Marca almenys un tema",
  "chm.topics.added.one": "S’ha afegit {n} font de tema",
  "chm.topics.added.other": "S’han afegit {n} fonts de tema",
- "chm.topics.series_hint": "Sèrie associada a l’únic tema de sèries marcat:"
+ "chm.topics.series_hint": "Sèrie associada a l’únic tema de sèries marcat:",
+ "err.catalog.unknown_channel": "No hi ha cap canal amb l’identificador {id}",
+ "err.catalog.not_movie_channel": "Només els canals de pel·lícules tenen catàleg",
+ "cat.title": "Catàleg",
+ "cat.films.one": "{n} pel·lícula",
+ "cat.films.other": "{n} pel·lícules",
+ "cat.back": "Canals",
+ "cat.back_aria": "Torna a Canals",
+ "cat.poster_of": "Pòster de {title}",
+ "cat.needs_id": "Cal identificar",
+ "cat.review": "Revisa",
+ "cat.review_aria": "Revisa {file}",
+ "cat.load_failed": "No s’ha pogut carregar el catàleg",
+ "cat.empty_title": "Encara no hi ha pel·lícules",
+ "cat.empty_body": "L’escàner no ha trobat cap vídeo en aquest canal. Quan s’hi publiqui una pel·lícula, apareixerà aquí.",
+ "cat.last_scan": "Darrer escaneig: {when}",
+ "cat.never_scanned": "Encara no s’ha escanejat",
+ "cat.scan_now": "Escaneja ara"
 }

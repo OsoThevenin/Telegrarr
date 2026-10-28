@@ -44,6 +44,7 @@ const PATHS = {
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
   'chevron-right': '<polyline points="9 18 15 12 9 6"/>',
   'chevron-down': '<polyline points="6 9 12 15 18 9"/>',
+  'chevron-left': '<polyline points="15 18 9 12 15 6"/>',
   // paper plane
   telegram:
     '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',

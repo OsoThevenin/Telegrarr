@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Movie channels' drawers show the channel's **Catalog**: one row per film it offers
+  (best release by resolution, then size), with quality, size and language, plus
+  "Cal identificar" rows linking to Review. Built from stored data only — opening it
+  sends nothing to Telegram. New endpoint `GET /api/channels/{id}/catalog`.
+
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 
 ### Fixed
