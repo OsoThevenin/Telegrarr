@@ -584,5 +584,22 @@
  "chm.topics.pick_first": "Tick at least one topic",
  "chm.topics.added.one": "{n} topic source added",
  "chm.topics.added.other": "{n} topic sources added",
- "chm.topics.series_hint": "Series mapping for the one ticked series topic:"
+ "chm.topics.series_hint": "Series mapping for the one ticked series topic:",
+ "err.catalog.unknown_channel": "There is no channel with id {id}",
+ "err.catalog.not_movie_channel": "Only movie channels have a Catalog",
+ "cat.title": "Catalog",
+ "cat.films.one": "{n} film",
+ "cat.films.other": "{n} films",
+ "cat.back": "Channels",
+ "cat.back_aria": "Back to Channels",
+ "cat.poster_of": "Poster of {title}",
+ "cat.needs_id": "Needs identification",
+ "cat.review": "Review",
+ "cat.review_aria": "Review {file}",
+ "cat.load_failed": "Could not load the Catalog",
+ "cat.empty_title": "No films yet",
+ "cat.empty_body": "The scanner has not found any video in this channel. When a film is posted, it will show up here.",
+ "cat.last_scan": "Last scan: {when}",
+ "cat.never_scanned": "Not scanned yet",
+ "cat.scan_now": "Scan now"
 }

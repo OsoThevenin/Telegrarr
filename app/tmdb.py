@@ -7,7 +7,7 @@ import time
 import logging
 import unicodedata
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from difflib import SequenceMatcher
 
 import httpx
@@ -231,6 +231,7 @@ class Film:
     imdb_id: str | None
     title: str            # English title: what the release is named after
     year: int | None
+    local_title: str | None = None   # title in the search language that matched (Catalan first)
 
 
 def _fold(text: str) -> str:
@@ -315,7 +316,7 @@ async def match_film(title: str, year: int | None) -> Film | None:
         hits = await _search_movie_in(language, title, year)
         hit = next((h for h in hits if _is_confident(h, title, year)), None)
         if hit:
-            return await film(hit["tmdb_id"])
+            return replace(await film(hit["tmdb_id"]), local_title=hit["title"] or None)
     return None
 
 

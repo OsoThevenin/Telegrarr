@@ -450,6 +450,45 @@ body.dense .data-card th, body.dense .data-card td, body.dense .grp-body td { pa
 .ep-row .ep-when { color: var(--muted); flex: 0 0 auto; font-family: var(--mono); }
 @media (max-width: 620px) { .drawer-head { flex-direction: column; align-items: flex-start; margin-top: -64px; } .drawer-info { padding-top: 8px; } .drawer-poster { width: 120px; flex-basis: 120px; } .hero { height: 220px; } }
 
+/* movie-channel Catalog in the drawer (catalog.js) */
+.cat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 12px; }
+.cat-head h3 { margin: 0; font-family: var(--display); font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.cat-list { list-style: none; margin: 0 -26px; padding: 0; border-top: 1px solid var(--line-soft); }
+.cat-row { display: flex; align-items: center; gap: 14px; padding: 12px 26px; border-bottom: 1px solid var(--line-soft); }
+.cat-row:last-child { border-bottom: 0; }
+.cat-row.unidentified { background: color-mix(in srgb, var(--surface-2) 45%, transparent); }
+.cat-poster { width: 44px; height: 66px; flex: none; border-radius: 6px; background: var(--surface-2); color: var(--meta); display: grid; place-items: center; }
+.cat-poster.unknown { background: transparent; border: 1.5px dashed var(--line); color: var(--muted); font-weight: 700; font-size: 17px; }
+.cat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.cat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 600; }
+.cat-title.mono { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--muted); }
+.cat-year { font-weight: 400; color: var(--muted); }
+.cat-meta { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.cat-q { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--text); font: 600 11px/1 var(--mono); }
+.cat-lang { font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+.cat-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-needs { color: var(--muted); background: var(--surface-2); text-transform: none; padding: 3px 9px; }
+.cat-review { flex: none; display: inline-flex; align-items: center; gap: 2px; min-height: 36px; padding: 0 4px; font-size: 13px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.cat-review .ico { width: 14px; height: 14px; }
+.cat-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px 56px; text-align: center; border-top: 1px solid var(--line-soft); }
+.cat-empty-ico { width: 64px; height: 64px; border-radius: 18px; background: var(--surface-2); color: var(--muted); display: grid; place-items: center; }
+.cat-empty h4 { margin: 4px 0 0; font-size: 17px; font-weight: 600; }
+.cat-empty p { margin: 0; max-width: 340px; font-size: 14px; line-height: 1.45; }
+.cat-last-scan { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.cat-scan { margin-top: 8px; border-radius: var(--r-pill); min-height: 40px; padding: 0 18px; }
+.drawer-back { display: none; }
+@media (max-width: 620px) {
+  .catalog-drawer { padding: 0; }
+  .catalog-drawer .drawer-card { min-height: 100%; border-radius: 0; border: 0; }
+  .catalog-drawer .drawer-body { padding: 0 16px 24px; }
+  .catalog-drawer .drawer-x { display: none; }
+  .drawer-back { display: inline-flex; position: absolute; top: 10px; left: 8px; min-height: 44px; padding: 0 12px 0 6px; gap: 2px; font-size: 16px; color: #fff; background: rgba(0,0,0,.55); border-radius: var(--r-pill); backdrop-filter: blur(10px); }
+  .drawer-back:hover { color: #fff; background: rgba(0,0,0,.72); }
+  .cat-list { margin: 0 -16px; }
+  .cat-row { padding: 12px 16px; }
+  .cat-review, .cat-scan { min-height: 44px; }
+}
+
 /* ============ System panel ============ */
 .sys-health { display: grid; gap: 0; }
 .sys-hrow { display: grid; grid-template-columns: auto 160px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }

@@ -158,6 +158,7 @@ COLUMN_MIGRATIONS = (
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
     ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
+    ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
 )
 
 # download row statuses, grouped by what the code asks of a row
