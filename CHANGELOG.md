@@ -7,6 +7,13 @@
   (best release by resolution, then size), with quality, size and language, plus
   "Cal identificar" rows linking to Review. Built from stored data only — opening it
   sends nothing to Telegram. New endpoint `GET /api/channels/{id}/catalog`.
+- Catalog rows show what Radarr already has: **Sol·licitada** (in Radarr without a
+  file), **Baixada**, or **Baixada · 720p** plus **Millora qualitat** when the channel
+  offers a higher resolution (resolution only; the Radarr profile is ignored). The
+  list shows first and Radarr's state fills in, from one Radarr movie-list request per
+  load. A connection dot shows Radarr's state; when it is unconfigured or unreachable a
+  "Radarr no connectat" notice links to Connect. New endpoint
+  `GET /api/channels/{id}/catalog/status`.
 - Connect: choose the Radarr quality profile and root folder Telegrarr uses when it
   adds a film, picked from Radarr's own lists. Until you pick, Radarr's first profile
   and first root folder are used.

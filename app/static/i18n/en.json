@@ -601,5 +601,15 @@
  "cat.empty_body": "The scanner has not found any video in this channel. When a film is posted, it will show up here.",
  "cat.last_scan": "Last scan: {when}",
  "cat.never_scanned": "Not scanned yet",
- "cat.scan_now": "Scan now"
+ "cat.scan_now": "Scan now",
+ "cat.radarr_checking": "Checking Radarr…",
+ "cat.radarr_ok": "Radarr connected",
+ "cat.radarr_down": "Radarr offline",
+ "cat.offline_title": "Radarr not connected",
+ "cat.offline_body": "The channel’s catalog is shown, but we can’t tell what you have or request any film. Check the address and the API key.",
+ "cat.open_connect": "Open Connect",
+ "cat.requested": "Requested",
+ "cat.downloaded": "Downloaded",
+ "cat.downloaded_at": "Downloaded · {quality}",
+ "cat.upgrade": "Quality upgrade"
 }
