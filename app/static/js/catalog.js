@@ -8,8 +8,8 @@
 import { h, api, toast, fmtBytes } from "./core.js";
 import { icon } from "./icons.js";
 import { t, tn, msg, fmtDateTime } from "./i18n.js";
+import { FILTER_ALL, chipStates, footerState, pageUrl } from "./catalog-filters.js";
 
-const catalogUrl = (cid) => `/api/channels/${cid}/catalog`;
 const statusUrl = (cid) => `/api/channels/${cid}/catalog/status`;
 const scanUrl = (cid) => `/api/channels/${cid}/scan`;
 const REVIEW_HASH = "#/review";
@@ -53,14 +53,18 @@ function showPoster(tile, url) {
   img.addEventListener("load", () => tile.replaceWith(img), { once: true });
 }
 
-/** Fill the placeholder tiles under `root` with channel `cid`'s posters; silent on failure. */
-async function fillPosters(root, cid) {
-  let posters;
+/** Channel `cid`'s posters by TMDB id ({} on failure, so tiles stay). */
+async function loadPosters(cid) {
   try {
     const r = await fetch(postersUrl(cid), { credentials: "same-origin" });
-    if (!r.ok) return;
-    ({ posters } = await r.json());
-  } catch { return; }
+    if (!r.ok) return {};
+    return (await r.json()).posters || {};
+  } catch { return {}; }
+}
+
+/** Fill the placeholder tiles under `root` from `postersP` (the posters loaded once per drawer). */
+async function fillPosters(root, postersP) {
+  const posters = await postersP;
   for (const tile of root.querySelectorAll(".cat-poster.tile[data-tmdb]")) {
     const url = posters?.[tile.dataset.tmdb];
     if (url) showPoster(tile, url);
@@ -131,14 +135,10 @@ function emptyState(c) {
     h("button", { type: "button", class: "btn cat-scan", onClick: () => scanNow(c) }, h("span", { html: icon("refresh") }), t("cat.scan_now")));
 }
 
-/** Renders the list; returns the status slots of its film rows by TMDB id. */
-function render(body, count, c, catalog) {
-  if (!catalog) { body.replaceChildren(h("div", { class: "muted small pad" }, t("cat.load_failed"))); return new Map(); }
-  count.textContent = tn("cat.films", catalog.count);
-  const built = catalog.rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r), tmdbId: r.tmdb_id }));
-  body.replaceChildren(built.length ? h("ul", { class: "cat-list" }, ...built.map((b) => b.li)) : emptyState(c));
-  if (catalog.rows.some((r) => r.kind !== KIND_UNIDENTIFIED)) fillPosters(body, c.id);
-  return new Map(built.filter((b) => b.slot).map((b) => [b.tmdbId, b.slot]));
+/** The list rows; returns the `<li>`s and the status slots of the film rows by TMDB id. */
+function buildRows(rows) {
+  const built = rows.map((r) => (r.kind === KIND_UNIDENTIFIED ? { li: unidentifiedRow(r) } : { ...filmRow(r), row: r }));
+  return { items: built.map((b) => b.li), slots: built.filter((b) => b.slot).map((b) => [b.row, b.slot]) };
 }
 
 const RADARR_LABELS = { [RADARR_CHECKING]: "cat.radarr_checking", [RADARR_OK]: "cat.radarr_ok", [RADARR_DOWN]: "cat.radarr_down" };
@@ -158,18 +158,61 @@ const offlineNotice = () => h("div", { class: "cat-offline", role: "status" },
     h("span", {}, t("cat.offline_body")),
     h("a", { class: "cat-connect", href: CONNECT_HASH }, t("cat.open_connect"), h("span", { html: icon("chevron-right") }))));
 
-/** Fills the rows' badges and actions from the status response (null = request failed). */
-function applyStatus(slots, radarr, notice, status) {
-  const available = Boolean(status && status.radarr && status.radarr.available);
-  setRadarr(radarr, available ? RADARR_OK : RADARR_DOWN);
-  notice.replaceChildren(...(available ? [] : [offlineNotice()]));
-  const byTmdb = new Map((available ? status.rows : []).map((s) => [s.tmdb_id, s]));
-  for (const [tmdbId, slot] of slots) {
-    const s = byTmdb.get(tmdbId) || {};
+/** Fills slots ([row, slot] pairs) with their status: a filtered page's own, else the status response's. */
+function applyStatuses(slots, statuses) {
+  for (const [row, slot] of slots) {
+    const s = row.status ? row : statuses.get(row.tmdb_id) || {};
     slot.badges.replaceChildren(...statusBadges(s));
     slot.action.replaceChildren(...statusAction(s));
   }
 }
+
+// ── toolbar: search field and filter chips ───────────────────────────
+const SEARCH_DELAY_MS = 250;
+
+/** The search field; calls `onSearch(text)` once typing pauses. */
+function searchField(onSearch) {
+  let timer = 0;
+  const input = h("input", { type: "search", class: "cat-search-input", "aria-label": t("cat.search_label"), autocomplete: "off" });
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => onSearch(input.value), SEARCH_DELAY_MS);
+  });
+  const el = h("label", { class: "cat-search" }, h("span", { class: "cat-search-ico", html: icon("search") }), input);
+  return { el, input };
+}
+
+/** Re-renders the filter chips into `group` for the current counts and Radarr state. */
+function renderChips(group, counts, available, pressed, onPick) {
+  group.replaceChildren(...chipStates(counts, available, pressed).map((chip) =>
+    h("button", { type: "button", class: "cat-chip", "aria-pressed": String(chip.pressed), disabled: chip.disabled,
+      onClick: () => onPick(chip.id) },
+    t(chip.label), h("span", { class: "cat-chip-n" }, chip.count))));
+}
+
+function toolbar(onSearch) {
+  const search = searchField(onSearch);
+  const chips = h("div", { class: "cat-chips", role: "group", "aria-label": t("cat.filter_aria") });
+  return { el: h("div", { class: "cat-toolbar" }, search.el, chips), input: search.input, chips };
+}
+
+// ── footer and no-match states ────────────────────────────────────────
+/** "Mostrant X de Y" (or "N resultats" while searching) with "Carrega'n més" while pages remain. */
+function footer(page, onMore) {
+  const state = footerState(page);
+  const more = state.more
+    ? h("button", { type: "button", class: "btn cat-more", onClick: (e) => { e.currentTarget.disabled = true; onMore(); } }, t("cat.load_more"))
+    : null;
+  const text = state.n == null ? t(state.key, state.params) : tn(state.key, state.n);
+  return h("div", { class: "cat-footer" }, h("span", { class: "muted small", "aria-live": "polite" }, text), more);
+}
+
+const noResults = (q, onClear) => h("div", { class: "cat-no-results" },
+  h("strong", {}, t("cat.no_results", { q })),
+  h("span", { class: "muted" }, t("cat.no_results_hint")),
+  h("button", { type: "button", class: "btn cat-clear", onClick: onClear }, t("cat.clear_search")));
+
+const filterEmpty = () => h("div", { class: "cat-no-results" }, h("span", { class: "muted" }, t("cat.filter_empty")));
 
 /** The drawer's Catalog section for movie channel `c`; fills itself once loaded. */
 export function catalogSection(c) {
@@ -178,13 +221,72 @@ export function catalogSection(c) {
   const radarr = h("span", { class: "cat-radarr", "aria-live": "polite" });
   const notice = h("div", { class: "cat-notice" });
   const body = h("div", { class: "cat-body" }, h("div", { class: "muted small pad" }, t("common.loading")));
+  const bar = toolbar((q) => load({ q }));
+  bar.el.hidden = true;
+  const postersP = loadPosters(c.id);
+  // What is on screen; replaced (never mutated) on every load and status answer.
+  // `all` comes with every page; `statusCounts` from Radarr (status response or a filtered page).
+  let view = { q: "", filter: FILTER_ALL, rows: [], page: null, slots: [], all: 0, statusCounts: null,
+    available: null, statuses: new Map() };
+  let loadSeq = 0;
+
+  const showChips = () => renderChips(bar.chips, { ...view.statusCounts, all: view.all }, view.available, view.filter,
+    (filter) => load({ filter }));
+
+  function showList() {
+    const { page, rows, all } = view;
+    count.textContent = tn("cat.films", all);
+    bar.input.placeholder = tn("cat.search_placeholder", all);
+    bar.el.hidden = all === 0;
+    if (all === 0) { body.replaceChildren(emptyState(c)); return; }
+    if (!rows.length) { body.replaceChildren(view.q ? noResults(view.q, clearSearch) : filterEmpty()); return; }
+    const built = buildRows(rows);
+    view = { ...view, slots: built.slots };
+    const more = () => load({ offset: page.next_offset });
+    body.replaceChildren(h("ul", { class: "cat-list" }, ...built.items),
+      footer({ loaded: rows.length, count: page.count, searching: Boolean(view.q), next_offset: page.next_offset }, more));
+    if (view.available !== null) applyStatuses(built.slots, view.statuses);
+    if (rows.some((r) => r.kind !== KIND_UNIDENTIFIED)) fillPosters(body, postersP);
+  }
+
+  /** Loads the page for `change` (q / filter → from the top; offset → append the next page). */
+  async function load(change) {
+    const next = { q: view.q, filter: view.filter, offset: 0, ...change };
+    const seq = ++loadSeq;
+    const page = await api(pageUrl(c.id, next));
+    if (seq !== loadSeq) return;                         // a newer search or filter won
+    if (!page) {                                         // api() already toasted the error
+      if (view.page) showList();                         // keep what was shown; re-enables "Carrega'n més"
+      else body.replaceChildren(h("div", { class: "muted small pad" }, t("cat.load_failed")));
+      showChips();
+      return;
+    }
+    const rows = next.offset ? [...view.rows, ...page.rows] : page.rows;
+    const statusCounts = page.counts.missing == null ? view.statusCounts : page.counts;
+    view = { ...view, q: next.q, filter: next.filter, page, rows, all: page.counts.all, statusCounts };
+    showChips();
+    showList();
+  }
+
+  function clearSearch() {
+    bar.input.value = "";
+    load({ q: "" });
+  }
+
   setRadarr(radarr, RADARR_CHECKING);
   const status = api(statusUrl(c.id));       // in parallel with the list; applied once rows exist
-  api(catalogUrl(c.id))
-    .then((catalog) => render(body, count, c, catalog))
-    .then((slots) => status.then((s) => applyStatus(slots, radarr, notice, s)));
+  load({}).then(() => status).then((s) => {
+    const available = Boolean(s && s.radarr && s.radarr.available);
+    setRadarr(radarr, available ? RADARR_OK : RADARR_DOWN);
+    notice.replaceChildren(...(available ? [] : [offlineNotice()]));
+    const statuses = new Map((available ? s.rows : []).map((row) => [row.tmdb_id, row]));
+    view = { ...view, available, statuses, statusCounts: available ? s.counts : null };
+    showChips();
+    applyStatuses(view.slots, statuses);
+  });
   return h("section", { class: "drawer-eps catalog", "aria-labelledby": headingId },
     h("div", { class: "cat-head" }, h("div", { class: "cat-head-title" }, h("h3", { id: headingId }, t("cat.title")), count), radarr),
     notice,
+    bar.el,
     body);
 }

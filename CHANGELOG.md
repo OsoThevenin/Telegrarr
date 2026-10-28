@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- The Catalog gets a search field (accents and case ignored), filter chips with
+  whole-channel counts (**Totes**, **Per baixar**, **Baixades**, **Millora qualitat**;
+  disabled while Radarr is offline) and paging with **Carrega'n més**.
+  `GET /api/channels/{id}/catalog` takes `q`, `filter`, `offset` and `limit`.
 - Movie channels' drawers show the channel's **Catalog**: one row per film it offers
   (best release by resolution, then size), with quality, size and language, plus
   "Cal identificar" rows linking to Review. Built from stored data only — opening it
