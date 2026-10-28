@@ -101,6 +101,31 @@ async def art(imdb_id, title=""):
     return data
 
 
+POSTER_THUMB = "w185"     # Catalog thumbnails (2:3, shown at 44×66 CSS px)
+_poster_cache: dict[int, tuple[float, str | None]] = {}   # tmdb_id -> (ts, poster URL or None)
+
+
+async def movie_poster(tmdb_id: int) -> str | None:
+    """A film's TMDB poster thumbnail URL, or None (no key, no art, TMDB failing).
+
+    Answers are cached for TTL, so a film costs one TMDB request per TTL; failures
+    are not cached and are retried on the next call."""
+    now = time.time()
+    hit = _poster_cache.get(tmdb_id)
+    if hit and now - hit[0] < TTL:
+        return hit[1]
+    if not (settings.get("tmdb_key", "") or "").strip():
+        return None
+    try:
+        j = await _get(f"/movie/{int(tmdb_id)}")
+    except TMDBError as e:
+        log.warning("tmdb poster failed for %s: %s", tmdb_id, e.key)
+        return None
+    url = (IMG + POSTER_THUMB + j["poster_path"]) if j.get("poster_path") else None
+    _poster_cache[tmdb_id] = (now, url)
+    return url
+
+
 async def test(key=None):
     # tests the passed-in key if given (so users can verify before saving), else the stored one
     k = (key or settings.get("tmdb_key", "")).strip()
