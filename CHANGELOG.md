@@ -7,6 +7,9 @@
   (best release by resolution, then size), with quality, size and language, plus
   "Cal identificar" rows linking to Review. Built from stored data only — opening it
   sends nothing to Telegram. New endpoint `GET /api/channels/{id}/catalog`.
+- Connect: choose the Radarr quality profile and root folder Telegrarr uses when it
+  adds a film, picked from Radarr's own lists. Until you pick, Radarr's first profile
+  and first root folder are used.
 
 ## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
 

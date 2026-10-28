@@ -56,7 +56,10 @@ DEFAULTS = {
     "sonarr_key": "",
     "radarr_url": "",
     "radarr_key": "",
-    "telegrarr_url": "",           # how Prowlarr/Sonarr/Radarr reach Telegrarr, e.g. http://telegrarr:8790
+    # Defaults for films Telegrarr adds to Radarr; 0 / "" = Radarr's first.
+    "radarr_quality_profile_id": 0,
+    "radarr_root_folder": "",
+    "telegrarr_url": "",          # how Prowlarr/Sonarr/Radarr reach Telegrarr, e.g. http://telegrarr:8790
 }
 
 OPERATING_MODES = ("arr", "standalone")
@@ -169,6 +172,8 @@ def _arr_public() -> dict:
     for name in ARR_APPS:
         view[f"{name}_url"] = get(f"{name}_url", "")
         view[f"{name}_key_set"] = bool(get(f"{name}_key", ""))
+    view["radarr_quality_profile_id"] = get_int("radarr_quality_profile_id", 0)
+    view["radarr_root_folder"] = get("radarr_root_folder", "")
     return view
 
 
@@ -205,6 +210,8 @@ WRITABLE = {
     "sonarr_key": lambda v: str(v).strip(),
     "radarr_url": _http_url,
     "radarr_key": lambda v: str(v).strip(),
+    "radarr_quality_profile_id": lambda v: str(max(0, int(v))),
+    "radarr_root_folder": lambda v: str(v).strip(),
 }
 
 
