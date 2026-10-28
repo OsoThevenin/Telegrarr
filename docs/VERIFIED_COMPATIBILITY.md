@@ -17,6 +17,16 @@ so the payloads are exactly what the app itself sends).
 `storage` path Sonarr imports from. The `nzo_id` is identical across addfile → queue →
 history (this consistency is the single most common shim failure — verified correct here).
 
+**Download ids per attempt.** The `nzo_id` identifies an *attempt* at a download, not only
+the download row. The first attempt is `telearr<row id>` (the form handed out by earlier
+versions, which keeps working for queue, history and delete). Every re-queue of a row that
+had `failed` or been `cancelled` (UI retry, bulk retry, auto-retry, or an *arr re-grab of
+the same message) starts a new attempt reported as `telearr<row id>-<attempt>`, so the *arr
+tracks it as a new download instead of one it has already written off as failed. A re-grab
+of a row that is still queued or downloading keeps its current id. A queue or history
+delete acts only when the id is the row's current attempt; an id from an earlier attempt
+changes nothing.
+
 ## Things this testing caught and fixed
 
 - **`config.categories` must be objects**, not strings — Sonarr/Radarr deserialize them
@@ -40,6 +50,10 @@ history (this consistency is the single most common shim failure — verified co
    test wants ≥1 result in category 2000; that's content, not a protocol issue.
 4. **API key** is shared with the *arr apps (Settings → Sonarr/Radarr/Prowlarr card). It is
    embedded in feed URLs, so run Telegrarr on a trusted LAN or behind TLS.
+5. **Removing from history in the *arr app** (e.g. "Remove failed downloads") only hides a
+   finished item from the SABnzbd history Telegrarr reports. The row stays in Telegrarr's
+   Downloads view and files are never deleted, whatever `del_files` says. Deleting a queued or
+   downloading item cancels it.
 
 ## How to wire it up
 

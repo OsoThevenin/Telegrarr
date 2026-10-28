@@ -4,9 +4,14 @@ import { icon } from "./icons.js";
 import { openTelegramConnect } from "./telegram-connect.js";
 import { sourceTitle, isWholeForum } from "./topics.js";
 import { channelTopics } from "./channel-topics.js";
+import { isRetryable, retryableIds } from "./retry.js";
+import { cancelToast, retryToast, bulkRetryToast } from "./download-toasts.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
 const ACTIVE = new Set(["downloading", "queued"]);
+
+// show a { key, params, kind } toast decision (null: none)
+const showToast = (m) => { if (m) toast(t(m.key, m.params), m.kind); };
 const chanLabel = (c) => sourceTitle(c.title, c.topic_title);            // a channel row's source label
 const dlSource = (d) => sourceTitle(d.channel_title, d.topic_title);     // a download row's source label
 const WEEKDAYS = t("common.weekdays_short").split(" ");   // Monday first, index = weekday number
@@ -81,7 +86,7 @@ function activeCard(d, ctx) {
     h("div", { class: "ac-top" },
       h("span", { class: "ac-name", title: d.save_path }, base(d.save_path) || d.file_name),
       statusPill(d.status),
-      h("button", { class: "btn ghost sm", onClick: async () => { await api(`/api/downloads/${d.id}/cancel`, { method: "POST" }); ctx.refresh(); } },
+      h("button", { class: "btn ghost sm", onClick: async () => { showToast(cancelToast(await api(`/api/downloads/${d.id}/cancel`, { method: "POST" }))); ctx.refresh(); } },
         h("span", { html: icon("pause") }), t("dl.stop"))),
     h("div", { class: "ac-meta" },
       `${sourceTitle(d.channel_title, d.topic_title) || ""} · ${d.file_size ? gb(d.file_size) : "—"} · ` +
@@ -346,7 +351,7 @@ function rowsTable(rows, ctx, selectAll = true) {
     h("td", {}, statusPill(d.status)),
     h("td", { class: "muted small" }, d.finished_at ? new Date(d.finished_at * 1000).toLocaleDateString(locale) : ""),
     h("td", { class: "actions" },
-      (d.status === "failed" || d.status === "cancelled") ? h("button", { class: "btn ghost sm", onClick: async () => { await api(`/api/downloads/${d.id}/retry`, { method: "POST" }); toast(t("dl.requeued"), "ok"); ctx.refresh(); } }, t("dl.retry")) : null,
+      isRetryable(d) ? h("button", { class: "btn ghost sm", onClick: async () => { showToast(retryToast(await api(`/api/downloads/${d.id}/retry`, { method: "POST" }))); ctx.refresh(); } }, t("dl.retry")) : null,
       h("button", { class: "btn ghost sm icon", title: t("common.delete"), "aria-label": t("dl.delete_record"), onClick: async () => { await api(`/api/downloads/${d.id}`, { method: "DELETE" }); ctx.refresh(); } }, h("span", { html: icon("trash") })))));
   return h("table", {}, h("thead", {}, head), h("tbody", {}, ...body));
 }
@@ -402,8 +407,8 @@ export function viewDownloads(ctx) {
   const bulk = h("div", { class: "bulk-bar" });
   if (ui.sel.size) {
     bulk.append(h("span", {}, h("b", {}, ui.sel.size), " " + t("dl.selected")));
-    if (sel.some((d) => d.status === "failed" || d.status === "cancelled"))
-      bulk.append(h("button", { class: "btn ghost sm", onClick: async () => { await jpost("/api/downloads/bulk", { action: "retry", ids: [...ui.sel] }); ui.sel.clear(); ctx.refresh(); } }, t("dl.retry")));
+    if (sel.some(isRetryable))
+      bulk.append(h("button", { class: "btn ghost sm", onClick: async () => { showToast(bulkRetryToast(await jpost("/api/downloads/bulk", { action: "retry", ids: retryableIds(sel) }))); ui.sel.clear(); ctx.refresh(); } }, t("dl.retry")));
     bulk.append(h("button", { class: "btn danger sm", onClick: async () => { await jpost("/api/downloads/bulk", { action: "delete", ids: [...ui.sel] }); ui.sel.clear(); ctx.refresh(); } }, t("common.delete")));
     bulk.append(h("button", { class: "btn ghost sm", onClick: () => { ui.sel.clear(); ctx.rerender(); } }, t("dl.clear_selection")));
   }

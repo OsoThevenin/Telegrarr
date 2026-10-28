@@ -125,9 +125,19 @@ class FakeTelegram:
         self._next_doc_id = 1
         self._downloads_open = asyncio.Event()
         self._downloads_open.set()
+        self._hold_partial = False
+        self._late_outcome: type[BaseException] | None = None
 
-    def hold_downloads(self) -> None:
-        """Block file transfers (they stay in-flight) until :meth:`release_downloads`."""
+    def hold_downloads(self, *, partial: bool = False,
+                       late_outcome: type[BaseException] | None = None) -> None:
+        """Block file transfers (they stay in-flight) until :meth:`release_downloads`.
+
+        With ``partial``, a held transfer first writes its first byte, leaving a
+        partial file on disk the way an interrupted real transfer does. With
+        ``late_outcome``, a held transfer that is cancelled keeps winding down
+        (the chunk in flight) until release, then raises ``late_outcome``."""
+        self._hold_partial = partial
+        self._late_outcome = late_outcome
         self._downloads_open.clear()
 
     def release_downloads(self) -> None:
@@ -324,9 +334,22 @@ class FakeTelegram:
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
         return self._readable(chat_id).messages.get(ids)
 
+    async def _wait_until_released(self) -> None:
+        try:
+            await self._downloads_open.wait()
+        except asyncio.CancelledError:
+            late = self._late_outcome
+            if late is None:
+                raise
+            await self._downloads_open.wait()   # finish the chunk in flight first
+            raise late("transfer stopped late") from None
+
     async def download_media(self, message: FakeMessage, file: str | None = None,
                              progress_callback: Callable[[int, int], Any] | None = None) -> str:
-        await self._downloads_open.wait()
+        if self._hold_partial and not self._downloads_open.is_set():
+            with open(file, "wb") as fh:
+                fh.write(self.channels[message.chat_id].payloads[message.id][:1])
+        await self._wait_until_released()
         data = self.channels[message.chat_id].payloads[message.id]
         with open(file, "wb") as fh:
             fh.write(data)

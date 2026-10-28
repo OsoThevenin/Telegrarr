@@ -404,36 +404,21 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     ids = payload.get("ids", [])
     if action not in ("cancel", "retry", "delete"):
         raise _bad(400, "err.downloads.bad_action")
+    count = 0
     for i in ids:
-        await _single_action(action, int(i))
-    return {"ok": True, "count": len(ids)}
+        if await _single_action(action, int(i)):
+            count += 1
+    return {"ok": True, "count": count}
 
 
-async def _single_action(action: str, dl_id: int):
+async def _single_action(action: str, dl_id: int) -> bool:
+    """Apply ``action`` to one download; True if it acted on the row."""
     if action == "cancel":
-        scanner.cancel_download(dl_id)
-        return
-    with db.conn() as c:
-        row = c.execute("""SELECT d.*, c.chat_id FROM downloads d
-                           JOIN channels c ON c.id=d.channel_id WHERE d.id=?""",
-                        (dl_id,)).fetchone()
-    if not row:
-        return
-    if action == "delete":
-        with db.conn() as c:
-            c.execute("DELETE FROM downloads WHERE id=?", (dl_id,))
-        return
+        return scanner.cancel_download(dl_id)
     if action == "retry":
-        client = get_client()
-        if not client.is_connected():
-            await client.connect()
-        msg = await client.get_messages(row["chat_id"], ids=row["message_id"])
-        if msg:
-            with db.conn() as c:
-                c.execute("UPDATE downloads SET status='queued', error=NULL, progress=0, "
-                          "retry_count=0 WHERE id=?", (dl_id,))
-            scanner._spawn(scanner._run_download(client, row["channel_id"], msg,
-                                                 row["save_path"], row["group_key"]))
+        return await scanner.retry_download(dl_id) is None
+    with db.conn() as c:
+        return c.execute("DELETE FROM downloads WHERE id=?", (dl_id,)).rowcount > 0
 
 
 @app.post("/api/downloads/{dl_id}/cancel")
@@ -443,8 +428,8 @@ async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
 
 @app.post("/api/downloads/{dl_id}/retry")
 async def api_retry(dl_id: int, user=Depends(auth.require_user)):
-    await _single_action("retry", dl_id)
-    return {"ok": True}
+    reason = await scanner.retry_download(dl_id)
+    return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
 @app.delete("/api/downloads/{dl_id}")
@@ -675,18 +660,15 @@ async def newznab_nzb(id: str = "", apikey: str = ""):
 async def _sab_add(cid, mid):
     if not cid or not mid:
         return None
-    dlid = await scanner.grab_message(cid, mid)
-    return f"telearr{dlid}" if dlid else None
+    grabbed = await scanner.grab_message(cid, mid)
+    return arr.nzo_id(*grabbed) if grabbed else None
 
 
 def _sab_delete(nzo):
-    try:
-        dlid = int(str(nzo).replace("telearr", ""))
-    except (TypeError, ValueError):
-        return
-    scanner.cancel_download(dlid)
-    with db.conn() as c:
-        c.execute("UPDATE downloads SET status='cancelled' WHERE id=? AND status IN ('queued','downloading')", (dlid,))
+    """A queue or history delete (files are never deleted, whatever del_files says)."""
+    ref = arr.parse_nzo(nzo)
+    if ref is not None:
+        scanner.delete_for_arr(ref)
 
 
 async def _sab(request: Request):

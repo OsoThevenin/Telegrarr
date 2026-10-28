@@ -34,6 +34,34 @@ def test_legacy_db_is_migrated_and_keeps_rows(tmp_path, monkeypatch):
     assert row["fallback_quality"] == "1080p"
 
 
+def test_legacy_downloads_gain_the_arr_columns_and_keep_rows(tmp_path, monkeypatch):
+    from app import config, db
+    dbfile = str(tmp_path / "legacy.db")
+    with sqlite3.connect(dbfile) as c:   # a downloads table from before error keys, the flag and attempts
+        c.execute("""CREATE TABLE channels (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     chat_id INTEGER NOT NULL UNIQUE, title TEXT NOT NULL,
+                     kind TEXT NOT NULL DEFAULT 'tv', created_at INTEGER NOT NULL)""")
+        c.execute("""CREATE TABLE downloads (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     channel_id INTEGER NOT NULL, message_id INTEGER NOT NULL,
+                     file_unique_id TEXT, group_key TEXT, file_name TEXT, file_size INTEGER,
+                     save_path TEXT, status TEXT NOT NULL, error TEXT, progress REAL DEFAULT 0,
+                     speed_mbs REAL DEFAULT 0, started_at INTEGER, finished_at INTEGER,
+                     created_at INTEGER NOT NULL, UNIQUE(channel_id, message_id))""")
+        c.execute("""INSERT INTO downloads(channel_id,message_id,file_name,save_path,status,error,created_at)
+                     VALUES(1,7,'Old.S01E01.mkv','/tv/Old.S01E01.mkv','failed','boom',0)""")
+    monkeypatch.setattr(config, "DB_PATH", dbfile, raising=False)
+    monkeypatch.setattr(db, "DB_PATH", dbfile, raising=False)
+
+    db.init()
+    db.init()  # idempotent
+
+    with db.conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT * FROM downloads")]
+    assert len(rows) == 1
+    assert (rows[0]["arr_hidden"], rows[0]["attempt"]) == (0, 0)
+    assert (rows[0]["file_name"], rows[0]["status"], rows[0]["error"]) == ("Old.S01E01.mkv", "failed", "boom")
+
+
 def test_a_channel_stored_without_a_poll_interval_polls_at_the_floor(fresh_db):
     from app import config, db
     with db.conn() as c:
