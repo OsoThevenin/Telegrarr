@@ -2,7 +2,14 @@
 
 ## [Unreleased]
 
+## 1.0.2 — Retry, cancel, and series-year matching (2026-10-28)
+
 ### Fixed
+- Series releases now carry the show's premiere year before the episode tag
+  (`Anne.of.Green.Gables.1979.S01E07…`), so Sonarr matches a series whose title
+  includes the year (`Anne of Green Gables (1979)`) by name instead of only by id —
+  id-matched grabs can't auto-import. Newly mapped channels store the year
+  automatically; re-map an existing channel to backfill it.
 - Retry (single or bulk) re-queues only failed or cancelled downloads; a queued or
   downloading row is left alone instead of being reset to 0% and losing its Cancel.
   The UI says "Re-queued" only when something was, and bulk Retry reports how many.
