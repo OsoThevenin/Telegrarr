@@ -291,7 +291,10 @@ def quality_from_dims(width: int | None, height: int | None, fallback: str | Non
 
 LANGUAGE_TOKENS = {"cat": "CAT", "es": "SPA", "en": "ENG", "multi": "MULTI"}
 DEFAULT_LANGUAGE = "cat"
+RELEASE_SOURCE = "WEB-DL"
+RELEASE_CODEC = "x264"
 RELEASE_GROUP = "TELEGRARR"
+LEGACY_RELEASE_GROUP = "TELEARR"    # upstream's group, still in titles indexed before the rename
 
 
 def _episode_tag(season: int, episode: int, episode_end: int | None) -> str:
@@ -308,16 +311,21 @@ def _release_show(show_title: str) -> str:
 
 
 # What follows the series part of a TV release title: the episode tag (multi-episode
-# too) and everything after it, or, without one, [language.]quality.WEB-DL.x264-group.
-# Titles from before the language token (x264-TELEARR) match as well.
+# too) and everything after it, or, without one, [language.]quality.source.codec-group,
+# built from the tokens `release_name` writes. Titles from before the language token
+# (x264-TELEARR) match as well.
+_LANGUAGE = "|".join(map(re.escape, LANGUAGE_TOKENS.values()))
+_GROUP = f"{re.escape(RELEASE_GROUP)}|{re.escape(LEGACY_RELEASE_GROUP)}"
+_SOURCE_CODEC_GROUP = rf"{re.escape(RELEASE_SOURCE)}\.{re.escape(RELEASE_CODEC)}-(?:{_GROUP})"
 _TV_RELEASE_TAIL = re.compile(
     r"\.(?:S\d{2,}E\d{2,}(?:E\d{2,})*\..*"
-    rf"|(?:(?:{'|'.join(LANGUAGE_TOKENS.values())})\.)?[^.]+\.WEB-DL\.x264-[^.]+)$")
+    rf"|(?:(?:{_LANGUAGE})\.)?[^.]+\.{_SOURCE_CODEC_GROUP})$")
 
 
 def with_series_title(release_title: str, show_title: str) -> str:
     """A TV release title renamed to ``show_title``, keeping its episode tag, language
-    and quality tokens: "Show.2002.S01E01E02.CAT.1080p…" -> "Old.Show.1979.S01E01E02.CAT.1080p…".
+    and quality tokens:
+    "Show.2002.S01E01E02.CAT.1080p…" -> "Old.Show.1979.S01E01E02.CAT.1080p…".
     Unchanged when the title has no recognizable episode or quality part."""
     tail = _TV_RELEASE_TAIL.search(release_title or "")
     return _release_show(show_title) + tail.group(0) if tail else release_title
@@ -334,12 +342,12 @@ def release_name(show_title: str, season: int, episode: int, quality: str = "",
     lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
     if kind == "movie":
         # Movies: the year is the only episode-less tag (Title.2019.CAT...).
-        parts = [show, str(year or ""), lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
+        parts = [show, str(year or ""), lang, q, RELEASE_SOURCE, f"{RELEASE_CODEC}-{RELEASE_GROUP}"]
     else:
         # TV: no year of its own; a series title that carries one ("Old Show (1979)",
         # as Sonarr names it) keeps it, so Sonarr matches the release by name.
         parts = [show, _episode_tag(season, episode, episode_end),
-                 lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
+                 lang, q, RELEASE_SOURCE, f"{RELEASE_CODEC}-{RELEASE_GROUP}"]
     return ".".join(p for p in parts if p)
 
 
