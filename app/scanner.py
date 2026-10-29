@@ -12,7 +12,7 @@ import logging
 from enum import Enum
 from typing import Any, NamedTuple
 
-from . import db, plex, notify, settings, safety, resolver, movies, topic_errors
+from . import db, plex, notify, settings, safety, resolver, movies, topic_errors, series_titles
 from .arr import AttemptRef, category_for, hide_from_history, is_current_attempt
 from .i18n import message, translate
 from .tg import get_client, source_messages
@@ -211,11 +211,13 @@ def _show_title(channel) -> str:
     return channel["imdb_title"] or channel["title"]
 
 
-def _channel_year(channel) -> int | None:
-    """The mapped series' premiere year, or None when unknown or not stored yet
-    (older channels, or rows from before the column existed)."""
+def _tvdb_id(channel) -> int | None:
+    """A series channel's mapped TVDB id (None for movies, unmapped channels, or
+    rows from before the column existed)."""
+    if not _is_series(channel):
+        return None
     try:
-        return channel["year"]
+        return channel["tvdb_id"]
     except (KeyError, IndexError):
         return None
 
@@ -231,19 +233,23 @@ def _message_quality(channel, msg, parsed_quality):
     return quality_from_dims(width, height, fallback=parsed_quality or channel["fallback_quality"])
 
 
-def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
+def build_release(channel, msg, fn, *, episode: int | None = None,
+                  sonarr_title: str | None = None) -> dict:
     """What a Telegram media message is published as on the Newznab feed.
 
-    ``episode`` overrides the parsed episode number (a resolved two-part episode)."""
+    ``episode`` overrides the parsed episode number (a resolved two-part episode).
+    ``sonarr_title`` is Sonarr's own title for the series: it names a TV Release,
+    as is, so Sonarr matches it by name; without it the mapped title, then the
+    Channel title, with no year added."""
     info = _parse_episode(channel, msg, fn)
     if episode is not None:
         info = {**info, "episode": episode}
     season, episode = info.get("season") or 0, info.get("episode") or 0
     quality = _message_quality(channel, msg, info.get("quality"))
     show = _show_title(channel)
-    title = release_name(show, season, episode, quality or "", channel["kind"],
+    title = release_name(sonarr_title or show, season, episode, quality or "", channel["kind"],
                          language=channel["language"] or DEFAULT_LANGUAGE,
-                         episode_end=info.get("episode_end"), year=_channel_year(channel))
+                         episode_end=info.get("episode_end"))
     episode_title = extract_episode_title(msg.message or "", fn, season, episode,
                                           show_title=show, mapped=_is_mapped(channel),
                                           bare=_is_series(channel))
@@ -322,7 +328,8 @@ def _flat_path(channel, msg, fn):
     with db.conn() as c:
         row = c.execute("SELECT title FROM releases WHERE channel_id=? AND message_id=?",
                         (channel["id"], msg.id)).fetchone()
-    title = row["title"] if row else build_release(channel, msg, fn)["title"]
+    title = row["title"] if row else build_release(
+        channel, msg, fn, sonarr_title=series_titles.cached(_tvdb_id(channel)))["title"]
     return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
 
 
@@ -345,7 +352,9 @@ async def build_resolved_release(channel, msg, fn) -> dict:
 
     Adds ``parsed_episode`` (the channel's number) and ``episode_source`` (where
     the published number came from); both None when nothing was resolved."""
-    rel = {**build_release(channel, msg, fn), "parsed_episode": None, "episode_source": None}
+    sonarr_title = await series_titles.sonarr_title(_tvdb_id(channel))
+    rel = {**build_release(channel, msg, fn, sonarr_title=sonarr_title),
+           "parsed_episode": None, "episode_source": None}
     if not _is_mapped_series(channel):
         return rel
     found = await resolver.resolve_part(tmdb_id=channel["tmdb_id"], tvdb_id=channel["tvdb_id"],
@@ -354,7 +363,8 @@ async def build_resolved_release(channel, msg, fn) -> dict:
     if found is None:
         return rel
     _log_resolution(channel, rel, found)
-    resolved = rel if found.episode == rel["episode"] else build_release(channel, msg, fn, episode=found.episode)
+    resolved = rel if found.episode == rel["episode"] else build_release(
+        channel, msg, fn, episode=found.episode, sonarr_title=sonarr_title)
     return {**resolved, "parsed_episode": rel["episode"], "episode_source": found.source}
 
 

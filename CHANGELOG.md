@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- TV Releases are named with Sonarr's own series title for the mapped TVDB id
+  (`Example.Show.S05E26…`, `Old.Show.1979.S01E07…` for *Old Show (1979)*), so Sonarr
+  matches a Grab by name and imports it automatically. The TMDB premiere year is no
+  longer added to TV Release titles. When Sonarr is unreachable, not configured or
+  doesn't have the series, the mapped title (then the Channel title) is used, with no
+  year. Sonarr's title is cached per TVDB id and refreshed when the Channel is remapped.
+  Already-indexed Releases keep their titles.
+
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 
 ### Added

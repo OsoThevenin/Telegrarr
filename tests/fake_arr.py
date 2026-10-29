@@ -55,7 +55,8 @@ class FakeArr:
     api: str            # "/api/v1" | "/api/v3"
     providers: list[dict] = field(default_factory=list)       # indexers or download clients
     requests: list[httpx.Request] = field(default_factory=list)
-    series: list[dict] = field(default_factory=list)           # sonarr only
+    # sonarr only: Sonarr's GET /series JSON (id, tvdbId, title, year, cleanTitle)
+    series: list[dict] = field(default_factory=list)
     episodes: list[dict] = field(default_factory=list)         # sonarr only
     reject_create: str | None = None                            # validation error on POST
     # radarr only: Radarr JSON shapes ({"id", "name"} / {"id", "path", "freeSpace"})
