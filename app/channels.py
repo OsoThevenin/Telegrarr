@@ -3,7 +3,7 @@
 # channels the same way.
 import time
 
-from . import db, settings, tmdb
+from . import db, release_titles, series_titles, settings, tmdb
 from .namer import DEFAULT_LANGUAGE, DEFAULT_FALLBACK_QUALITY
 
 ALL_WEEKDAYS = "0,1,2,3,4,5,6"
@@ -102,19 +102,28 @@ def upsert(chat_id: int, title: str, *, kind: str = "tv", weekdays: str = ALL_WE
         return dict(c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone())
 
 
-def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
-    """Store derived series ids on channel `cid` (display title: `title`, else TMDB's)."""
+async def remap(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
+    """Store series ids on channel `cid` (display title: `title`, else TMDB's) and
+    retitle its already-indexed Releases after the series it is now mapped to.
+
+    Sonarr's cached series title is dropped for the old and new TVDB ids first, so
+    Releases are named after what Sonarr calls the series now."""
     display = (title or "").strip() or ids.title
     with db.conn() as c:
+        before = c.execute("SELECT tvdb_id FROM channels WHERE id=?", (cid,)).fetchone()
         c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?, year=?,
                      imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
                   (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, ids.year, display, cid))
         row = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
-    return dict(row) if row else None
+    series_titles.forget(before["tvdb_id"] if before else None, ids.tvdb_id)
+    if row is None:
+        return None
+    await release_titles.retitle_channel(row)
+    return dict(row)
 
 
 async def map_series(cid: int, *, tmdb_id=None, tvdb_id=None, title: str = "") -> dict | None:
     """Map channel `cid` to its series: derive TVDB/TMDB/IMDb ids via TMDB (a typed
-    TVDB id wins) and store them. Returns the updated row, or None if the channel
-    does not exist. Raises tmdb.TMDBError when the ids cannot be derived."""
-    return store_series_ids(cid, await tmdb.series_ids(tmdb_id, tvdb_id), title)
+    TVDB id wins), store them and retitle its Releases. Returns the updated row, or
+    None if the channel does not exist. Raises tmdb.TMDBError when the ids cannot be derived."""
+    return await remap(cid, await tmdb.series_ids(tmdb_id, tvdb_id), title)

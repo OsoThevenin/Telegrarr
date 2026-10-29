@@ -125,6 +125,23 @@ async def test_rows_come_newest_first_with_unidentified_messages_among_the_films
 
 
 @pytest.mark.asyncio
+async def test_rows_follow_post_order_even_when_a_scan_crosses_a_second(arr_app, films):
+    from app import db
+
+    channel = await _movie_channel(arr_app)
+    arr_app.telegram.post(MOVIE_CHAT, text="Pa negre (2010)", file_name="Pa_negre_2010_720p.mkv")
+    arr_app.telegram.post(MOVIE_CHAT, text="", file_name="La.casa.del.llac.CAT.1080p.mkv")
+    arr_app.telegram.post(MOVIE_CHAT, text="La teoria del tot (2014)", file_name="La.teoria.del.tot.2014.1080p.mkv")
+    await arr_app.scan(channel["id"])
+    with db.conn() as c:     # the oldest post was indexed a second after the others
+        c.execute("UPDATE releases SET added_at=added_at+1 WHERE movie_tmdb_id=?", (PA_NEGRE_TMDB,))
+
+    catalog = await _catalog(arr_app, channel["id"])
+
+    assert [r.get("tmdb_id") for r in catalog["rows"]] == [THEORY_TMDB, None, PA_NEGRE_TMDB]
+
+
+@pytest.mark.asyncio
 async def test_a_discarded_review_message_is_not_in_the_catalog(arr_app, films):
     channel = await _movie_channel(arr_app)
     unknown = arr_app.telegram.post(MOVIE_CHAT, text="", file_name="La.casa.del.llac.mkv")

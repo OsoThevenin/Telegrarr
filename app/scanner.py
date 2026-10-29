@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 from . import db, plex, notify, settings, safety, resolver, movies, topic_errors
 from .arr import AttemptRef, category_for, hide_from_history, is_current_attempt
 from .i18n import message, translate
+from .series_titles import cached_series_name, display_title, is_tv, series_name
 from .tg import get_client, source_messages
 from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
@@ -192,32 +193,15 @@ def _video_dims(doc) -> tuple[int | None, int | None]:
     return None, None
 
 
-def _is_series(channel) -> bool:
-    return channel["kind"] != "movie"
-
-
 def _parse_episode(channel, msg, fn) -> dict:
     """Episode info of a message (see ``message_episode`` for file name vs caption).
 
     Series channels also take a bare number in the file name, and an episode
     without a season goes to season 1 (season 0 is Sonarr's specials)."""
-    info = message_episode(msg.message, fn, bare=_is_series(channel))
-    if _is_series(channel) and info["episode"] and not info["season"]:
+    info = message_episode(msg.message, fn, bare=is_tv(channel))
+    if is_tv(channel) and info["episode"] and not info["season"]:
         return {**info, "season": DEFAULT_SEASON}
     return info
-
-
-def _show_title(channel) -> str:
-    return channel["imdb_title"] or channel["title"]
-
-
-def _channel_year(channel) -> int | None:
-    """The mapped series' premiere year, or None when unknown or not stored yet
-    (older channels, or rows from before the column existed)."""
-    try:
-        return channel["year"]
-    except (KeyError, IndexError):
-        return None
 
 
 def _is_mapped(channel) -> bool:
@@ -231,33 +215,37 @@ def _message_quality(channel, msg, parsed_quality):
     return quality_from_dims(width, height, fallback=parsed_quality or channel["fallback_quality"])
 
 
-def build_release(channel, msg, fn, *, episode: int | None = None) -> dict:
+def build_release(channel, msg, fn, *, episode: int | None = None,
+                  series_name: str | None = None) -> dict:
     """What a Telegram media message is published as on the Newznab feed.
 
-    ``episode`` overrides the parsed episode number (a resolved two-part episode)."""
+    ``episode`` overrides the parsed episode number (a resolved two-part episode).
+    ``series_name`` starts the title (see `series_titles.series_name`); by default
+    it is taken from the cache, without asking Sonarr."""
     info = _parse_episode(channel, msg, fn)
     if episode is not None:
         info = {**info, "episode": episode}
     season, episode = info.get("season") or 0, info.get("episode") or 0
     quality = _message_quality(channel, msg, info.get("quality"))
-    show = _show_title(channel)
-    title = release_name(show, season, episode, quality or "", channel["kind"],
+    show = display_title(channel)
+    title = release_name(series_name or cached_series_name(channel), season, episode,
+                         quality or "", channel["kind"],
                          language=channel["language"] or DEFAULT_LANGUAGE,
-                         episode_end=info.get("episode_end"), year=_channel_year(channel))
+                         episode_end=info.get("episode_end"))
     episode_title = extract_episode_title(msg.message or "", fn, season, episode,
                                           show_title=show, mapped=_is_mapped(channel),
-                                          bare=_is_series(channel))
+                                          bare=is_tv(channel))
     return {"title": title, "season": info.get("season"), "episode": info.get("episode"),
             "episode_end": info.get("episode_end"), "quality": quality, "episode_title": episode_title}
 
 
 def _resolve_path(channel, msg, fn):
     info = _parse_episode(channel, msg, fn)
-    show = _show_title(channel)
+    show = display_title(channel)
     ep_title = extract_episode_title(msg.message or "", fn,
                                      info.get("season") or 0,
                                      info.get("episode") or 0, show_title=show,
-                                     mapped=_is_mapped(channel), bare=_is_series(channel))
+                                     mapped=_is_mapped(channel), bare=is_tv(channel))
     base = base_dir_for(channel, info.get("quality"))
     return build_save_path(base, show, info.get("season") or 0,
                            info.get("episode") or 0, fn, ep_title)
@@ -345,7 +333,9 @@ async def build_resolved_release(channel, msg, fn) -> dict:
 
     Adds ``parsed_episode`` (the channel's number) and ``episode_source`` (where
     the published number came from); both None when nothing was resolved."""
-    rel = {**build_release(channel, msg, fn), "parsed_episode": None, "episode_source": None}
+    name = await series_name(channel)
+    rel = {**build_release(channel, msg, fn, series_name=name),
+           "parsed_episode": None, "episode_source": None}
     if not _is_mapped_series(channel):
         return rel
     found = await resolver.resolve_part(tmdb_id=channel["tmdb_id"], tvdb_id=channel["tvdb_id"],
@@ -354,7 +344,8 @@ async def build_resolved_release(channel, msg, fn) -> dict:
     if found is None:
         return rel
     _log_resolution(channel, rel, found)
-    resolved = rel if found.episode == rel["episode"] else build_release(channel, msg, fn, episode=found.episode)
+    resolved = rel if found.episode == rel["episode"] else build_release(
+        channel, msg, fn, episode=found.episode, series_name=name)
     return {**resolved, "parsed_episode": rel["episode"], "episode_source": found.source}
 
 
@@ -388,7 +379,7 @@ def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
 
 async def _index_release(channel, msg, size, fn, gk) -> bool:
     """Index a seen media item for Newznab. False when it is not offered (pending review)."""
-    if channel["kind"] == "movie":
+    if not is_tv(channel):
         return await movies.index_message(posted_film(channel, msg, size, fn, gk))
     await _record_release(channel, msg, size, fn, gk)
     return True

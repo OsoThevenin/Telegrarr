@@ -27,6 +27,8 @@ the web UI and JSON API **and** runs the background scanner in the same event lo
 | `app/notify.py` | Fire-and-forget completion notifications: a generic webhook (Discord/Slack-compatible JSON) **and** a rich Telegram Saved-Messages DM (poster image downloaded and sent as a photo, plus an "Open in Plex" deep link). Includes a `test()`. |
 | `app/tmdb.py` | Poster/backdrop art resolver. Prefers TMDB when an API key is set (server-side proxy, so the key never reaches the browser) and falls back to the keyless IMDb suggestion API otherwise; returns poster, backdrop, overview, year, and rating. Includes a `test(key)` that validates a supplied key. |
 | `app/arr.py` *(2.1.0 integration layer)* | The \*arr bridge. Serves the Newznab-compatible indexer API and the SABnzbd-compatible download-client API, translating Telegram messages into "releases" and \*arr grabs into downloads on the existing scanner/downloader pipeline. See [ARR_INTEGRATION.md](ARR_INTEGRATION.md). |
+| `app/series_titles.py` | The series name a TV Channel's Release titles start with: Sonarr's own title for the mapped TVDB id (cached in `sonarr_titles`), else the mapped or Channel title without a trailing year. Also the shared `is_tv` predicate. |
+| `app/release_titles.py` | Retitles already-indexed TV Releases (series part only, episode/language/quality tokens kept) when a Channel is remapped and once at startup; the startup pass skips a Channel when Sonarr gives no title. Logs each retitle to Activity. |
 | `app/main.py` | The FastAPI app. Wires the lifespan (DB init, admin seed, Telegram connect, scanner start, graceful shutdown), serves the web pages and static assets, and exposes the JSON API (status, channels, downloads, IMDb search, logs, settings, account, queue control, integration tests). Adds the **SSE stream** (`/api/events`, pushing a live status/downloads snapshot), the **art proxy** (`/api/art`), and the **Telegram onboarding endpoints** (`/api/telegram/*` — auth status, send-code, sign-in, dialogs, resolve). |
 
 ## Data flow
@@ -115,7 +117,11 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
   media, mapping a synthetic release id/GUID to a `(channel_id, message_id)` so that
   a Newznab search result can be resolved back to a Telegram message when the
   matching SABnzbd grab arrives. Lets the indexer and download-client APIs share a
-  stable handle for each release.
+  stable handle for each release. Its `title` is the Release title, which also
+  names the SAB job; TV titles follow `app/series_titles.py`.
+- **`sonarr_titles`** — Sonarr's series title per `tvdb_id` (`title` NULL: Sonarr
+  had none; such a miss is retried after a few minutes), with `fetched_at`.
+  Dropped for the old and new TVDB ids when a Channel is remapped.
 
 Indexes: `idx_dl_chan_gk` on `downloads(channel_id, group_key)`, `idx_dl_status` on
 `downloads(status)`, `idx_logs_chan_id` on `logs(channel_id, id)`.

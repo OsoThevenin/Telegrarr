@@ -275,7 +275,8 @@ async def _import_one(item: ImportItem, added: dict[int, int], poll: int) -> dic
     row = channels.upsert(item.chat_id, item.title or f"Channel {item.chat_id}", kind="tv", poll_minutes=poll)
     if mapped:
         # display title: the picked match, else TMDB's, else the cleaned channel title
-        row = channels.store_series_ids(row["id"], ids, item.series_title or ids.title or tmdb_query(item.title))
+        display = item.series_title or ids.title or tmdb_query(item.title)
+        row = await channels.remap(row["id"], ids, display)
     return {**base, "status": "added", "channel_id": row["id"], "channel": row}
 
 

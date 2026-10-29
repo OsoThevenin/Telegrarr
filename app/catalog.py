@@ -27,7 +27,7 @@
 import time
 from datetime import datetime
 
-from . import channels, connect, db, tmdb
+from . import channels, connect, db, series_titles, tmdb
 from .i18n import KeyedError, message
 from .movies import STATUS_PENDING
 from .namer import CHANNEL_QUALITIES, DEFAULT_LANGUAGE, LANGUAGE_TOKENS, QUALITY_SD
@@ -91,8 +91,10 @@ def _language(channel: dict) -> str:
     return LANGUAGE_TOKENS.get(channel["language"] or DEFAULT_LANGUAGE, default)
 
 
-def _newest(row) -> tuple[int, int]:
-    return row["added_at"] or 0, row["message_id"]
+def _newest(row) -> int:
+    """Post order: a Channel is one chat, whose message ids grow with time. Indexing time
+    (`added_at`) would reorder rows whenever a scan crosses a second."""
+    return row["message_id"]
 
 
 def _best_first(releases: list) -> list:
@@ -152,7 +154,7 @@ def build(cid: int) -> dict:
     channel = channels.get(cid)
     if channel is None:
         raise UnknownChannel(cid)
-    if channel["kind"] != "movie":
+    if series_titles.is_tv(channel):
         raise NotMovieChannel()
     language = _language(channel)
     releases, pending = _stored(cid)

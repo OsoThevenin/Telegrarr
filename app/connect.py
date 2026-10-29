@@ -170,12 +170,30 @@ async def register_all(me: Telegrarr) -> list[dict]:
     return [await _register_one(app, me) for app in APP_TITLES]
 
 
-# ── Sonarr episode list ───────────────────────────────────────────────
+# ── Sonarr series and episode list ──────────────────────────────────
 @dataclass(frozen=True)
 class Episode:
     season: int
     episode: int
     title: str
+
+
+async def _sonarr_series(target: ArrApp, tvdb_id: int) -> list[dict]:
+    """Sonarr's series entries for ``tvdb_id`` (objects only); raises ArrError."""
+    found = await _request(target, "GET", "/series", params={"tvdbId": tvdb_id})
+    if not isinstance(found, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return [s for s in found if isinstance(s, dict)]
+
+
+async def sonarr_series_title(tvdb_id: int) -> str | None:
+    """Sonarr's own title for the series with ``tvdb_id`` (e.g. "Old Show (1979)"),
+    or None when Sonarr does not have the series. Raises ArrError when Sonarr is
+    not configured or the request fails."""
+    series = await _sonarr_series(configured("sonarr"), tvdb_id)
+    title = next((str(s.get("title") or "").strip()
+                  for s in series if s.get("tvdbId") == tvdb_id), "")
+    return title or None
 
 
 async def sonarr_episodes(tvdb_id: int, season: int) -> list[Episode]:
@@ -185,7 +203,7 @@ async def sonarr_episodes(tvdb_id: int, season: int) -> list[Episode]:
     configured or the request fails, so callers can fall back to another source.
     """
     target = configured("sonarr")
-    series = await _request(target, "GET", "/series", params={"tvdbId": tvdb_id})
+    series = await _sonarr_series(target, tvdb_id)
     if not series:
         return []
     rows = await _request(target, "GET", "/episode",
