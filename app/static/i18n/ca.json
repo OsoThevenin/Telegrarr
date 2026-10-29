@@ -274,6 +274,7 @@
  "event.backup_deleted": "Còpia de seguretat eliminada: {name}",
  "event.part_kept": "Part no trobada a TMDB/Sonarr; es manté la numeració del canal: {marker}",
  "event.part_resolved": "Part resolta: {marker} → {episode} ({source})",
+ "event.releases_retitled": "S’han reanomenat {count} publicacions com a {show}",
  "event.queued": "A la cua: {file} ({size} GB) → {path}",
  "event.retry_fetch_failed": "Reintent automàtic: no s'ha pogut obtenir el missatge {message_id}: {error}",
  "event.auto_retry": "Reintent automàtic {n}/{max}: {file}",

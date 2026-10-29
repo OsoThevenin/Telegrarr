@@ -19,13 +19,15 @@ MOVIE_FILE = "pelicula.mkv"
 
 async def _grab(arr_app, chat_id: int, kind: str, title: str, *, text: str, file_name: str,
                 query: str) -> tuple[str, str]:
-    """Publish one post, search for it as Sonarr/Radarr would and Grab it: (release title, nzo_id)."""
+    """Publish one post, search for it as Sonarr/Radarr would and Grab it:
+    (release title, nzo_id)."""
     arr_app.telegram.add_channel(chat_id, title)
     arr_app.telegram.post(chat_id, text=text, file_name=file_name, content=b"x" * 512)
     channel = await arr_app.add_channel(chat_id, kind=kind)
     await arr_app.scan(channel["id"])
     t = "tvsearch" if kind == "tv" else "movie"
-    feed = await arr_app.http.get("/api/newznab", params={"t": t, "apikey": arr_app.apikey, "q": query})
+    feed = await arr_app.http.get("/api/newznab", params={"t": t, "apikey": arr_app.apikey,
+                                                          "q": query})
     item = ET.fromstring(feed.raise_for_status().text).find("./channel/item")
     release, url = item.find("title").text, item.find("enclosure").attrib["url"]
     added = await arr_app.sab(mode="addurl", name=url, cat="tv" if kind == "tv" else "movies")
@@ -38,7 +40,8 @@ async def _grab_tv(arr_app) -> tuple[str, str]:
 
 
 async def _grab_movie(arr_app, fake_tmdb) -> tuple[str, str]:
-    fake_tmdb.add_movie(50797, titles={"ca-ES": "Pa negre", "en-US": "Pa negre"}, release_date="2010-10-15")
+    fake_tmdb.add_movie(50797, titles={"ca-ES": "Pa negre", "en-US": "Pa negre"},
+                        release_date="2010-10-15")
     (await arr_app.http.patch("/api/settings", json={"tmdb_key": TMDB_KEY})).raise_for_status()
     return await _grab(arr_app, MOVIE_CHAT, "movie", "Pa negre", text="Pa negre (2010) 1080p",
                        file_name=MOVIE_FILE, query="pa negre")

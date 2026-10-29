@@ -3,50 +3,75 @@
 # Release titles are stored at scan time. When a TV Channel is remapped, or the
 # naming changed since a Release was indexed (the TMDB year once preceded the
 # episode tag), its stored titles are renamed to the series name a new Release
-# would get now (Sonarr's title, else the mapped title, else the Channel title).
-# Only the series part changes: the episode tag (E01E02), language and quality
-# tokens are kept, so nothing is re-read from Telegram. Movie Releases are left alone.
+# would get now (see `series_titles.series_name`). Only the series part changes:
+# the episode tag (E01E02), language and quality tokens are kept, so nothing is
+# re-read from Telegram. Movie Releases are left alone.
 import logging
+from typing import NamedTuple
 
-from . import db, scanner, series_titles
+from . import db, series_titles
+from .i18n import message
 from .namer import with_series_title
 
 log = logging.getLogger("release_titles")
 
 
-def _is_tv(channel) -> bool:
-    return (channel["kind"] or "tv") != "movie"
+class Retitle(NamedTuple):
+    """One stored Release title to rename (field order matches the UPDATE)."""
+    new_title: str
+    channel_id: int
+    message_id: int
+    old_title: str
 
 
-def _renamed(channel_id: int, show: str) -> list[tuple[str, int, int, str]]:
-    """(new title, channel id, message id, old title) for every Release whose title changes."""
+def _renamed(channel_id: int, show: str) -> list[Retitle]:
+    """Every Release of the Channel whose title changes when named after ``show``."""
     with db.conn() as c:
-        rows = c.execute("SELECT message_id, title FROM releases WHERE channel_id=?", (channel_id,)).fetchall()
-    renamed = ((with_series_title(r["title"], show), r["message_id"], r["title"]) for r in rows)
-    return [(new, channel_id, mid, old) for new, mid, old in renamed if new != old]
+        rows = c.execute("SELECT message_id, title FROM releases WHERE channel_id=?",
+                         (channel_id,)).fetchall()
+    changes = (Retitle(with_series_title(r["title"], show), channel_id, r["message_id"], r["title"])
+               for r in rows)
+    return [ch for ch in changes if ch.new_title != ch.old_title]
+
+
+def _apply(channel_id: int, show: str) -> int:
+    changes = _renamed(channel_id, show)
+    if not changes:
+        return 0
+    with db.conn() as c:
+        # a scan may have re-indexed a Release meanwhile: only rename the title we read
+        c.executemany("UPDATE releases SET title=? WHERE channel_id=? AND message_id=? AND title=?",
+                      changes)
+    db.log("INFO", message("event.releases_retitled", count=len(changes), show=show),
+           channel_id=channel_id)
+    return len(changes)
 
 
 async def retitle_channel(channel) -> int:
-    """Rename a TV Channel's indexed Releases to its current series name; returns how
+    """Rename a remapped TV Channel's indexed Releases to its current series name,
+    falling back without Sonarr (the old titles name the wrong series). Returns how
     many titles changed (0 for a movie Channel)."""
-    if not _is_tv(channel):
+    if not series_titles.is_tv(channel):
         return 0
-    show = scanner.release_show(channel, await series_titles.sonarr_title(scanner.series_tvdb_id(channel)))
-    changes = _renamed(channel["id"], show)
-    if changes:
-        with db.conn() as c:
-            # a scan may have re-indexed a Release meanwhile: only rename the title we read
-            c.executemany("UPDATE releases SET title=? WHERE channel_id=? AND message_id=? AND title=?", changes)
-        log.info("Retitled %d Release(s) of channel %s as %s", len(changes), channel["id"], show)
-    return len(changes)
+    return _apply(channel["id"], await series_titles.series_name(channel))
+
+
+async def _refresh_channel(channel) -> int:
+    """Rename a TV Channel's Releases to Sonarr's title; left as they are when Sonarr
+    gives none (down, still booting, or without the series), since the fallback
+    could undo a correct title."""
+    title = await series_titles.sonarr_title(series_titles.series_tvdb_id(channel))
+    return _apply(channel["id"], title) if title else 0
 
 
 async def refresh_all() -> int:
     """Retitle every TV Channel's Releases (run at startup; a second run changes
     nothing). Returns how many titles changed."""
     with db.conn() as c:
-        tv_channels = [dict(r) for r in c.execute("SELECT * FROM channels WHERE IFNULL(kind, 'tv') != 'movie'")]
-    return sum([await retitle_channel(ch) for ch in tv_channels])
+        # same rule as series_titles.is_tv
+        tv_channels = [dict(r) for r in c.execute(
+            "SELECT * FROM channels WHERE IFNULL(kind, 'tv') != 'movie'")]
+    return sum([await _refresh_channel(ch) for ch in tv_channels])
 
 
 async def refresh_at_startup() -> None:

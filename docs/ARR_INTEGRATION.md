@@ -110,7 +110,21 @@ test means Telegrarr responded as a SABnzbd client.
    dedup, and naming as an organic scan.
 4. **Report & import.** Telegrarr reports queue/history status back through the
    SABnzbd endpoints. When the file completes, it lands in the library where the
-   \*arr app expects it, and Sonarr/Radarr imports it as usual.
+   \*arr app expects it, and Sonarr/Radarr imports it as usual. Each SAB job is
+   named after its Release title, as a real SABnzbd names a job after its NZB.
+
+### TV Release titles
+
+A TV Release title starts with **Sonarr's own series title** for the Channel's
+mapped TVDB id, as is (`Example.Show.S05E26…`, `Old.Show.1979.S01E07…` for
+*Old Show (1979)*), so Sonarr matches the Grab by name and imports it on its own.
+When Sonarr is unreachable, not configured or lacks the series, the mapped title
+(then the Channel title) is used, without a trailing year. Sonarr's title is
+cached per TVDB id (`sonarr_titles`) and refreshed when the Channel is remapped.
+
+Already-indexed Releases are retitled when a TV Channel is remapped, and once at
+startup. The startup refresh only uses Sonarr's title: while Sonarr is down it
+leaves titles as they are.
 
 ---
 

@@ -290,7 +290,8 @@ def sab_config():
 # A job's row: the download, its source's kind and the indexed Release title (if any).
 _JOB_SELECT = """SELECT d.*, ch.kind, rel.title AS release_title FROM downloads d
                  JOIN channels ch ON ch.id = d.channel_id
-                 LEFT JOIN releases rel ON rel.channel_id = d.channel_id AND rel.message_id = d.message_id"""
+                 LEFT JOIN releases rel
+                   ON rel.channel_id = d.channel_id AND rel.message_id = d.message_id"""
 
 
 def job_name(r) -> str:

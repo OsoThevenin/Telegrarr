@@ -170,7 +170,7 @@ async def register_all(me: Telegrarr) -> list[dict]:
     return [await _register_one(app, me) for app in APP_TITLES]
 
 
-# ── Sonarr series and episode list ────────────────────────────────────
+# ── Sonarr series and episode list ──────────────────────────────────
 @dataclass(frozen=True)
 class Episode:
     season: int
@@ -191,7 +191,8 @@ async def sonarr_series_title(tvdb_id: int) -> str | None:
     or None when Sonarr does not have the series. Raises ArrError when Sonarr is
     not configured or the request fails."""
     series = await _sonarr_series(configured("sonarr"), tvdb_id)
-    title = next((str(s.get("title") or "").strip() for s in series if s.get("tvdbId") == tvdb_id), "")
+    title = next((str(s.get("title") or "").strip()
+                  for s in series if s.get("tvdbId") == tvdb_id), "")
     return title or None
 
 
