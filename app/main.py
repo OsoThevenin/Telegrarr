@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
+from . import release_titles
 from . import i18n
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
@@ -45,8 +46,11 @@ async def lifespan(app: FastAPI):
             db.log("ERROR", i18n.message("event.tg_not_authorized"))
     except Exception as e:
         db.log("ERROR", i18n.message("event.tg_connect_failed", error=str(e)))
+    # Not awaited: retitling may wait on Sonarr, which must not delay startup.
+    retitle = asyncio.create_task(release_titles.refresh_at_startup())
     scanner.start_background()
     yield
+    retitle.cancel()
     # graceful shutdown: requeue anything in flight so it resumes next boot
     scanner.begin_shutdown()
     with contextlib.suppress(Exception):

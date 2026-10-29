@@ -9,7 +9,12 @@
   longer added to TV Release titles. When Sonarr is unreachable, not configured or
   doesn't have the series, the mapped title (then the Channel title) is used, with no
   year. Sonarr's title is cached per TVDB id and refreshed when the Channel is remapped.
-  Already-indexed Releases keep their titles.
+- Already-indexed TV Releases are retitled too: remapping a TV Channel renames its
+  Releases after the series it is now mapped to, and a refresh at startup renames
+  Releases indexed under the old naming (`Example.Show.2002.S05E26…` becomes
+  `Example.Show.S05E26…`). Only the series part changes, so multi-episode tags
+  (`E01E02`), language and quality are kept and Telegram is not re-read. Movie
+  Releases are not touched.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 
