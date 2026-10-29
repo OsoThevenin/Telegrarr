@@ -287,9 +287,23 @@ def sab_config():
     }}
 
 
+# A job's row: the download, its source's kind and the indexed Release title (if any).
+_JOB_SELECT = """SELECT d.*, ch.kind, rel.title AS release_title FROM downloads d
+                 JOIN channels ch ON ch.id = d.channel_id
+                 LEFT JOIN releases rel ON rel.channel_id = d.channel_id AND rel.message_id = d.message_id"""
+
+
+def job_name(r) -> str:
+    """The SAB job name: the Release title, as a real SABnzbd names a job after its NZB.
+
+    Sonarr parses it to tie the download to a series, so a bare file basename would not
+    do; it is only the fallback for downloads with no indexed release."""
+    return r["release_title"] or (r["save_path"] or r["file_name"] or "").split("/")[-1]
+
+
 def sab_queue():
     with db.conn() as c:
-        rows = c.execute("""SELECT d.*, ch.kind FROM downloads d JOIN channels ch ON ch.id = d.channel_id
+        rows = c.execute(f"""{_JOB_SELECT}
                             WHERE d.status IN ('downloading','queued') ORDER BY d.id""").fetchall()
     slots = []
     for r in rows:
@@ -298,7 +312,7 @@ def sab_queue():
         left = size * (1 - prog)
         slots.append({
             "nzo_id": nzo_id(r["id"], r["attempt"]),
-            "filename": (r["save_path"] or r["file_name"] or "").split("/")[-1],
+            "filename": job_name(r),
             "cat": category_for(r["kind"]),
             "storage": storage_path(r["save_path"]),
             "status": "Downloading" if r["status"] == "downloading" else "Queued",
@@ -314,8 +328,7 @@ def sab_queue():
 
 def sab_history(limit=100):
     with db.conn() as c:
-        rows = c.execute(f"""SELECT d.*, ch.kind FROM downloads d
-                             JOIN channels ch ON ch.id = d.channel_id
+        rows = c.execute(f"""{_JOB_SELECT}
                              WHERE d.status IN ({db.placeholders(db.HISTORY_STATUSES)})
                                AND d.arr_hidden = 0
                              ORDER BY d.id DESC LIMIT ?""",
@@ -324,7 +337,7 @@ def sab_history(limit=100):
     for r in rows:
         ok = r["status"] == "completed"
         storage = storage_path(r["save_path"])
-        name = (r["save_path"] or r["file_name"] or "").split("/")[-1]
+        name = job_name(r)
         slots.append({
             "nzo_id": nzo_id(r["id"], r["attempt"]),
             "name": name, "nzb_name": r["file_name"] or name,
