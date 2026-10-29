@@ -91,8 +91,10 @@ def _language(channel: dict) -> str:
     return LANGUAGE_TOKENS.get(channel["language"] or DEFAULT_LANGUAGE, default)
 
 
-def _newest(row) -> tuple[int, int]:
-    return row["added_at"] or 0, row["message_id"]
+def _newest(row) -> int:
+    """Post order: a Channel is one chat, whose message ids grow with time. Indexing time
+    (`added_at`) would reorder rows whenever a scan crosses a second."""
+    return row["message_id"]
 
 
 def _best_first(releases: list) -> list:
