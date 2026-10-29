@@ -7,14 +7,18 @@
   (`Example.Show.S05E26…`, `Old.Show.1979.S01E07…` for *Old Show (1979)*), so Sonarr
   matches a Grab by name and imports it automatically. The TMDB premiere year is no
   longer added to TV Release titles. When Sonarr is unreachable, not configured or
-  doesn't have the series, the mapped title (then the Channel title) is used, with no
-  year. Sonarr's title is cached per TVDB id and refreshed when the Channel is remapped.
+  doesn't have the series, the mapped title (then the Channel title) is used, with a
+  trailing year such as "(2011)" dropped. Sonarr's title is cached per TVDB id and
+  refreshed when the Channel is remapped.
 - Already-indexed TV Releases are retitled too: remapping a TV Channel renames its
   Releases after the series it is now mapped to, and a refresh at startup renames
   Releases indexed under the old naming (`Example.Show.2002.S05E26…` becomes
   `Example.Show.S05E26…`). Only the series part changes, so multi-episode tags
   (`E01E02`), language and quality are kept and Telegram is not re-read. Movie
-  Releases are not touched.
+  Releases are not touched. The startup refresh leaves a Channel's titles alone
+  while Sonarr gives no title for it, and each retitle is logged to Activity.
+- SAB queue and history jobs are named after their Release title (as a real SABnzbd
+  names a job after its NZB), not the file name, so Sonarr ties them to the series.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 
