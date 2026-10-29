@@ -3,7 +3,7 @@
 # channels the same way.
 import time
 
-from . import db, series_titles, settings, tmdb
+from . import db, release_titles, series_titles, settings, tmdb
 from .namer import DEFAULT_LANGUAGE, DEFAULT_FALLBACK_QUALITY
 
 ALL_WEEKDAYS = "0,1,2,3,4,5,6"
@@ -118,8 +118,17 @@ def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | N
     return dict(row) if row else None
 
 
+async def remap(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
+    """Store series ids on channel `cid` (see `store_series_ids`) and retitle its
+    already-indexed Releases after the series it is now mapped to."""
+    row = store_series_ids(cid, ids, title)
+    if row:
+        await release_titles.retitle_channel(row)
+    return row
+
+
 async def map_series(cid: int, *, tmdb_id=None, tvdb_id=None, title: str = "") -> dict | None:
     """Map channel `cid` to its series: derive TVDB/TMDB/IMDb ids via TMDB (a typed
-    TVDB id wins) and store them. Returns the updated row, or None if the channel
-    does not exist. Raises tmdb.TMDBError when the ids cannot be derived."""
-    return store_series_ids(cid, await tmdb.series_ids(tmdb_id, tvdb_id), title)
+    TVDB id wins), store them and retitle its Releases. Returns the updated row, or
+    None if the channel does not exist. Raises tmdb.TMDBError when the ids cannot be derived."""
+    return await remap(cid, await tmdb.series_ids(tmdb_id, tvdb_id), title)

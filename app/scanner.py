@@ -211,7 +211,13 @@ def _show_title(channel) -> str:
     return channel["imdb_title"] or channel["title"]
 
 
-def _tvdb_id(channel) -> int | None:
+def release_show(channel, sonarr_title: str | None) -> str:
+    """The series name a Release title starts with: Sonarr's title, else the mapped
+    title, else the Channel title."""
+    return sonarr_title or _show_title(channel)
+
+
+def series_tvdb_id(channel) -> int | None:
     """A series channel's mapped TVDB id (None for movies, unmapped channels, or
     rows from before the column existed)."""
     if not _is_series(channel):
@@ -247,7 +253,7 @@ def build_release(channel, msg, fn, *, episode: int | None = None,
     season, episode = info.get("season") or 0, info.get("episode") or 0
     quality = _message_quality(channel, msg, info.get("quality"))
     show = _show_title(channel)
-    title = release_name(sonarr_title or show, season, episode, quality or "", channel["kind"],
+    title = release_name(release_show(channel, sonarr_title), season, episode, quality or "", channel["kind"],
                          language=channel["language"] or DEFAULT_LANGUAGE,
                          episode_end=info.get("episode_end"))
     episode_title = extract_episode_title(msg.message or "", fn, season, episode,
@@ -329,7 +335,7 @@ def _flat_path(channel, msg, fn):
         row = c.execute("SELECT title FROM releases WHERE channel_id=? AND message_id=?",
                         (channel["id"], msg.id)).fetchone()
     title = row["title"] if row else build_release(
-        channel, msg, fn, sonarr_title=series_titles.cached(_tvdb_id(channel)))["title"]
+        channel, msg, fn, sonarr_title=series_titles.cached(series_tvdb_id(channel)))["title"]
     return flat_save_path(settings.arr_root(), category_for(channel["kind"]), title, fn)
 
 
@@ -352,7 +358,7 @@ async def build_resolved_release(channel, msg, fn) -> dict:
 
     Adds ``parsed_episode`` (the channel's number) and ``episode_source`` (where
     the published number came from); both None when nothing was resolved."""
-    sonarr_title = await series_titles.sonarr_title(_tvdb_id(channel))
+    sonarr_title = await series_titles.sonarr_title(series_tvdb_id(channel))
     rel = {**build_release(channel, msg, fn, sonarr_title=sonarr_title),
            "parsed_episode": None, "episode_source": None}
     if not _is_mapped_series(channel):

@@ -301,14 +301,35 @@ def _episode_tag(season: int, episode: int, episode_end: int | None) -> str:
     return f"{tag}E{int(episode_end):02d}" if episode_end else tag
 
 
+def _release_show(show_title: str) -> str:
+    """The series part of a release title: "Old Show (1979)" -> "Old.Show.1979"."""
+    show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
+    return re.sub(r"\s+", ".", show)
+
+
+# What follows the series part of a TV release title: the episode tag (multi-episode
+# too) and everything after it, or, without one, [language.]quality.WEB-DL.x264-group.
+# Titles from before the language token (x264-TELEARR) match as well.
+_TV_RELEASE_TAIL = re.compile(
+    r"\.(?:S\d{2,}E\d{2,}(?:E\d{2,})*\..*"
+    rf"|(?:(?:{'|'.join(LANGUAGE_TOKENS.values())})\.)?[^.]+\.WEB-DL\.x264-[^.]+)$")
+
+
+def with_series_title(release_title: str, show_title: str) -> str:
+    """A TV release title renamed to ``show_title``, keeping its episode tag, language
+    and quality tokens: "Show.2002.S01E01E02.CAT.1080p…" -> "Old.Show.1979.S01E01E02.CAT.1080p…".
+    Unchanged when the title has no recognizable episode or quality part."""
+    tail = _TV_RELEASE_TAIL.search(release_title or "")
+    return _release_show(show_title) + tail.group(0) if tail else release_title
+
+
 def release_name(show_title: str, season: int, episode: int, quality: str = "",
                  kind: str = "tv", language: str = DEFAULT_LANGUAGE,
                  episode_end: int | None = None, year: int | None = None) -> str:
     """A scene-style, parser-friendly release title for Newznab consumers:
     Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR, movies Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR
     (``year`` is for movies only)."""
-    show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
-    show = re.sub(r"\s+", ".", show)
+    show = _release_show(show_title)
     q = _RELEASE_QUALITY.get((quality or "").lower(), DEFAULT_FALLBACK_QUALITY)
     lang = LANGUAGE_TOKENS.get(language, LANGUAGE_TOKENS[DEFAULT_LANGUAGE])
     if kind == "movie":
