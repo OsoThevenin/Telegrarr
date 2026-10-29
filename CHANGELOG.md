@@ -19,6 +19,8 @@
   while Sonarr gives no title for it, and each retitle is logged to Activity.
 - SAB queue and history jobs are named after their Release title (as a real SABnzbd
   names a job after its NZB), not the file name, so Sonarr ties them to the series.
+- The movie-channel Catalog lists films in the order they were posted. Rows indexed
+  in the same scan could swap places when the scan crossed a second.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 
