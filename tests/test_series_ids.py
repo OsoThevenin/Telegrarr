@@ -104,7 +104,6 @@ async def test_mapping_a_picked_tmdb_series_stores_tvdb_tmdb_and_imdb_ids(arr_ap
 
 @pytest.mark.asyncio
 async def test_mapping_stores_the_series_premiere_year(arr_app, fake_tmdb):
-    # The year lets release titles match a Sonarr series whose title carries it.
     fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361,
                          imdb_id="tt0944947", first_air_date="2011-04-17")
     await _save_tmdb_key(arr_app)

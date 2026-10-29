@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS catalog_requests (
   tmdb_id      INTEGER PRIMARY KEY,
   requested_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS sonarr_titles (
+  tvdb_id    INTEGER PRIMARY KEY,
+  title      TEXT,                 -- NULL: Sonarr had no title (missing series or outage)
+  fetched_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_rel_chan ON releases(channel_id);
 CREATE INDEX IF NOT EXISTS idx_dl_chan_gk   ON downloads(channel_id, group_key);
 CREATE INDEX IF NOT EXISTS idx_dl_status    ON downloads(status);
@@ -147,7 +152,7 @@ COLUMN_MIGRATIONS = (
     ("channels", "fallback_quality", f"TEXT NOT NULL DEFAULT '{DEFAULT_FALLBACK_QUALITY}'"),
     ("channels", "tvdb_id", "INTEGER"),      # series channels: Sonarr matches by TVDB id
     ("channels", "tmdb_id", "INTEGER"),
-    ("channels", "year", "INTEGER"),         # series premiere year, in the release title for name-matching
+    ("channels", "year", "INTEGER"),         # series premiere year (TMDB); not in TV release titles
     ("releases", "parsed_episode", "INTEGER"),   # channel's own number when a part was resolved
     ("releases", "episode_source", "TEXT"),      # tmdb-ca | tmdb-en | sonarr | channel (kept)
     ("releases", "movie_tmdb_id", "INTEGER"),  # movie channels: ids per message, not per channel

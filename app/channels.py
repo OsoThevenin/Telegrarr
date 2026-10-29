@@ -3,7 +3,7 @@
 # channels the same way.
 import time
 
-from . import db, settings, tmdb
+from . import db, series_titles, settings, tmdb
 from .namer import DEFAULT_LANGUAGE, DEFAULT_FALLBACK_QUALITY
 
 ALL_WEEKDAYS = "0,1,2,3,4,5,6"
@@ -103,13 +103,18 @@ def upsert(chat_id: int, title: str, *, kind: str = "tv", weekdays: str = ALL_WE
 
 
 def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
-    """Store derived series ids on channel `cid` (display title: `title`, else TMDB's)."""
+    """Store derived series ids on channel `cid` (display title: `title`, else TMDB's).
+
+    Sonarr's cached series title is dropped for the old and new TVDB ids, so the
+    next Release is named after what Sonarr calls the series now."""
     display = (title or "").strip() or ids.title
     with db.conn() as c:
+        before = c.execute("SELECT tvdb_id FROM channels WHERE id=?", (cid,)).fetchone()
         c.execute("""UPDATE channels SET tvdb_id=?, tmdb_id=?, imdb_id=?, year=?,
                      imdb_title=COALESCE(NULLIF(?, ''), imdb_title) WHERE id=?""",
                   (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, ids.year, display, cid))
         row = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
+    series_titles.forget(before["tvdb_id"] if before else None, ids.tvdb_id)
     return dict(row) if row else None
 
 

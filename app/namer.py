@@ -305,7 +305,8 @@ def release_name(show_title: str, season: int, episode: int, quality: str = "",
                  kind: str = "tv", language: str = DEFAULT_LANGUAGE,
                  episode_end: int | None = None, year: int | None = None) -> str:
     """A scene-style, parser-friendly release title for Newznab consumers:
-    Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR, movies Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR"""
+    Show.S03E13.CAT.1080p.WEB-DL.x264-TELEGRARR, movies Title.2019.CAT.1080p.WEB-DL.x264-TELEGRARR
+    (``year`` is for movies only)."""
     show = re.sub(r"[^\w\s.\-']", "", show_title or "Unknown").strip() or "Unknown"
     show = re.sub(r"\s+", ".", show)
     q = _RELEASE_QUALITY.get((quality or "").lower(), DEFAULT_FALLBACK_QUALITY)
@@ -314,9 +315,9 @@ def release_name(show_title: str, season: int, episode: int, quality: str = "",
         # Movies: the year is the only episode-less tag (Title.2019.CAT...).
         parts = [show, str(year or ""), lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
     else:
-        # TV: a known series year goes before the SxxEyy tag, so Sonarr can match
-        # by name even when its series title carries the year (e.g. "… (1979)").
-        parts = [show, str(year or ""), _episode_tag(season, episode, episode_end),
+        # TV: no year of its own; a series title that carries one ("Old Show (1979)",
+        # as Sonarr names it) keeps it, so Sonarr matches the release by name.
+        parts = [show, _episode_tag(season, episode, episode_end),
                  lang, q, "WEB-DL", f"x264-{RELEASE_GROUP}"]
     return ".".join(p for p in parts if p)
 
