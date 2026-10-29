@@ -274,6 +274,7 @@
  "event.backup_deleted": "Backup deleted: {name}",
  "event.part_kept": "Part not matched in TMDB/Sonarr; keeping channel numbering: {marker}",
  "event.part_resolved": "Part resolved: {marker} → {episode} ({source})",
+ "event.releases_retitled": "Retitled {count} releases as {show}",
  "event.queued": "Queued {file} ({size} GB) → {path}",
  "event.retry_fetch_failed": "Auto-retry: could not fetch message {message_id}: {error}",
  "event.auto_retry": "Auto-retry {n}/{max}: {file}",

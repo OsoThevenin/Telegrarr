@@ -102,11 +102,12 @@ def upsert(chat_id: int, title: str, *, kind: str = "tv", weekdays: str = ALL_WE
         return dict(c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone())
 
 
-def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
-    """Store derived series ids on channel `cid` (display title: `title`, else TMDB's).
+async def remap(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
+    """Store series ids on channel `cid` (display title: `title`, else TMDB's) and
+    retitle its already-indexed Releases after the series it is now mapped to.
 
-    Sonarr's cached series title is dropped for the old and new TVDB ids, so the
-    next Release is named after what Sonarr calls the series now."""
+    Sonarr's cached series title is dropped for the old and new TVDB ids first, so
+    Releases are named after what Sonarr calls the series now."""
     display = (title or "").strip() or ids.title
     with db.conn() as c:
         before = c.execute("SELECT tvdb_id FROM channels WHERE id=?", (cid,)).fetchone()
@@ -115,16 +116,10 @@ def store_series_ids(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | N
                   (ids.tvdb_id, ids.tmdb_id, ids.imdb_id, ids.year, display, cid))
         row = c.execute("SELECT * FROM channels WHERE id=?", (cid,)).fetchone()
     series_titles.forget(before["tvdb_id"] if before else None, ids.tvdb_id)
-    return dict(row) if row else None
-
-
-async def remap(cid: int, ids: tmdb.SeriesIds, title: str = "") -> dict | None:
-    """Store series ids on channel `cid` (see `store_series_ids`) and retitle its
-    already-indexed Releases after the series it is now mapped to."""
-    row = store_series_ids(cid, ids, title)
-    if row:
-        await release_titles.retitle_channel(row)
-    return row
+    if row is None:
+        return None
+    await release_titles.retitle_channel(row)
+    return dict(row)
 
 
 async def map_series(cid: int, *, tmdb_id=None, tvdb_id=None, title: str = "") -> dict | None:

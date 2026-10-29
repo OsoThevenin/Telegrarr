@@ -54,7 +54,8 @@ async def _tv_titles(arr_app) -> list[str]:
     """Release titles a tvsearch by TVDB id returns, as Sonarr sees them."""
     r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
                                                        "tvdbid": TVDB_ID})
-    return [t.text for t in ET.fromstring(r.raise_for_status().text).findall("./channel/item/title")]
+    items = ET.fromstring(r.raise_for_status().text).findall("./channel/item/title")
+    return [t.text for t in items]
 
 
 @pytest.mark.asyncio
@@ -70,7 +71,8 @@ async def test_release_title_uses_sonarr_title_not_the_tmdb_year(arr_app, fake_t
 @pytest.mark.asyncio
 async def test_a_year_in_sonarr_title_goes_into_the_release_title(arr_app, fake_tmdb, arrs):
     await _connect_sonarr(arr_app, arrs, OLD_SHOW)
-    channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Old Show", first_air_date="1979-01-07")
+    channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Old Show",
+                                    first_air_date="1979-01-07")
 
     await _publish(arr_app, channel, "Old Show 1x07 1080p")
 
@@ -78,9 +80,12 @@ async def test_a_year_in_sonarr_title_goes_into_the_release_title(arr_app, fake_
 
 
 @pytest.mark.asyncio
-async def test_a_catalan_display_title_with_a_year_gives_way_to_sonarr_title(arr_app, fake_tmdb, arrs):
-    await _connect_sonarr(arr_app, arrs, {**EXAMPLE_SHOW, "title": "Catalan Show", "cleanTitle": "catalanshow"})
-    channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Catalan Show", first_air_date="2011-04-17",
+async def test_a_catalan_display_title_with_a_year_gives_way_to_sonarr_title(
+        arr_app, fake_tmdb, arrs):
+    await _connect_sonarr(arr_app, arrs, {**EXAMPLE_SHOW, "title": "Catalan Show",
+                                          "cleanTitle": "catalanshow"})
+    channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Catalan Show",
+                                    first_air_date="2011-04-17",
                                     display_title="Títol Català (2011)")
 
     await _publish(arr_app, channel, "Títol Català 1x02 1080p")
@@ -90,7 +95,8 @@ async def test_a_catalan_display_title_with_a_year_gives_way_to_sonarr_title(arr
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sonarr", ["down", "series missing", "not configured"])
-async def test_without_a_sonarr_title_the_mapped_title_is_used_with_no_year(arr_app, fake_tmdb, arrs, sonarr):
+async def test_without_a_sonarr_title_the_mapped_title_is_used_with_no_year(
+        arr_app, fake_tmdb, arrs, sonarr):
     if sonarr != "not configured":
         await _connect_sonarr(arr_app, arrs)
     if sonarr == "down":
@@ -100,6 +106,20 @@ async def test_without_a_sonarr_title_the_mapped_title_is_used_with_no_year(arr_
     await _publish(arr_app, channel, "Example Show 5x26 1080p")
 
     assert await _tv_titles(arr_app) == ["Example.Show.S05E26.CAT.1080p.WEB-DL.x264-TELEGRARR"]
+
+
+@pytest.mark.asyncio
+async def test_without_a_sonarr_title_a_year_in_the_mapped_title_is_dropped(
+        arr_app, fake_tmdb, arrs):
+    await _connect_sonarr(arr_app, arrs)
+    arrs.sonarr.fail_status = 503
+    channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Catalan Show",
+                                    first_air_date="2011-04-17",
+                                    display_title="Títol Català (2011)")
+
+    await _publish(arr_app, channel, "Títol Català 1x02 1080p")
+
+    assert await _tv_titles(arr_app) == ["Títol.Català.S01E02.CAT.1080p.WEB-DL.x264-TELEGRARR"]
 
 
 def _series_lookups(arrs) -> int:
@@ -114,20 +134,23 @@ async def test_repeated_scans_ask_sonarr_for_the_title_once(arr_app, fake_tmdb, 
     await _publish(arr_app, channel, "Example Show 5x25 1080p")
     await _publish(arr_app, channel, "Example Show 5x26 1080p")
 
-    assert sorted(await _tv_titles(arr_app)) == ["Example.Show.S05E25.CAT.1080p.WEB-DL.x264-TELEGRARR",
-                                                 "Example.Show.S05E26.CAT.1080p.WEB-DL.x264-TELEGRARR"]
+    titles = sorted(await _tv_titles(arr_app))
+    assert titles == ["Example.Show.S05E25.CAT.1080p.WEB-DL.x264-TELEGRARR",
+                      "Example.Show.S05E26.CAT.1080p.WEB-DL.x264-TELEGRARR"]
     assert _series_lookups(arrs) == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sonarr", ["down", "series missing"])
-async def test_a_scan_asks_an_unhelpful_sonarr_once_not_per_release(arr_app, fake_tmdb, arrs, sonarr):
+async def test_a_scan_asks_an_unhelpful_sonarr_once_not_per_release(
+        arr_app, fake_tmdb, arrs, sonarr):
     await _connect_sonarr(arr_app, arrs)
     if sonarr == "down":
         arrs.sonarr.fail_status = 503
     channel = await _mapped_channel(arr_app, fake_tmdb, display_title="Example Show")
     for ep in (24, 25, 26):
-        arr_app.telegram.post(CHAT, text=f"Example Show 5x{ep} 1080p", file_name=f"Example.Show.5x{ep}.mkv")
+        arr_app.telegram.post(CHAT, text=f"Example Show 5x{ep} 1080p",
+                              file_name=f"Example.Show.5x{ep}.mkv")
 
     await arr_app.scan(channel["id"])
 
@@ -140,7 +163,8 @@ async def test_remapping_the_channel_refreshes_the_sonarr_title(arr_app, fake_tm
     await _connect_sonarr(arr_app, arrs, EXAMPLE_SHOW)
     channel = await _mapped_channel(arr_app, fake_tmdb)
     await _publish(arr_app, channel, "Example Show 5x25 1080p")
-    arrs.sonarr.series[:] = [{**EXAMPLE_SHOW, "title": "Example Show (2001)", "cleanTitle": "exampleshow2001"}]
+    arrs.sonarr.series[:] = [{**EXAMPLE_SHOW, "title": "Example Show (2001)",
+                              "cleanTitle": "exampleshow2001"}]
 
     (await arr_app.http.put(f"/api/channels/{channel['id']}/series",
                             json={"tmdb_id": TMDB_ID})).raise_for_status()
@@ -152,16 +176,19 @@ async def test_remapping_the_channel_refreshes_the_sonarr_title(arr_app, fake_tm
 @pytest.mark.asyncio
 async def test_movie_release_titles_are_unchanged(arr_app, fake_tmdb, arrs):
     await _connect_sonarr(arr_app, arrs, EXAMPLE_SHOW)
-    fake_tmdb.add_movie(266856, titles={"ca-ES": "La teoria del tot", "en-US": "The Theory of Everything"},
+    fake_tmdb.add_movie(266856, titles={"ca-ES": "La teoria del tot",
+                                        "en-US": "The Theory of Everything"},
                         release_date="2014-11-07", imdb_id="tt2980516")
     (await arr_app.http.patch("/api/settings", json={"tmdb_key": API_KEY})).raise_for_status()
     arr_app.telegram.add_channel(MOVIE_CHAT, "Pel·lícules")
     channel = await arr_app.add_channel(MOVIE_CHAT, kind="movie")
-    arr_app.telegram.post(MOVIE_CHAT, text="La teoria del tot (2014)", file_name="La.teoria.del.tot.2014.1080p.mkv")
+    arr_app.telegram.post(MOVIE_CHAT, text="La teoria del tot (2014)",
+                          file_name="La.teoria.del.tot.2014.1080p.mkv")
 
     await arr_app.scan(channel["id"])
 
-    r = await arr_app.http.get("/api/newznab", params={"t": "movie", "apikey": arr_app.apikey, "tmdbid": "266856"})
+    r = await arr_app.http.get("/api/newznab", params={"t": "movie", "apikey": arr_app.apikey,
+                                                       "tmdbid": "266856"})
     titles = [t.text for t in ET.fromstring(r.text).findall("./channel/item/title")]
     assert titles == ["The.Theory.of.Everything.2014.CAT.1080p.WEB-DL.x264-TELEGRARR"]
     assert _series_lookups(arrs) == 0
@@ -170,7 +197,8 @@ async def test_movie_release_titles_are_unchanged(arr_app, fake_tmdb, arrs):
 # ── invariant: Sonarr cleans the Release's series part to its own cleanTitle ──
 # A port of Sonarr's Parser.CleanSeriesTitle (NzbDrone.Core/Parser/Parser.cs).
 _SONARR_PERCENT = re.compile(r"(\b\d+)%")
-_SONARR_NORMALIZE = re.compile(r"((?:\b|_)(?<!^)(a(?!$)|an|the|and|or|of)(?!$)(?:\b|_))|\W|_", re.IGNORECASE)
+_SONARR_NORMALIZE = re.compile(r"((?:\b|_)(?<!^)(a(?!$)|an|the|and|or|of)(?!$)(?:\b|_))|\W|_",
+                               re.IGNORECASE)
 
 
 def sonarr_clean_series_title(title: str) -> str:
@@ -178,7 +206,8 @@ def sonarr_clean_series_title(title: str) -> str:
         return title
     title = _SONARR_PERCENT.sub(r"\1percent", title)
     cleaned = _SONARR_NORMALIZE.sub("", title).lower()
-    return "".join(ch for ch in unicodedata.normalize("NFD", cleaned) if not unicodedata.combining(ch))
+    decomposed = unicodedata.normalize("NFD", cleaned)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
 @pytest.mark.asyncio
@@ -188,7 +217,8 @@ def sonarr_clean_series_title(title: str) -> str:
     {"id": 13, "tvdbId": TVDB_ID, "title": "Merlí: Sapere Aude", "cleanTitle": "merlisapereaude"},
     {"id": 14, "tvdbId": TVDB_ID, "title": "Grey's Anatomy", "cleanTitle": "greysanatomy"},
 ], ids=lambda s: s["title"])
-async def test_sonarr_cleans_the_release_series_part_to_its_clean_title(arr_app, fake_tmdb, arrs, series):
+async def test_sonarr_cleans_the_release_series_part_to_its_clean_title(
+        arr_app, fake_tmdb, arrs, series):
     await _connect_sonarr(arr_app, arrs, series)
     channel = await _mapped_channel(arr_app, fake_tmdb, tmdb_title="Some Other TMDB Title")
 
@@ -207,6 +237,7 @@ async def test_an_unmapped_channel_is_named_after_the_channel_title(arr_app, arr
 
     await _publish(arr_app, channel, "La Sèrie 1x01 1080p")
 
-    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey, "q": "sèrie"})
+    r = await arr_app.http.get("/api/newznab", params={"t": "tvsearch", "apikey": arr_app.apikey,
+                                                       "q": "sèrie"})
     titles = [t.text for t in ET.fromstring(r.text).findall("./channel/item/title")]
     assert titles == ["La.Sèrie.S01E01.CAT.1080p.WEB-DL.x264-TELEGRARR"]
