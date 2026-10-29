@@ -48,7 +48,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            # Pre-release tags (v1.2.0-rc.1) publish only their own version, never latest.
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=ref,event=branch
 
       - name: Build and push
