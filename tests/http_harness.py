@@ -16,7 +16,7 @@ import asyncio
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import httpx
 from telethon import utils
@@ -405,13 +405,37 @@ class ArrApp:
         r = await self.http.get("/sabnzbd/api", params={"apikey": self.apikey, "output": "json", **params})
         return r.raise_for_status().json()
 
+    async def grab(self, url: str, *, cat: str = "tv") -> str:
+        """Hand ``url`` to SABnzbd as Sonarr/Radarr do; returns its nzo_id."""
+        [nzo] = (await self.sab(mode="addurl", name=url, cat=cat))["nzo_ids"]
+        return nzo
+
+    async def history_ids(self, **params: Any) -> list[str]:
+        """The nzo_ids SABnzbd history reports, in its order."""
+        history = await self.sab(mode="history", **params)
+        return [s["nzo_id"] for s in history["history"]["slots"]]
+
+    def post_episodes(self, chat_id: int, show: str, episodes: Iterable[int]) -> None:
+        """One season-1 post per episode on the fake Telegram channel ``chat_id``."""
+        dotted = show.replace(" ", ".")
+        for ep in episodes:
+            self.telegram.post(chat_id, text=f"{show} S01E{ep:02d} 1080p", file_name=f"{dotted}.S01E{ep:02d}.mkv")
+
+    async def episode_url(self, show: str, ep: int) -> str:
+        """Wait for season-1 episode ``ep`` of ``show`` to be searchable; returns its NZB url."""
+        async def search() -> str | None:
+            r = await self.http.get("/api/newznab", params={
+                "t": "tvsearch", "apikey": self.apikey, "q": show, "season": 1, "ep": ep})
+            items = ET.fromstring(r.raise_for_status().text).findall("./channel/item")
+            return items[0].find("enclosure").attrib["url"] if items else None
+
+        return await eventually(search)
+
     async def publish_episodes(self, chat_id: int, show: str, *episodes: int) -> list[str]:
         """A scanned series channel with one season-1 post per episode; returns
         the NZB urls Sonarr would grab them by, in ``episodes`` order."""
         self.telegram.add_channel(chat_id, show)
-        dotted = show.replace(" ", ".")
-        for ep in episodes:
-            self.telegram.post(chat_id, text=f"{show} S01E{ep:02d} 1080p", file_name=f"{dotted}.S01E{ep:02d}.mkv")
+        self.post_episodes(chat_id, show, episodes)
         channel = await self.add_channel(chat_id)
         await self.scan(channel["id"])
         r = await self.http.get("/api/newznab", params={"t": "tvsearch", "apikey": self.apikey, "q": show})

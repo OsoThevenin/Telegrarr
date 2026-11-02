@@ -113,6 +113,16 @@ test means Telegrarr responded as a SABnzbd client.
    \*arr app expects it, and Sonarr/Radarr imports it as usual. Each SAB job is
    named after its Release title, as a real SABnzbd names a job after its NZB.
 
+### SABnzbd history
+
+History lists every finished (completed or failed) job that Sonarr/Radarr hasn't
+deleted, newest first. Sonarr's `start`/`limit` paging is ignored, so a backlog of
+unimported Grabs on one Channel can't push another Channel's finished jobs off the
+page Sonarr reads. A job the \*arr deletes from history (as it does after an import
+with *Remove Completed* on) is hidden from then on. A job it never deletes, such as
+a manual import, a removed series, or a failed job with *Remove Failed* off, stays
+listed.
+
 ### TV Release titles
 
 A TV Release title starts with **Sonarr's own series title** for the Channel's

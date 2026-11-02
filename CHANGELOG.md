@@ -21,6 +21,10 @@
   names a job after its NZB), not the file name, so Sonarr ties them to the series.
 - The movie-channel Catalog lists films in the order they were posted. Rows indexed
   in the same scan could swap places when the scan crossed a second.
+- SAB history reports every finished job Sonarr/Radarr hasn't deleted, not just
+  the 100 newest. A backlog of unimported Grabs from one Channel no longer hides
+  other Channels' finished jobs from Sonarr. Sonarr's `start`/`limit` paging is
+  ignored for the same reason.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 

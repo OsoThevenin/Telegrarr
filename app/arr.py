@@ -327,13 +327,20 @@ def sab_queue():
                       "diskspacetotal1": "1000", "diskspace1": "500"}}
 
 
-def sab_history(limit=100):
+def sab_history():
+    """Every finished row the *arr hasn't deleted, newest first.
+
+    Sonarr's ``start``/``limit`` paging (60 rows by default) is deliberately ignored,
+    as is any window of our own: a show whose Grabs pile up unimported would
+    otherwise push other shows' finished jobs out of sight (#83). The *arr deletes
+    the rows it imports, which keeps the list short; rows it never deletes (a manual
+    import, a removed series) stay listed."""
     with db.conn() as c:
         rows = c.execute(f"""{_JOB_SELECT}
                              WHERE d.status IN ({db.placeholders(db.HISTORY_STATUSES)})
                                AND d.arr_hidden = 0
-                             ORDER BY d.id DESC LIMIT ?""",
-                         (*db.HISTORY_STATUSES, limit)).fetchall()
+                             ORDER BY d.id DESC""",
+                         db.HISTORY_STATUSES).fetchall()
     slots = []
     for r in rows:
         ok = r["status"] == "completed"
