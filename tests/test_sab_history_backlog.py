@@ -16,6 +16,7 @@ BACKLOG_SIZE = 101          # one more than the old history window
 SCAN_BATCH = 60             # posts per scan, under the scanner's per-scan read cap
 SONARR_DEFAULT_LIMIT = 60
 DOWNLOADS_PAGE = 1000       # the UI's downloads list caps its page here
+BACKLOG_TIMEOUT_S = 30.0    # 101 one-at-a-time transfers outlast the default poll timeout on slow CI
 
 
 async def _episode_urls(arr_app, chat_id: int, show: str, count: int) -> list[str]:
@@ -44,7 +45,7 @@ async def _pile_up_a_backlog(arr_app) -> list[str]:
                                    params={"status": "completed", "limit": DOWNLOADS_PAGE})
         done = [d for d in r.raise_for_status().json() if d["file_name"].startswith(prefix)]
         return len(done) == BACKLOG_SIZE
-    await eventually(all_finished)
+    await eventually(all_finished, timeout=BACKLOG_TIMEOUT_S)
     return nzos
 
 
