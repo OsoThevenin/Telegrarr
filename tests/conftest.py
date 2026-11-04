@@ -84,6 +84,21 @@ def library_dirs(tmp_path, monkeypatch):
     return {**dirs, "DOWNLOADS_DIR": downloads}
 
 
+@pytest.fixture()
+def scanner_sync(monkeypatch):
+    """Give the scanner's module-level lock and semaphore to this test alone.
+
+    An asyncio primitive binds to the first event loop that waits on it, and each
+    test runs on its own loop, so shared ones fail a later test under contention
+    ("bound to a different event loop").
+    """
+    from app import scanner
+
+    monkeypatch.setattr(scanner, "_queue_lock", asyncio.Lock())
+    monkeypatch.setattr(scanner, "_sem", asyncio.Semaphore(scanner.MAX_CONCURRENT_DOWNLOADS))
+    monkeypatch.setattr(scanner, "_sem_limit", scanner.MAX_CONCURRENT_DOWNLOADS)
+
+
 async def _drain_background_tasks():
     """Let downloads etc. spawned by the test finish so they don't leak."""
     current = asyncio.current_task()
@@ -97,7 +112,7 @@ async def _drain_background_tasks():
 
 
 @pytest_asyncio.fixture()
-async def arr_app(fresh_db, fake_telegram, library_dirs):
+async def arr_app(fresh_db, fake_telegram, library_dirs, scanner_sync):
     """The app as Sonarr/Radarr see it: authenticated HTTP client, temp DB,
     fake Telegram client. Yields an :class:`ArrApp`."""
     from app import auth
