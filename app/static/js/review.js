@@ -40,7 +40,7 @@ function entryCard(entry, reload) {
       f.title, h("small", {}, ` ${f.year ? `(${f.year})` : ""}${f.original_title && f.original_title !== f.title ? ` · ${f.original_title}` : ""}`))));
   };
   query.addEventListener("input", () => { clearTimeout(timer); const q = query.value; timer = setTimeout(() => search(q), SEARCH_DEBOUNCE_MS); });
-  const assignTyped = () => assign({ id: idInp.value });
+  const assignTyped = () => assign({ typed_id: idInp.value });
 
   return card(
     h("div", { class: "card-h" }, entry.file_name || t("review.message", { id: entry.message_id })),

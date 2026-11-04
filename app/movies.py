@@ -136,23 +136,19 @@ def _pending_row(c, channel_id: int, message_id: int):
     return row
 
 
-async def _film_for(tmdb_id=None, imdb_id=None, typed=None) -> tmdb.Film:
-    if typed not in (None, ""):
-        return await tmdb.film_for_typed(typed)
-    if tmdb_id not in (None, ""):
-        return await tmdb.film(tmdb_id)
-    if imdb_id not in (None, ""):
-        return await tmdb.film_for_imdb(imdb_id)
-    raise ReviewError("err.review.pick_film")
+async def _film_for(film_id) -> tmdb.Film:
+    if film_id in (None, ""):
+        raise ReviewError("err.review.pick_film")
+    return await tmdb.film_for_typed(film_id)
 
 
-async def assign(channel_id: int, message_id: int, tmdb_id=None, imdb_id=None, typed=None) -> dict:
-    """Attach a film to a pending message and offer it to Radarr. ``typed`` is the
-    user's text (TMDB id, TMDB link or IMDb id), parsed by tmdb.typed_id."""
+async def assign(channel_id: int, message_id: int, film_id=None) -> dict:
+    """Attach a film to a pending message and offer it to Radarr. ``film_id`` is a
+    picked TMDB id or the user's typed TMDB id, TMDB link or IMDb id (tmdb.typed_id)."""
     with db.conn() as c:
         _pending_row(c, channel_id, message_id)
     try:
-        film = await _film_for(tmdb_id, imdb_id, typed)
+        film = await _film_for(film_id)
     except tmdb.TMDBError as e:
         raise ReviewError(e.key, **e.params) from e
     with db.conn() as c:

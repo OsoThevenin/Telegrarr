@@ -16,6 +16,7 @@ const SHELL = [
   "/static/js/directory.js",
   "/static/js/review.js",
   "/static/js/series-query.js",
+  "/static/js/series-mapper.js",
   "/static/js/catalog.js",
   "/static/js/catalog-filters.js",
   "/static/js/catalog-download.js",
