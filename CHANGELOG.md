@@ -25,6 +25,10 @@
   the 100 newest. A backlog of unimported Grabs from one Channel no longer hides
   other Channels' finished jobs from Sonarr. Sonarr's `start`/`limit` paging is
   ignored for the same reason.
+- System → Updates offers an update only when the latest GitHub release is newer
+  than the running version. An older version (v1.0.2 while running v1.1.0), an
+  unreadable tag, or a tag inherited from upstream Telearr (v2.1.0–v2.3.3) now reads
+  as up to date. Telegrarr's own v2 releases are still offered.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 

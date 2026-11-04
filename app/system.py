@@ -7,6 +7,7 @@ import shutil
 import zipfile
 import sqlite3
 import platform
+from typing import NamedTuple
 
 import httpx
 
@@ -177,26 +178,67 @@ def delete_backup(name: str) -> bool:
 
 
 # ── Updates ───────────────────────────────────────────────────────────
+# HTTP seam for the GitHub release check. Tests set `transport` to an
+# httpx.MockTransport to fake GitHub at the wire level.
+transport: httpx.AsyncBaseTransport | None = None
+UPDATE_CHECK_TIMEOUT_S = 6
+_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+# Tags inherited from upstream Wishaal/Telearr. Git tag names are unique, so while
+# these exist no Telegrarr release can carry them; Telegrarr's own v2 is unaffected.
+UPSTREAM_TAGS = frozenset({"v2.1.0", "v2.2.0", "v2.3.0", "v2.3.1", "v2.3.2", "v2.3.3"})
+
+
+class Version(NamedTuple):
+    major: int
+    minor: int
+    patch: int
+
+    def __str__(self) -> str:
+        return f"{self.major}.{self.minor}.{self.patch}"
+
+
+class UpdateVerdict(NamedTuple):
+    latest: str | None
+    up_to_date: bool
+
+
+def _parse_version(text: str) -> Version | None:
+    m = _VERSION_RE.match(text)
+    return Version(*(int(part) for part in m.groups())) if m else None
+
+
+def _update_verdict(tag: str, running: str) -> UpdateVerdict:
+    """Compare GitHub's latest release `tag` with the running version.
+
+    An unreadable or upstream tag is not reported as latest. An update is offered
+    only for a strictly newer version."""
+    latest_v = None if tag in UPSTREAM_TAGS else _parse_version(tag)
+    if latest_v is None:
+        return UpdateVerdict(latest=None, up_to_date=True)
+    running_v = _parse_version(running)
+    return UpdateVerdict(latest=str(latest_v), up_to_date=running_v is None or latest_v <= running_v)
+
+
 async def check_updates() -> dict:
     current = VERSION
-    latest = None
+    verdict = UpdateVerdict(latest=None, up_to_date=True)
     url = f"https://github.com/{GITHUB_REPO}/releases"
     error = None
     try:
-        async with httpx.AsyncClient(timeout=6) as client:
+        async with httpx.AsyncClient(transport=transport, timeout=UPDATE_CHECK_TIMEOUT_S) as client:
             r = await client.get(
                 f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest",
                 headers={"Accept": "application/vnd.github+json"})
         if r.status_code == 200:
             j = r.json()
-            latest = (j.get("tag_name") or "").lstrip("v") or None
-            url = j.get("html_url") or url
+            verdict = _update_verdict(j.get("tag_name") or "", current)
+            if verdict.latest:
+                url = j.get("html_url") or url
         elif r.status_code == 404:
             error = message("updates.no_releases")
         else:
             error = message("updates.github_http", status=r.status_code)
     except Exception as e:
         error = message("updates.github_unreachable", error=str(e))
-    up_to_date = latest is None or latest == current
-    return {"current": current, "latest": latest, "up_to_date": up_to_date,
+    return {"current": current, "latest": verdict.latest, "up_to_date": verdict.up_to_date,
             "url": url, "error": error}
