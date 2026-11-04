@@ -1,6 +1,7 @@
 // review.js — Pending review: movie channel messages without a confident TMDB
-// match. Each one is either assigned a film (TMDB search pick, or a typed TMDB /
-// IMDb id), which offers it to Radarr, or discarded for good.
+// match. Each one is either assigned a film (TMDB search pick, or a typed TMDB
+// id, TMDB link or IMDb id, parsed server-side), which offers it to Radarr, or
+// discarded for good.
 import { h, api, jpost, toast, fmtBytes } from "./core.js";
 import { icon } from "./icons.js";
 import { t } from "./i18n.js";
@@ -10,14 +11,6 @@ const SEARCH_DEBOUNCE_MS = 350;
 const MIN_QUERY_LEN = 2;
 
 const card = (...body) => h("section", { class: "card" }, ...body);
-
-/** "tt1234567" / "1234567" with a tt prefix → IMDb id; plain digits → TMDB id. */
-function typedId(text) {
-  const raw = text.trim();
-  if (/^tt\d+$/i.test(raw)) return { imdb_id: raw.toLowerCase() };
-  if (/^\d+$/.test(raw)) return { tmdb_id: Number(raw) };
-  return null;
-}
 
 function parsedLine(entry) {
   const parsed = [entry.parsed_title, entry.year && `(${entry.year})`].filter(Boolean).join(" ");
@@ -47,11 +40,7 @@ function entryCard(entry, reload) {
       f.title, h("small", {}, ` ${f.year ? `(${f.year})` : ""}${f.original_title && f.original_title !== f.title ? ` · ${f.original_title}` : ""}`))));
   };
   query.addEventListener("input", () => { clearTimeout(timer); const q = query.value; timer = setTimeout(() => search(q), SEARCH_DEBOUNCE_MS); });
-  const assignTyped = () => {
-    const ids = typedId(idInp.value);
-    if (!ids) return toast(t("review.bad_id"), "err");
-    assign(ids);
-  };
+  const assignTyped = () => assign({ id: idInp.value });
 
   return card(
     h("div", { class: "card-h" }, entry.file_name || t("review.message", { id: entry.message_id })),

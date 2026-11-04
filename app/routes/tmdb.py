@@ -13,9 +13,9 @@ class KeyTest(BaseModel):
 
 
 @router.get("/api/tmdb/search")
-async def api_tmdb_search(q: str = "", user=Depends(auth.require_user)):
+async def api_tmdb_search(q: str = "", title: bool = False, user=Depends(auth.require_user)):
     try:
-        return await tmdb.search_series(q)
+        return await tmdb.search_series(q, title_only=title)
     except tmdb.TMDBError as e:
         raise tmdb_failed(e)
 

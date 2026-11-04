@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- The series search of a TV Channel accepts a TMDB id, a themoviedb.org/tv/… link
+  or an IMDb `tt…` id on Enter, and maps that series straight away (TVDB and IMDb
+  ids are derived as for a search pick); search-as-you-type stays by title, so
+  *1883* is still a title. An unknown id, or a film's link, says so. The
+  Review tab's id box uses the same parser, so it takes a themoviedb.org/movie/…
+  link too. The search a new Channel prefills drops quality and language words
+  ("Naruto Shippuden 1080p" searches "Naruto Shippuden").
 - TV Releases are named with Sonarr's own series title for the mapped TVDB id
   (`Example.Show.S05E26…`, `Old.Show.1979.S01E07…` for *Old Show (1979)*), so Sonarr
   matches a Grab by name and imports it automatically. The TMDB premiere year is no
