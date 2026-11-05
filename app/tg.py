@@ -303,6 +303,15 @@ async def list_topics(c, chat_id: int, *,
     return [{"topic_id": tid, "title": title} for tid, title in found.items()][:FORUM_TOPICS_MAX]
 
 
+async def chat_photo(c, chat_id: int) -> bytes | None:
+    """The small profile photo of `chat_id` on client `c`, or None when it has none.
+    Telegram errors (FloodWaitError included) propagate to the caller."""
+    ent = await c.get_entity(chat_id)
+    if isinstance(getattr(ent, "photo", None), (types.ChatPhotoEmpty, type(None))):
+        return None
+    return await c.download_profile_photo(ent, file=bytes, download_big=False)
+
+
 async def list_dialogs(limit=250):
     """Channels/groups the logged-in account belongs to — so users pick, not paste ids."""
     now = time.time()
