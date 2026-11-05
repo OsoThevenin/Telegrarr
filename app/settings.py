@@ -95,6 +95,11 @@ def _env_value(key: str) -> str:
         return raw
 
 
+def env_locked(key: str) -> bool:
+    """Whether env provides ``key``, so it cannot be changed from the UI or API."""
+    return bool(_env_value(key))
+
+
 def get(key, default=None):
     """The effective value: the env value, else the database's, else the default."""
     env_value = _env_value(key)
@@ -157,6 +162,7 @@ def public() -> dict:
         "operating_mode": operating_mode(),
         "downloads_dir": get("downloads_dir"),
         **_arr_public(),
+        **{f"{key}_env_locked": env_locked(key) for key in ENV_VARS},
     }
 
 

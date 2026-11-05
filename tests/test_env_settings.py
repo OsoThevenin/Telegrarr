@@ -156,3 +156,33 @@ async def test_database_value_returns_when_the_env_var_is_removed(arr_app, monke
     monkeypatch.delenv("TELEARR_RADARR_URL")
 
     assert (await _settings(arr_app))["radarr_url"] == "http://saved.test:7878"
+
+
+# ── the settings payload reports what env locks ───────────────────────
+ENV_LOCK_FLAGS = {"tmdb_key_env_locked", "prowlarr_url_env_locked", "prowlarr_key_env_locked",
+                  "sonarr_url_env_locked", "sonarr_key_env_locked", "radarr_url_env_locked",
+                  "radarr_key_env_locked"}
+
+
+@pytest.mark.asyncio
+async def test_nothing_is_env_locked_with_the_env_vars_unset(arr_app):
+    view = await _settings(arr_app)
+
+    assert {flag: view[flag] for flag in ENV_LOCK_FLAGS} == dict.fromkeys(ENV_LOCK_FLAGS, False)
+
+
+@pytest.mark.asyncio
+async def test_payload_marks_exactly_the_settings_env_provides(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_TMDB_KEY", "env-tmdb-key")
+    monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
+
+    view = await _settings(arr_app)
+
+    assert {flag for flag in ENV_LOCK_FLAGS if view[flag]} == {"tmdb_key_env_locked", "sonarr_url_env_locked"}
+
+
+@pytest.mark.asyncio
+async def test_a_blank_env_var_does_not_lock(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_TMDB_KEY", "  ")
+
+    assert (await _settings(arr_app))["tmdb_key_env_locked"] is False
