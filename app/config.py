@@ -60,6 +60,7 @@ DEFAULT_USER = os.getenv("TELEARR_ADMIN_USER", "admin")
 DEFAULT_PASS = os.getenv("TELEARR_ADMIN_PASS", "")
 
 # ── Integrations (all optional) ───────────────────────────────────────
+# Only for summary(): the Plex client resolves these through app/settings.py (ENV_VARS).
 PLEX_URL = os.getenv("PLEX_URL", "").rstrip("/")        # e.g. http://plex_local:32400
 PLEX_TOKEN = os.getenv("PLEX_TOKEN", "")
 NOTIFY_WEBHOOK = os.getenv("TELEARR_NOTIFY_WEBHOOK", "") # Discord/Slack/generic JSON

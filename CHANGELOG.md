@@ -51,11 +51,26 @@
   are never returned. Nothing changes for deployments that don't set them.
 
 ### Changed
+- **Breaking: `TG_API_ID`/`TG_API_HASH`, `PLEX_URL`/`PLEX_TOKEN` and `TELEARR_PROXY` now
+  win over the database.** They used to be defaults that a value saved from the UI
+  overrode. If you set one of these and later changed the value in the UI, Telegrarr
+  now uses the env value: remove the env var, or leave it empty, to keep the saved one.
+  A set variable is reported as `<setting>_env_locked` (`tg_api_id`, `tg_api_hash`,
+  `plex_url`, `plex_token`, `tg_proxy`), and writes to it are refused with
+  `err.settings.env_locked`: `PATCH /api/settings` with a 400, and `POST
+  /api/telegram/auth/api` and `POST /api/telegram/proxy` in the `error` field of their
+  reply. `TG_API_ID=0`, the value `.env.example` ships, counts as not set.
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
 - Scans respect the flood gate: while it is closed polls read nothing and catch up once
   it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
   scan closes the gate for every other Telegram read.
+
+### Fixed
+- `PLEX_URL` and `PLEX_TOKEN` reach Plex. Only values saved in the UI used to.
+- Proxy credentials can't come back from the API or reach the log: a proxy URL that
+  doesn't parse into a host and port shows as `(set)` instead of as written, and a
+  failed proxy connection masks them in its error.
 
 ## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 
