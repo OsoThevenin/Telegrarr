@@ -5,7 +5,7 @@
 import time
 import asyncio
 
-from . import db, settings, safety, resolver, movies, topic_errors
+from . import channels, db, settings, safety, resolver, movies, topic_errors
 from .arr import category_for
 from .i18n import message
 from .series_titles import cached_series_name, display_title, is_tv, series_name
@@ -22,6 +22,7 @@ from .transfers import (MAX_DOWNLOAD_RETRIES, enqueue, queue_grab,  # noqa: F401
 _active = None
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
 DEFAULT_SEASON = 1                      # season of an episode-only series release
+LOOP_PAUSE_S = 30                       # how often the scan loop looks for due channels
 
 
 def base_dir_for(channel, quality=None):
@@ -262,6 +263,8 @@ async def _read_source(client, channel, *, limit, stop_at=0):
 
 async def scan_channel(client, channel):
     cid = channel["id"]
+    if not channels.scanning_on(cid):   # `channel` may predate the switch: a pass can take minutes
+        return
     last = channel["last_message_id"] or 0
     scanned = await _read_source(client, channel, limit=80, stop_at=last)
     if scanned is None:   # retried at the next poll, not every loop cycle
@@ -342,12 +345,10 @@ async def scan_loop():
                 await resume_pending_downloads()
                 resumed = True
             if settings.get_bool("paused", False):
-                await asyncio.sleep(30)
+                await asyncio.sleep(LOOP_PAUSE_S)
                 continue
             now = int(time.time())
-            with db.conn() as c:
-                rows = c.execute("SELECT * FROM channels WHERE enabled=1").fetchall()
-            for ch in rows:
+            for ch in channels.scannable():
                 if not channel_should_run_today(ch):
                     continue
                 if not _poll.is_due(ch["id"], ch["last_scanned_at"] or 0, ch["poll_minutes"], now):
@@ -358,7 +359,7 @@ async def scan_loop():
                     db.log("ERROR", message("event.scan_failed", channel=ch["title"], error=str(e)), channel_id=ch["id"])
         except Exception as e:
             db.log("ERROR", message("event.scan_loop_error", error=str(e)))
-        await asyncio.sleep(30)
+        await asyncio.sleep(LOOP_PAUSE_S)
 
 
 def start_background():

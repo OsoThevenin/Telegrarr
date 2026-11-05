@@ -247,7 +247,7 @@ async def api_system_scan_all(user=Depends(auth.require_user)):
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    chans = channels.listed(enabled_only=True)
+    chans = channels.scannable()
     for ch in chans:
         scanner._spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
@@ -301,6 +301,15 @@ def _release_fields(payload: dict) -> dict:
     return fields
 
 
+def _scanning_field(payload: dict) -> dict:
+    """The validated scanning switch from a channel payload (only when present)."""
+    if "scanning" not in payload:
+        return {}
+    if payload["scanning"] not in (True, False):
+        raise _bad(400, "err.channel.choice", field="scanning", choices="true, false")
+    return {"scanning": int(payload["scanning"])}
+
+
 def _topic_fields(payload: dict) -> dict:
     """The forum topic a new source is restricted to (none: the whole chat)."""
     title = str(payload.get("topic_title") or "").strip()
@@ -337,7 +346,7 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    payload = {**payload, **_release_fields(payload)}
+    payload = {**payload, **_release_fields(payload), **_scanning_field(payload)}
     if "poll_minutes" in payload:
         try:
             payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
@@ -357,11 +366,19 @@ async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
     return {"ok": True}
 
 
-@app.post("/api/channels/{cid}/scan")
-async def api_scan(cid: int, user=Depends(auth.require_user)):
+def _readable_source(cid: int) -> dict:
+    """Channel `cid`, for a manual read: refused while its scanning is off."""
     ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
+    if not ch["scanning"]:
+        raise _bad(409, "err.channel.scanning_off")
+    return ch
+
+
+@app.post("/api/channels/{cid}/scan")
+async def api_scan(cid: int, user=Depends(auth.require_user)):
+    ch = _readable_source(cid)
     client = get_client()
     if not client.is_connected():
         await client.connect()
@@ -371,9 +388,7 @@ async def api_scan(cid: int, user=Depends(auth.require_user)):
 
 @app.post("/api/channels/{cid}/backfill")
 async def api_backfill(cid: int, user=Depends(auth.require_user)):
-    ch = channels.get(cid)
-    if not ch:
-        raise HTTPException(404)
+    ch = _readable_source(cid)
     client = get_client()
     if not client.is_connected():
         await client.connect()

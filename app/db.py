@@ -168,6 +168,7 @@ COLUMN_MIGRATIONS = (
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
     ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
     ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
+    ("channels", "scanning", "INTEGER NOT NULL DEFAULT 1"),  # 0: Telegrarr doesn't read this source
 )
 
 # download row statuses, grouped by what the code asks of a row

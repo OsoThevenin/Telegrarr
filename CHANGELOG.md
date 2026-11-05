@@ -13,6 +13,12 @@
   runs, stays paused across a restart and a global resume, and shows as `Paused` in
   the SABnzbd queue. Pausing an in-flight transfer discards its partial file; resuming
   restarts the file from the beginning as a new attempt.
+- A scanning switch per Channel, on by default (`scanning`, set with `PATCH
+  /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
+  polls skip it, and a manual Scan, a history fetch or a directory scan of it is
+  refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
+  transfer. Failed transfers of the Channel are not retried automatically while it is
+  off; a manual Retry still works.
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
