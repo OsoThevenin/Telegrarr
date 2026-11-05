@@ -4,7 +4,7 @@ The outside view: the settings API, and what actually reaches TMDB and the *arr
 apps on the wire (tests/fake_tmdb.py, tests/fake_arr.py)."""
 import pytest
 
-from app import i18n
+from app import i18n, settings
 from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY
 from fake_tmdb import API_KEY as TMDB_KEY
 
@@ -123,6 +123,20 @@ async def test_env_url_of_another_scheme_still_wins_and_fails_as_a_connection(ar
     assert r.json()["ok"] is False
     assert r.json()["error"]["key"] == "err.arr.unreachable"
     assert (await arr_app.settings())["sonarr_url"] == "sonarr.test:8989"
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_env_value_is_warned_about_once_without_showing_it(arr_app, monkeypatch, caplog):
+    settings._warn_env_value_rejected.cache_clear()
+    monkeypatch.setenv("TELEARR_SONARR_URL", "ftp://operator:env-secret@sonarr.test")
+
+    await arr_app.settings()
+    view = await arr_app.settings()
+
+    assert view["sonarr_url"] == "ftp://operator:env-secret@sonarr.test"
+    warnings = [r.getMessage() for r in caplog.records if "TELEARR_SONARR_URL" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "env-secret" not in caplog.text
 
 
 # ── without an env value the database decides, as before ──────────────

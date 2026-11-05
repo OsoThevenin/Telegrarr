@@ -1,11 +1,15 @@
 # app/settings.py — DB-backed runtime settings with env-based defaults.
 # Anything here can be changed from the UI and takes effect live (no rebuild),
 # except the env-backed settings in ENV_VARS while their env var is set.
+import functools
+import logging
 import os
 
 from . import db
 from . import config
 from .i18n import DEFAULT_LANG, LANGS, KeyedError
+
+log = logging.getLogger("settings")
 
 
 class SettingRejected(KeyedError, ValueError):
@@ -89,11 +93,19 @@ ENV_VARS = {
 ENV_PLACEHOLDERS = {"tg_api_id": "0"}
 
 
+@functools.cache
+def _warn_env_value_rejected(env_var: str) -> None:
+    """Warn once per env var: env is read on every lookup. The value may be a secret."""
+    log.warning("%s is not a valid value for its setting; using it as written", env_var)
+
+
 def _env_value(key: str) -> str:
     """The value env provides for ``key``, normalised as a saved one is; "" if none.
 
-    A value its coercer rejects stays as written: the operator's env still wins,
-    and using it fails visibly as a connection error."""
+    A value its coercer rejects stays as written, with a warning in the log: the
+    operator's env still wins, and a bad *arr URL then fails as a connection error.
+    Settings with no coercer aren't checked here: TG_API_ID=not-a-number locks the
+    setting and reads as an id of 0, so Telegram just looks unconfigured."""
     raw = os.environ.get(ENV_VARS[key], "").strip() if key in ENV_VARS else ""
     if raw == ENV_PLACEHOLDERS.get(key):
         return ""
@@ -102,6 +114,7 @@ def _env_value(key: str) -> str:
     try:
         return WRITABLE[key](raw)
     except ValueError:
+        _warn_env_value_rejected(ENV_VARS[key])
         return raw
 
 
