@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Optional external URLs for Radarr and Sonarr (`radarr_external_url`,
+  `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
+  hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,
+  when unset, the connection URL.
+
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
   `tt…` id as it's pasted, and a TMDB id on Enter, and maps that series straight
