@@ -28,10 +28,26 @@
   refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
   transfer. Failed transfers of the Channel are not retried automatically while it is
   off; a manual Retry still works.
+- Why not grabbed? `POST /api/channels/{id}/catalog/{tmdb_id}/why-not-grabbed` asks
+  Radarr, on the operator's request only, what it thinks of a Catalog film's Releases
+  and shows its rejections word for word. A film Radarr would take but is waiting on,
+  or already has in its own queue, answers "would accept".
+- Channel photos: `GET /api/channels/{id}/photo` serves a Channel's Telegram profile
+  photo from a local cache, so showing the grid costs no Telegram reads while the
+  cache is fresh. Reads are one at a time and held by the flood gate, the daily budget
+  and the scanning switch.
+- File details on Catalog films Radarr holds: `file` in
+  `GET /api/channels/{id}/catalog/status` reports the file's quality, resolution, codec,
+  container, audio and subtitle languages and size.
+- The channels API reports each Channel's history fetch as a `history` object (`read`,
+  `total_estimate`, `complete`, `next_batch_at`).
 
 ### Changed
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
+- Scans respect the flood gate: while it is closed polls read nothing and catch up once
+  it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
+  scan closes the gate for every other Telegram read.
 
 ## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 
