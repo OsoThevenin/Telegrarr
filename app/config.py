@@ -68,8 +68,8 @@ NOTIFY_WEBHOOK = os.getenv("TELEARR_NOTIFY_WEBHOOK", "") # Discord/Slack/generic
 # Route MTProto through a proxy when the ISP shapes/blocks Telegram DC IPs.
 # Formats: socks5://[user:pass@]host:port · socks4://host:port ·
 #          http://[user:pass@]host:port · mtproxy://<secret>@host:port
-# A DB setting (tg_proxy, set from the UI) overrides this env default.
-PROXY = os.getenv("TELEARR_PROXY", "")
+# TELEARR_PROXY is read by app/settings.py (ENV_VARS): set, it wins over the proxy
+# saved from the UI (tg_proxy) and locks it.
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)

@@ -82,6 +82,7 @@ ENV_VARS = {
     "tg_api_hash": "TG_API_HASH",
     "plex_url": "PLEX_URL",
     "plex_token": "PLEX_TOKEN",
+    "tg_proxy": "TELEARR_PROXY",
 }
 # Env values that mean "not provisioned". .env.example ships TG_API_ID=0, and locking
 # on it would refuse the setup wizard on every fresh install.
@@ -281,14 +282,17 @@ def apply(payload: dict) -> dict:
     for an env-locked setting, whatever it is."""
     coerced = {}
     for k, v in payload.items():
-        if k in WRITABLE and v is not None:
-            refuse_if_env_locked(k)
-            try:
-                coerced[k] = WRITABLE[k](v)
-            except SettingRejected:
-                raise
-            except (TypeError, ValueError):
-                pass
+        if v is None:
+            continue
+        refuse_if_env_locked(k)      # also keys only their own endpoint can write
+        if k not in WRITABLE:
+            continue
+        try:
+            coerced[k] = WRITABLE[k](v)
+        except SettingRejected:
+            raise
+        except (TypeError, ValueError):
+            pass
     for k, v in coerced.items():
         set(k, v)
     return public()
