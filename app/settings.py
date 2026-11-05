@@ -78,7 +78,12 @@ ENV_VARS = {
     "sonarr_key": "TELEARR_SONARR_KEY",
     "radarr_url": "TELEARR_RADARR_URL",
     "radarr_key": "TELEARR_RADARR_KEY",
+    "tg_api_id": "TG_API_ID",
+    "tg_api_hash": "TG_API_HASH",
 }
+# Env values that mean "not provisioned". .env.example ships TG_API_ID=0, and locking
+# on it would refuse the setup wizard on every fresh install.
+ENV_PLACEHOLDERS = {"tg_api_id": "0"}
 
 
 def _env_value(key: str) -> str:
@@ -87,6 +92,8 @@ def _env_value(key: str) -> str:
     A value its coercer rejects stays as written: the operator's env still wins,
     and using it fails visibly as a connection error."""
     raw = os.environ.get(ENV_VARS[key], "").strip() if key in ENV_VARS else ""
+    if raw == ENV_PLACEHOLDERS.get(key):
+        return ""
     if not raw or key not in WRITABLE:
         return raw
     try:

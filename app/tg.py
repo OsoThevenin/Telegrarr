@@ -11,7 +11,7 @@ from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
 from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 from . import settings
 from .i18n import message
-from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
+from .config import (SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
                      TG_APP_VERSION, TG_LANG_CODE, TG_SYSTEM_LANG_CODE)
 
 log = logging.getLogger("tg")
@@ -22,9 +22,8 @@ GENERAL_TOPIC_ID = 1   # Telegram's fixed id for a forum group's General topic
 
 
 def _api_creds():
-    # user-provided creds (via the setup wizard) take precedence over .env defaults
-    return (settings.get_int("tg_api_id", 0) or API_ID,
-            settings.get("tg_api_hash", "") or API_HASH)
+    # TG_API_ID / TG_API_HASH win; otherwise the creds saved by the setup wizard
+    return settings.get_int("tg_api_id", 0), settings.get("tg_api_hash", "")
 
 
 def _proxy_url() -> str:
@@ -152,6 +151,11 @@ async def auth_status():
 
 
 async def set_api(api_id, api_hash):
+    try:
+        settings.refuse_if_env_locked("tg_api_id")
+        settings.refuse_if_env_locked("tg_api_hash")
+    except settings.SettingRejected as e:
+        return {"error": e.message()}
     try:
         settings.set("tg_api_id", str(int(str(api_id).strip())))
     except (TypeError, ValueError):

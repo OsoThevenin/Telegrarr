@@ -15,8 +15,8 @@ def _i(name: str, default: int) -> int:
 
 
 # ── Telegram ──────────────────────────────────────────────────────────
-API_ID = _i("TG_API_ID", 0)
-API_HASH = os.getenv("TG_API_HASH", "")
+# TG_API_ID / TG_API_HASH are read by app/settings.py (ENV_VARS), with the other
+# settings an env var can lock.
 # Account safety: present the client like official Telegram Desktop on Windows
 # rather than Telethon's default (which exposes the library / server OS).
 TG_DEVICE_MODEL = os.getenv("TELEARR_TG_DEVICE_MODEL", "Desktop")
