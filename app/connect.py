@@ -285,6 +285,7 @@ async def radarr_defaults() -> RadarrDefaults:
 
 
 RADARR_ADDED, RADARR_SEARCHED = "added", "searched"
+QUEUE_FAILED_PENDING = "failedPending"   # a failed download Radarr is about to replace
 MOVIES_SEARCH = "MoviesSearch"
 
 
@@ -317,7 +318,23 @@ async def radarr_request(tmdb_id: int) -> str:
     return RADARR_SEARCHED
 
 
-async def radarr_releases(tmdb_id: int) -> list[dict] | None:
+@dataclass(frozen=True)
+class ReleaseSearch:
+    """Radarr's interactive search for a film, and whether its download queue holds the film."""
+    releases: tuple[dict, ...]
+    queued: bool
+
+
+async def _radarr_queued(target: ArrApp, movie_id: int) -> bool:
+    """Whether Radarr's queue, delayed releases included, holds the film; raises ArrError."""
+    found = await _request(target, "GET", "/queue", params={"movieIds": movie_id})
+    records = found.get("records") if isinstance(found, dict) else None
+    if not isinstance(records, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return any(isinstance(q, dict) and q.get("trackedDownloadState") != QUEUE_FAILED_PENDING for q in records)
+
+
+async def radarr_release_search(tmdb_id: int) -> ReleaseSearch | None:
     """Radarr's interactive release search for the film: every release its indexers offer
     with Radarr's decision on it, or None when Radarr doesn't have the film. Raises ArrError."""
     target = configured("radarr")
@@ -328,4 +345,5 @@ async def radarr_releases(tmdb_id: int) -> list[dict] | None:
                            timeout=RELEASE_SEARCH_TIMEOUT_S)
     if not isinstance(found, list):
         raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
-    return [r for r in found if isinstance(r, dict)]
+    return ReleaseSearch(tuple(r for r in found if isinstance(r, dict)),
+                         await _radarr_queued(target, movie["id"]))

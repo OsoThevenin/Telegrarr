@@ -7,8 +7,10 @@
 #
 # Answer JSON (POST …/catalog/{tmdb_id}/why-not-grabbed):
 #   {tmdb_id, verdict, message: {key, params}, releases: [{title, approved, rejections}]}
-# `verdict` is would_accept (a release is approved) | rejected | no_releases (Radarr's
-# search found none of Telegrarr's). `rejections` are Radarr's own words, untranslated.
+# `verdict` is would_accept (a release is approved or only temporarily rejected, or the
+# film is in Radarr's queue, whose rejection of every other release is permanent) | rejected
+# | no_releases (Radarr's search found none of Telegrarr's). `rejections` are Radarr's own
+# words, untranslated. The request is user-invoked, so Radarr's delay profiles don't apply.
 import asyncio
 import time
 from collections import defaultdict
@@ -44,17 +46,22 @@ def _decision(release: dict) -> dict:
             "rejections": release.get("rejections") or []}
 
 
-def _verdict(releases: list[dict]) -> str:
-    if not releases:
+def _acceptable(release: dict) -> bool:
+    """Radarr takes it now, or only has to wait (a temporary rejection, a minimum age say)."""
+    return bool(release.get("approved") or release.get("temporarilyRejected"))
+
+
+def _verdict(telegrarrs: list[dict], queued: bool) -> str:
+    if not telegrarrs:
         return VERDICT_NO_RELEASES
-    return VERDICT_WOULD_ACCEPT if any(r["approved"] for r in releases) else VERDICT_REJECTED
+    return VERDICT_WOULD_ACCEPT if queued or any(_acceptable(r) for r in telegrarrs) else VERDICT_REJECTED
 
 
-def _answer(tmdb_id: int, found: list[dict]) -> dict:
-    releases = [_decision(r) for r in found if _is_telegrarr(r)]
-    verdict = _verdict(releases)
+def _answer(tmdb_id: int, search: connect.ReleaseSearch) -> dict:
+    telegrarrs = [r for r in search.releases if _is_telegrarr(r)]
+    verdict = _verdict(telegrarrs, search.queued)
     return {"tmdb_id": tmdb_id, "verdict": verdict, "message": message(VERDICT_MESSAGES[verdict]),
-            "releases": releases}
+            "releases": [_decision(r) for r in telegrarrs]}
 
 
 def _cached(tmdb_id: int) -> dict | None:
@@ -73,9 +80,9 @@ async def why_not_grabbed(cid: int, tmdb_id: int) -> dict:
         cached = _cached(tmdb_id)
         if cached is not None:
             return cached
-        found = await connect.radarr_releases(tmdb_id)
-        if found is None:
+        search = await connect.radarr_release_search(tmdb_id)
+        if search is None:
             raise NotInRadarr(tmdb_id)
-        answer = _answer(tmdb_id, found)
+        answer = _answer(tmdb_id, search)
         _answers[tmdb_id] = (time.monotonic() + CACHE_TTL_S, answer)
         return answer
