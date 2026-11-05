@@ -15,6 +15,7 @@ NEWZNAB_NS = "{http://www.newznab.com/DTD/2010/feeds/attributes/}"
 MOVIE_CHAT = -1003333333333
 THEORY_TMDB, THEORY_IMDB = 266856, "tt2980516"
 PA_NEGRE_TMDB, PA_NEGRE_IMDB = 50797, "tt1302067"
+SCAN_WINDOW = 80    # newest messages a scan reads
 
 
 @pytest.fixture()
@@ -130,7 +131,7 @@ async def _one_pending(arr_app, text="La teoria del tot", file_name="La.teoria.d
     return channel, msg
 
 
-async def _backfill(arr_app, channel_id):
+async def _backfill(arr_app, batches_only, channel_id):
     """Re-index the channel's whole history and wait for it to finish."""
     (await arr_app.http.post(f"/api/channels/{channel_id}/backfill")).raise_for_status()
 
@@ -138,7 +139,8 @@ async def _backfill(arr_app, channel_id):
         logs = (await arr_app.http.get("/api/logs", params={"channel_id": channel_id})).json()
         return any("[Backfill]" in line["message"] for line in logs)
 
-    await eventually(finished)
+    async with batches_only():
+        await eventually(finished)
 
 
 @pytest.mark.asyncio
@@ -234,11 +236,11 @@ async def test_reviewing_a_message_that_is_not_pending_is_not_found(arr_app, fil
 
 
 @pytest.mark.asyncio
-async def test_a_discarded_message_is_never_shown_or_offered_again(arr_app, films):
+async def test_a_discarded_message_is_never_shown_or_offered_again(arr_app, films, batches_only):
     channel, msg = await _one_pending(arr_app, text="La teoria del tot (1999)")
 
     r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/discard")
-    await _backfill(arr_app, channel["id"])
+    await _backfill(arr_app, batches_only, channel["id"])
 
     assert r.status_code == 200
     assert await _review(arr_app) == []
@@ -247,12 +249,12 @@ async def test_a_discarded_message_is_never_shown_or_offered_again(arr_app, film
 
 
 @pytest.mark.asyncio
-async def test_backfill_keeps_an_assigned_film_and_does_not_look_it_up_again(arr_app, films):
+async def test_backfill_keeps_an_assigned_film_and_does_not_look_it_up_again(arr_app, films, batches_only):
     channel, msg = await _one_pending(arr_app)
     (await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign",
                              json={"tmdb_id": THEORY_TMDB})).raise_for_status()
 
-    await _backfill(arr_app, channel["id"])
+    await _backfill(arr_app, batches_only, channel["id"])
 
     assert await _review(arr_app) == []
     assert len(await _movie_search(arr_app, tmdbid=str(THEORY_TMDB))) == 1
@@ -280,3 +282,28 @@ async def test_tmdb_film_search_for_the_review_picker(arr_app, films):
     r = await arr_app.http.get("/api/tmdb/movies", params={"q": "teoria del tot"})
 
     assert [(h["tmdb_id"], h["title"], h["year"]) for h in r.json()] == [(THEORY_TMDB, "La teoria del tot", "2014")]
+
+
+@pytest.mark.asyncio
+async def test_films_older_than_a_scan_reach_the_catalog_and_review_through_the_batches(
+        arr_app, films, batches_only):
+    tg = arr_app.telegram
+    channel = await _movie_channel(arr_app)
+    tg.post(MOVIE_CHAT, text="La teoria del tot (2014)", file_name="La.teoria.del.tot.2014.1080p.mkv")
+    pending = tg.post(MOVIE_CHAT, text="Sense any", file_name="sense_any.mkv")
+    for n in range(SCAN_WINDOW):
+        tg.post_text(MOVIE_CHAT, f"xerrada {n}")
+    await arr_app.scan(channel["id"])
+    assert await _review(arr_app) == []
+
+    async with batches_only():
+        await eventually(lambda: _review(arr_app))
+
+        async def in_radarr():
+            return await _movie_search(arr_app, tmdbid=str(THEORY_TMDB))
+        await eventually(in_radarr)
+
+    [entry] = await _review(arr_app)
+    assert entry["message_id"] == pending.id
+    catalog = (await arr_app.http.get(f"/api/channels/{channel['id']}/catalog")).raise_for_status().json()
+    assert [row.get("tmdb_id") for row in catalog["rows"]] == [None, THEORY_TMDB]

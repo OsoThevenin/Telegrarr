@@ -11,7 +11,7 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
+from . import db, auth, channels, history, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from . import release_titles
 from . import i18n
 from . import transfers
@@ -388,11 +388,8 @@ async def api_scan(cid: int, user=Depends(auth.require_user)):
 
 @app.post("/api/channels/{cid}/backfill")
 async def api_backfill(cid: int, user=Depends(auth.require_user)):
-    ch = _readable_source(cid)
-    client = get_client()
-    if not client.is_connected():
-        await client.connect()
-    scanner._spawn(scanner.backfill_channel(client, ch))
+    _readable_source(cid)
+    history.request(cid)
     return {"ok": True, "message": i18n.message("scan.backfill_started")}
 
 

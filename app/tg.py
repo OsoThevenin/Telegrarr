@@ -4,6 +4,7 @@ import time
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from urllib.parse import urlparse
 from telethon import TelegramClient, types, utils
 from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
@@ -222,18 +223,22 @@ _ready = authorized_client
 
 
 def source_messages(c, chat_id: int, *, limit: int | None = None, topic_id: int | None = None):
-    """A source's messages on client `c`, newest first: the one place scans,
-    backfills and directory scans read a chat's history.
+    """A source's messages on client `c`, newest first, as directory scans read
+    them; scans and history batches use `read_messages`, with the same rules.
 
     `topic_id` restricts the read to one forum topic (Telethon's `reply_to`
     filter); None reads the whole chat, as for a channel. Telegram refuses that
     filter for the General topic, so General reads the whole group and keeps
     the messages of no named topic (`limit` then counts messages read, not kept)."""
-    if topic_id is None:
-        return c.iter_messages(chat_id, limit=limit)
-    if topic_id == GENERAL_TOPIC_ID:
-        return _general_messages(c.iter_messages(chat_id, limit=limit))
-    return c.iter_messages(chat_id, limit=limit, reply_to=topic_id)
+    raw = _chat_messages(c, chat_id, topic_id, limit=limit)
+    return _general_messages(raw) if topic_id == GENERAL_TOPIC_ID else raw
+
+
+def _chat_messages(c, chat_id: int, topic_id: int | None, **window):
+    """What Telegram is asked for a source: General reads its whole group."""
+    if topic_id in (None, GENERAL_TOPIC_ID):
+        return c.iter_messages(chat_id, **window)
+    return c.iter_messages(chat_id, reply_to=topic_id, **window)
 
 
 def _in_named_topic(msg) -> bool:
@@ -243,12 +248,41 @@ def _in_named_topic(msg) -> bool:
     return bool(msg.reply_to is not None and getattr(msg.reply_to, "forum_topic", False))
 
 
+def _in_general(msg) -> bool:
+    """Whether `msg` is a General topic post of its forum group (service messages
+    such as topic creations are not)."""
+    return not _in_named_topic(msg) and not getattr(msg, "action", None)
+
+
 async def _general_messages(messages):
-    """The General topic's posts among a forum group's `messages` (service
-    messages such as topic creations are left out)."""
+    """The General topic's posts among a forum group's `messages`."""
     async for msg in messages:
-        if not _in_named_topic(msg) and not getattr(msg, "action", None):
+        if _in_general(msg):
             yield msg
+
+
+@dataclass(frozen=True)
+class MessageRead:
+    """One bounded read of a source, newest first. `count` and the ids describe
+    what Telegram returned, which for General includes the named topics' messages
+    that `messages` leaves out: only a `count` under the read's limit, never an
+    empty `messages`, says the read ran out of history."""
+    messages: tuple
+    count: int
+    newest_id: int           # 0 when Telegram returned nothing
+    oldest_id: int
+    total: int | None        # Telegram's message count for the chat, or the named topic
+
+
+async def read_messages(c, chat_id: int, *, limit: int, topic_id: int | None = None,
+                        offset_id: int = 0, min_id: int = 0) -> MessageRead:
+    """Up to `limit` of a source's messages on client `c`, older than `offset_id`
+    (0: from the newest) and newer than `min_id`."""
+    raw = _chat_messages(c, chat_id, topic_id, limit=limit, offset_id=offset_id, min_id=min_id)
+    got = [m async for m in raw]
+    kept = tuple(m for m in got if topic_id != GENERAL_TOPIC_ID or _in_general(m))
+    return MessageRead(messages=kept, count=len(got), newest_id=got[0].id if got else 0,
+                       oldest_id=got[-1].id if got else 0, total=raw.total)
 
 
 FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request (Telegram's page size)

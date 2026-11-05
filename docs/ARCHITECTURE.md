@@ -23,6 +23,7 @@ the web UI and JSON API **and** runs the background scanner in the same event lo
 | `app/namer.py` | Pure parsing/naming logic. Extracts season/episode/date/quality from filenames and captions, detects UHD, computes a per-episode `group_key` for dedup, cleans episode titles, queries IMDb suggestions, and builds the final Plex-style `save_path`. |
 | `app/downloader.py` | The fast downloader. A parallel multi-sender ("FastTelethon") engine that splits a file into part-ranges, fetches each range on its own exported sender, and `pwrite`s into a preallocated file — with an automatic fallback to Telethon's built-in sequential downloader if the fast path raises. Enforces a minimum-free-space check and a global flood-wait gate. |
 | `app/scanner.py` | The channel scanner. Polls enabled channels with scanning on, on schedule, keeps the largest file per episode, indexes releases, and resolves where each file goes before handing it to the transfer queue. |
+| `app/history.py` | The background history fetch. Keeps each source's cursor in the `channels` table and reads the source's older messages in small throttled batches, one per scan-loop tick, held by the flood gate and the daily budget. Started by a source's first finished scan; also reads a gap a later scan could not reach, and serves the manual history recovery. |
 | `app/transfers.py` | The transfer lifecycle. Queues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles cancel, retry, pause/resume and crash-resume of interrupted downloads. |
 | `app/plex.py` | Targeted Plex refresh. Finds the library section whose path best matches the download folder and refreshes only that path, so new media appears in seconds. Includes a connectivity `test()`. |
 | `app/notify.py` | Fire-and-forget completion notifications: a generic webhook (Discord/Slack-compatible JSON) **and** a rich Telegram Saved-Messages DM (poster image downloaded and sent as a photo, plus an "Open in Plex" deep link). Includes a `test()`. |
@@ -77,8 +78,16 @@ Step by step:
    that is due (right weekday, poll interval elapsed), `scan_channel` iterates
    messages from newest toward `last_message_id`. With `scanning` off a channel costs
    no Telegram reads: polls skip it and manual reads are refused, while its indexed
-   Releases stay searchable and Grabs of them still transfer.
-2. **Dedup.** `_iter_best` groups media by `group_key` (season/episode, else
+   Releases stay searchable and Grabs of them still transfer. A scan reads at most the
+   newest 80 messages; after the polls of a tick, `history.run_due` reads one batch of
+   200 older messages of the most overdue source, walking down from where the scan
+   stopped, and the next batch of that source waits for `HISTORY_INTERVAL_S` plus
+   jitter. Batches go through the scan loop's pause and are held while the flood gate
+   is closed or the daily budget is spent. A scan that fills its 80 without reaching
+   `last_message_id` (say, after scanning was off) starts the walk again from there,
+   down to the message it knew. Batches only index: only a history the operator asked
+   for queues what it finds in standalone mode.
+2. **Dedup.** `_best_per_group` groups media by `group_key` (season/episode, else
    episode, else air date, else message id) and keeps only the **largest** file per
    group. `_already_have` skips groups already downloaded/queued at equal-or-greater
    size.
@@ -105,7 +114,10 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
 - **`channels`** — watched Telegram channels: `id` (PK), `chat_id` (unique, `-100…`
   form), `title`, `kind` (`tv`/`movie`/other), `imdb_id`, `imdb_title`, `weekdays`
   (CSV of 0–6), `poll_minutes`, `enabled`, `scanning`, `last_scanned_at`,
-  `last_message_id`, `created_at`.
+  `last_message_id`, `created_at`, and the history fetch's `history_oldest_id` (the
+  cursor), `history_floor` (the walk stops here), `history_read`, `history_total`
+  (Telegram's count, an estimate), `history_complete`, `history_next_at` and
+  `history_requested`.
 - **`downloads`** — one row per media item: `id` (PK), `channel_id`, `message_id`,
   `file_unique_id`, `group_key`, `file_name`, `file_size`, `save_path`, `status`
   (`queued`/`downloading`/`paused`/`completed`/`failed`/`cancelled`), `error`, `progress`,

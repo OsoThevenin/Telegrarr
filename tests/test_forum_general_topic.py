@@ -75,7 +75,7 @@ async def test_a_general_source_scan_indexes_only_files_outside_named_topics(arr
 
 
 @pytest.mark.asyncio
-async def test_a_general_source_backfill_indexes_only_files_outside_named_topics(arr_app):
+async def test_a_general_source_backfill_indexes_only_files_outside_named_topics(arr_app, batches_only):
     _forum_with_posts(arr_app.telegram)
     source = await _general_source(arr_app)
 
@@ -85,7 +85,8 @@ async def test_a_general_source_backfill_indexes_only_files_outside_named_topics
         logs = (await arr_app.http.get("/api/logs", params={"channel_id": source["id"]})).json()
         return any("[Backfill]" in line["message"] for line in logs)
 
-    await eventually(finished)
+    async with batches_only():
+        await eventually(finished)
     assert await _episodes(arr_app) == {"The.Show.S01E01", "The.Show.S01E02"}
 
 

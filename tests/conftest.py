@@ -43,6 +43,7 @@ def fresh_db(tmp_path, monkeypatch):
 
 # ── HTTP harness (see tests/http_harness.py) ─────────────────────────
 import asyncio
+import contextlib
 
 import httpx
 import pytest_asyncio
@@ -155,3 +156,61 @@ def arrs(monkeypatch):
     stack = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
     monkeypatch.setattr(connect, "transport", stack.transport())
     return stack
+
+
+# ── the real scan loop ───────────────────────────────────────────────
+TICK_S = 0.01
+
+
+class _AlwaysDue:
+    """Every source is due at every tick: time is not what these tests are about."""
+
+    def is_due(self, *_args) -> bool:
+        return True
+
+
+class _NeverDue:
+    """No source is polled: every read the loop makes is a history batch."""
+
+    def is_due(self, *_args) -> bool:
+        return False
+
+
+@pytest_asyncio.fixture()
+async def polling(arr_app, monkeypatch):
+    """Start the real scan loop, ticking fast with every source due; stops it after
+    the test. Sources polled in each pass are newest first."""
+    from app import scanner
+
+    monkeypatch.setattr(scanner, "LOOP_PAUSE_S", TICK_S)
+    monkeypatch.setattr(scanner, "_poll", _AlwaysDue())
+    monkeypatch.setattr(scanner, "_active", None)
+
+    @contextlib.asynccontextmanager
+    async def run():
+        task = scanner.start_background()
+        try:
+            yield
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    return run
+
+
+@pytest_asyncio.fixture()
+async def history_loop(polling, monkeypatch):
+    """The real scan loop, with history batches due as soon as a tick comes round."""
+    from app import safety
+
+    monkeypatch.setattr(safety, "HISTORY_INTERVAL_S", 0)
+    return polling
+
+
+@pytest_asyncio.fixture()
+async def batches_only(history_loop, monkeypatch):
+    """The real scan loop, reading history batches and polling nothing."""
+    from app import scanner
+
+    monkeypatch.setattr(scanner, "_poll", _NeverDue())
+    return history_loop
