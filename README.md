@@ -212,7 +212,9 @@ messages and notifications.
 ## Configuration reference
 
 Deploy-time settings live in `.env` (see [`.env.example`](.env.example)); many can be
-changed live in *Settings*, which override `.env`.
+changed live in *Settings*, which override `.env`. The TMDB and *arr variables work
+the other way round: while one is set and not empty it wins over the saved value, and
+the API refuses to change that setting.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -228,6 +230,10 @@ changed live in *Settings*, which override `.env`.
 | `TELEARR_MIN_FREE_GB` | Refuse downloads below this free space | `50` |
 | `TELEARR_PROXY` | Route Telegram through a proxy | — |
 | `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Optional upstream integrations | — |
+| `TELEARR_TMDB_KEY` | TMDB API key; wins over *Settings* | — |
+| `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Prowlarr connection; wins over *Connect* | — |
+| `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Sonarr connection; wins over *Connect* | — |
+| `TELEARR_RADARR_URL` / `TELEARR_RADARR_KEY` | Radarr connection; wins over *Connect* | — |
 
 ## Proxy / VPN
 

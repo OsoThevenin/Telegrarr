@@ -101,6 +101,8 @@ cover without I/O.
 - **Config vs settings:** boot-time, restart-required values live in
   `app/config.py` (env). Live-tunable values live in `app/settings.py` (DB-backed)
   and must be added to both `DEFAULTS`/`public()` and the `WRITABLE` coercers.
+  To let an env var provision one, add it to `ENV_VARS`; a path that writes it
+  outside `apply()` must call `refuse_if_env_locked()` first.
 
 ## Branch naming
 
