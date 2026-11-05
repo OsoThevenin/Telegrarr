@@ -12,7 +12,9 @@ import logging
 from enum import Enum
 from typing import Any, NamedTuple
 
-from . import db, plex, notify, settings, safety
+from telethon.errors import FloodWaitError
+
+from . import db, downloader, plex, notify, settings, safety
 from .arr import AttemptRef, hide_from_history, is_current_attempt
 from .i18n import message, translate
 from .tg import get_client
@@ -246,6 +248,9 @@ async def retry_failed(client, channel):
     for r in rows:
         try:
             msg = await client.get_messages(channel["chat_id"], ids=r["message_id"])
+        except FloodWaitError as e:
+            await downloader.flood_gate.trip(e.seconds)
+            return
         except Exception as e:
             db.log("WARN", message("event.retry_fetch_failed", message_id=r["message_id"], error=str(e)),
                    channel_id=cid)

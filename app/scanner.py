@@ -5,7 +5,9 @@
 import time
 import asyncio
 
-from . import channels, db, history, settings, safety, resolver, movies, topic_errors
+from telethon.errors import FloodWaitError
+
+from . import channels, db, downloader, history, settings, safety, resolver, movies, topic_errors
 from .arr import category_for
 from .i18n import message
 from .series_titles import cached_series_name, display_title, is_tv, series_name
@@ -14,10 +16,9 @@ from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE, extract_movie)
 from .config import TV_DIR, TV_DIR_4K, MOVIES_DIR, MOVIES_DIR_4K, OTHER_DIR
-# MAX_DOWNLOAD_RETRIES, _retry_failed and _spawn keep their scanner names for callers.
+# MAX_DOWNLOAD_RETRIES and _retry_failed keep their scanner names for callers.
 from .transfers import (MAX_DOWNLOAD_RETRIES, enqueue, queue_grab,  # noqa: F401
-                        resume_pending_downloads, retry_failed as _retry_failed,
-                        spawn as _spawn)
+                        resume_pending_downloads, retry_failed as _retry_failed)
 
 _active = None
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
@@ -275,6 +276,18 @@ async def _read_source(client, channel, *, limit, min_id=0) -> MessageRead | Non
 
 
 async def scan_channel(client, channel):
+    """Index a source's new messages. While the flood gate is closed this reads
+    nothing, and the source stays due for the first poll after it opens; a
+    FloodWait met on the way closes the gate for every other Telegram read."""
+    if downloader.flood_gate.minutes_closed():
+        return
+    try:
+        await _scan(client, channel)
+    except FloodWaitError as e:
+        await downloader.flood_gate.trip(e.seconds)
+
+
+async def _scan(client, channel):
     cid = channel["id"]
     if not channels.scanning_on(cid):   # `channel` may predate the switch: a pass can take minutes
         return

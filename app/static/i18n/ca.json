@@ -590,6 +590,7 @@
  "review.empty_body": "Aquí apareixen els missatges dels canals de pel·lícules sense una coincidència fiable a TMDB.",
  "err.topics.rate_limited": "Telegram ha demanat anar més a poc a poc; torna a carregar els temes més tard",
  "err.topics.rate_limit_active": "Límit de Telegram actiu; torna-ho a provar d’aquí a uns {minutes} min",
+ "err.scan.rate_limit_active": "Límit de Telegram actiu; torna-ho a provar d’aquí a uns {minutes} min",
  "err.topics.read_failed": "No s’han pogut llistar els temes del xat: {error}",
  "chm.topics.title": "Temes del fòrum",
  "chm.topics.hint": "Aquest xat és un grup amb fòrum: marca els temes que vols afegir. Cadascun serà una font pròpia.",

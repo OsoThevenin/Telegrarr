@@ -161,6 +161,7 @@ class FakeTelegram:
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
         self.flood_on_next_read = False              # raise FloodWaitError serving the next history read
+        self.flood_on_next_message = False           # raise FloodWaitError serving the next message by id
         self.count_reported = lambda count: count    # what a read says the chat's message count is
         self.fail_next_read = False                  # raise a transient error serving the next history read
         self.flood_on_topics_page: int | None = None  # raise FloodWaitError serving this topics page (1 = first)
@@ -433,6 +434,9 @@ class FakeTelegram:
 
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
         self.message_reads.append(chat_id)
+        if self.flood_on_next_message:
+            self.flood_on_next_message = False
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
         return self.readable(chat_id).messages.get(ids)
 
     async def download_profile_photo(self, entity: types.Channel, file: Any = None, *,

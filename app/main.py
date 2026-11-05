@@ -11,7 +11,8 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, history, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
+from . import db, auth, channels, downloader, history, scanner, settings, plex, notify, arr, tmdb, tg, system, safety
+from . import __version__
 from . import release_titles
 from . import i18n
 from . import transfers
@@ -20,7 +21,7 @@ from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
 from .routes import catalog as catalog_routes, photos as photo_routes, topics as topic_routes
-from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
+from .routes.common import CONFLICT, TOO_MANY, bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 from .routes.common import normalize_topic_id as _normalize_topic_id
 
 logging.basicConfig(level=logging.INFO,
@@ -244,12 +245,13 @@ async def api_system_tasks(user=Depends(auth.require_user)):
 
 @app.post("/api/system/tasks/scan_all")
 async def api_system_scan_all(user=Depends(auth.require_user)):
+    _refuse_while_flood_gate_closed()
     client = get_client()
     if not client.is_connected():
         await client.connect()
     chans = channels.scannable()
     for ch in chans:
-        scanner._spawn(scanner.scan_channel(client, ch))
+        transfers.spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
 
 
@@ -372,17 +374,24 @@ def _readable_source(cid: int) -> dict:
     if not ch:
         raise HTTPException(404)
     if not ch["scanning"]:
-        raise _bad(409, "err.channel.scanning_off")
+        raise _bad(CONFLICT, "err.channel.scanning_off")
     return ch
+
+
+def _refuse_while_flood_gate_closed() -> None:
+    """A scan reads nothing while the gate is closed, so say so instead of 'started'."""
+    if minutes := downloader.flood_gate.minutes_closed():
+        raise _bad(TOO_MANY, "err.scan.rate_limit_active", minutes=minutes)
 
 
 @app.post("/api/channels/{cid}/scan")
 async def api_scan(cid: int, user=Depends(auth.require_user)):
     ch = _readable_source(cid)
+    _refuse_while_flood_gate_closed()
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    scanner._spawn(scanner.scan_channel(client, ch))
+    transfers.spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.started")}
 
 
