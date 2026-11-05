@@ -21,7 +21,7 @@
   (new `paused` status, counted in the stats) is held while the rest of the queue
   runs, stays paused across a restart and a global resume, and shows as `Paused` in
   the SABnzbd queue. Pausing an in-flight transfer discards its partial file; resuming
-  restarts the file from the beginning as a new attempt.
+  restarts the file from the beginning under the same download id.
 - A scanning switch per Channel, on by default (`scanning`, set with `PATCH
   /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
   polls skip it, and a manual Scan, a history fetch or a directory scan of it is

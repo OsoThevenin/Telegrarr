@@ -5,7 +5,7 @@ Telegrarr is a single-process FastAPI application (Python 3.13) built on the
 the web UI and JSON API **and** runs the background scanner in the same event loop.
 
 > **Single-worker invariant.** The transfer lifecycle (`app/transfers.py`) holds
-> process-wide asyncio state — a semaphore, an in-flight map (episode → the attempt
+> process-wide asyncio state — a semaphore, an in-flight map (episode → the run
 > and task holding its slot), and a task registry. This is
 > correct **only** under a single event loop / single uvicorn worker. The container
 > runs `--workers 1`; do not raise that without first moving the scanner and the

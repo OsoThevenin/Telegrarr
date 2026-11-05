@@ -35,10 +35,18 @@ MESSAGE_GONE = "dl.err.message_gone"     # download reasons (i18n keys)
 CANCELLED_BY_USER = "dl.err.cancelled"
 DOWNLOAD_FAILED = "dl.err.failed"
 DUPLICATE_IN_FLIGHT = "dl.err.duplicate"   # same episode already downloading from another message
-STALLED_HANDOFF = "dl.err.stalled_handoff"   # the previous attempt's task never stopped
+STALLED_HANDOFF = "dl.err.stalled_handoff"   # the previous run's task never stopped
 NOT_REQUEUED = "dl.not_requeued"         # why a Retry re-queued nothing (with MESSAGE_GONE)
 NOT_PAUSED = "dl.not_paused"             # why a Resume re-queued nothing (with MESSAGE_GONE)
-SLOT_HANDOFF_TIMEOUT_SECONDS = 60       # how long a new attempt waits for the previous one to stop
+SLOT_HANDOFF_TIMEOUT_SECONDS = 60       # how long a new run waits for the previous one to stop
+
+
+class RunRef(NamedTuple):
+    """One run of a download row: every re-queue starts a new one, and a download
+    task writes only to its own. An attempt, by contrast, is what the *arr tracks:
+    a resume is a new run of the same attempt, as the *arr never wrote a paused row off."""
+    download_id: int
+    run: int
 
 
 class RetryCount(Enum):
@@ -95,16 +103,19 @@ def _unregister_task(dl_id, task) -> None:
 def requeue_stopped(c, dl_id: int, retry_count: RetryCount,
                     stopped: tuple = db.STOPPED_STATUSES) -> int | None:
     """Re-queue a row in one of the ``stopped`` statuses (failed or cancelled by
-    default) as a new attempt and return that attempt: the *arr tracks it under a
-    fresh download id, shown in its history again. The status-conditional UPDATE
-    leaves a row in any other status, such as already queued or downloading,
-    untouched (None)."""
+    default) as a new run and return its attempt. A failed or cancelled row also
+    starts a new attempt: the *arr wrote the old one off, so it tracks this one
+    under a fresh download id, shown in its history again. A paused row keeps its
+    id. The status-conditional UPDATE leaves a row in any other status, such as
+    already queued or downloading, untouched (None)."""
+    written_off = db.STOPPED_STATUSES
     row = c.execute(
         "UPDATE downloads SET status='queued', progress=0, speed_mbs=0, error=NULL, "
-        "error_key=NULL, error_params=NULL, attempt=attempt+1, arr_hidden=0, "
+        "error_key=NULL, error_params=NULL, run=run+1, "
+        f"attempt=attempt+(status IN ({db.placeholders(written_off)})), arr_hidden=0, "
         f"retry_count={retry_count.value} "
         f"WHERE id=? AND status IN ({db.placeholders(stopped)}) RETURNING attempt",
-        (dl_id, *stopped)).fetchone()
+        (*written_off, dl_id, *stopped)).fetchone()
     return row["attempt"] if row else None
 
 
@@ -117,13 +128,13 @@ def cancel_download(dl_id: int) -> bool:
     running = t is not None and not t.done()
     if running:
         t.cancel()
-    ref = _current_ref(dl_id)
+    ref = _current_run(dl_id)
     if ref is None:
         return running
     waiting = (db.PAUSED_STATUS,) if running else (db.PAUSED_STATUS, "queued")
     with db.conn() as c:
-        cancelled = _set_attempt_error(c, ref, "cancelled", message(CANCELLED_BY_USER),
-                                       from_statuses=waiting)
+        cancelled = _set_run_error(c, ref, "cancelled", message(CANCELLED_BY_USER),
+                                   from_statuses=waiting)
     return running or cancelled
 
 
@@ -159,23 +170,23 @@ def delete_for_arr(ref: AttemptRef) -> None:
         return
     cancel_download(ref.download_id)
     with db.conn() as c:
-        _set_attempt_error(c, ref, "cancelled", message(CANCELLED_BY_USER),
-                           from_statuses=db.ACTIVE_STATUSES)
+        _set_run_error(c, _current_run(ref.download_id), "cancelled", message(CANCELLED_BY_USER),
+                       from_statuses=db.ACTIVE_STATUSES)
 
 
 async def retry_download(dl_id: int) -> str | None:
     """A user's Retry: re-queue a stopped download as a new attempt. None when
     it was re-queued, else the i18n key of why not."""
-    return await _start_new_attempt(dl_id, db.STOPPED_STATUSES, NOT_REQUEUED)
+    return await _requeue_by_hand(dl_id, db.STOPPED_STATUSES, NOT_REQUEUED)
 
 
 async def resume_download(dl_id: int) -> str | None:
-    """Re-queue a paused download as a new attempt, restarting the file from the
-    beginning. None when it was re-queued, else the i18n key of why not."""
-    return await _start_new_attempt(dl_id, (db.PAUSED_STATUS,), NOT_PAUSED)
+    """Re-queue a paused download, restarting the file from the beginning under the
+    same download id. None when it was re-queued, else the i18n key of why not."""
+    return await _requeue_by_hand(dl_id, (db.PAUSED_STATUS,), NOT_PAUSED)
 
 
-async def _start_new_attempt(dl_id: int, from_statuses: tuple, refused: str) -> str | None:
+async def _requeue_by_hand(dl_id: int, from_statuses: tuple, refused: str) -> str | None:
     """Re-queue a row in one of ``from_statuses`` with a full auto-retry budget.
     None when it was re-queued, else the i18n key of why not (``refused`` for a
     row in another status). The status is checked before Telegram is asked for
@@ -261,25 +272,25 @@ def _write_reason(c, status: str, reason: dict, where: str, args: tuple) -> bool
 
 
 def _set_error(c, dl_id: int, status: str, reason: dict) -> None:
-    """Set a download's status and its reason, whatever attempt it is on."""
+    """Set a download's status and its reason, whatever run it is on."""
     _write_reason(c, status, reason, "id=?", (dl_id,))
 
 
-def _set_attempt_error(c, ref: AttemptRef, status: str, reason: dict, *,
-                       from_statuses: tuple = ()) -> bool:
-    """:func:`_set_error` for one attempt only: a download task's writes must not
-    land on a newer attempt that a retry started. With ``from_statuses``, only
+def _set_run_error(c, ref: RunRef, status: str, reason: dict, *,
+                   from_statuses: tuple = ()) -> bool:
+    """:func:`_set_error` for one run only: a download task's writes must not land
+    on a newer run that a retry or resume started. With ``from_statuses``, only
     while the row is in one of them. True if the row changed."""
-    where = "id=? AND attempt=?"
+    where = "id=? AND run=?"
     if from_statuses:
         where += f" AND status IN ({db.placeholders(from_statuses)})"
     return _write_reason(c, status, reason, where, (*ref, *from_statuses))
 
 
-def _update_attempt(ref: AttemptRef, assignments: str, *values, from_statuses: tuple = ()) -> bool:
-    """``UPDATE downloads SET <assignments>`` for one attempt at a row and, with
+def _update_run(ref: RunRef, assignments: str, *values, from_statuses: tuple = ()) -> bool:
+    """``UPDATE downloads SET <assignments>`` for one run of a row and, with
     ``from_statuses``, only while the row is in one of them. True if it changed."""
-    where = "id=? AND attempt=?"
+    where = "id=? AND run=?"
     if from_statuses:
         where += f" AND status IN ({db.placeholders(from_statuses)})"
     with db.conn() as c:
@@ -288,14 +299,14 @@ def _update_attempt(ref: AttemptRef, assignments: str, *values, from_statuses: t
     return cur.rowcount > 0
 
 
-async def _wait_for_budget(ref: AttemptRef) -> None:
+async def _wait_for_budget(ref: RunRef) -> None:
     """Hold a download (status queued, reason in `error`) until the daily budget allows it."""
     marked = False
     while safety.budget_exhausted():
         if not marked:
             resets = time.strftime("%H:%M", time.localtime(safety.budget_status()["resets_at"]))
             with db.conn() as c:
-                _set_attempt_error(c, ref, "queued", message("budget.download_held", resets=resets))
+                _set_run_error(c, ref, "queued", message("budget.download_held", resets=resets))
             marked = True
         await asyncio.sleep(BUDGET_RECHECK_SECONDS)
 
@@ -306,11 +317,11 @@ def _remove_partial(save_path: str) -> None:
 
 
 class _Run(NamedTuple):
-    """What one download task works on: a channel message's file, for one attempt at its row."""
+    """What one download task works on: a channel message's file, for one run of its row."""
     channel_id: int
     msg: Any
     save_path: str
-    ref: AttemptRef
+    ref: RunRef
 
 
 def _finish_if_on_disk(run: _Run, fsize: int) -> bool:
@@ -323,8 +334,8 @@ def _finish_if_on_disk(run: _Run, fsize: int) -> bool:
     if not (fsize and os.path.exists(path) and os.path.getsize(path) >= fsize * ON_DISK_RATIO):
         return False
     _remove_partial(path)
-    _update_attempt(run.ref, "status='completed', progress=1.0, speed_mbs=0, finished_at=?",
-                    int(time.time()))
+    _update_run(run.ref, "status='completed', progress=1.0, speed_mbs=0, finished_at=?",
+                int(time.time()))
     db.log("INFO", message("event.already_on_disk", file=os.path.basename(path)),
            channel_id=run.channel_id)
     return True
@@ -334,17 +345,17 @@ async def _fetch(client, run: _Run, fsize: int) -> bool:
     """Download the message's file to `save_path`, keeping the row's progress
     current. False when the row was stopped meanwhile and stays as it is: a
     paused row finds the file on disk when it is resumed."""
-    _update_attempt(run.ref, "status='downloading', started_at=?, error=NULL, "
-                    "error_key=NULL, error_params=NULL", int(time.time()))
+    _update_run(run.ref, "status='downloading', started_at=?, error=NULL, "
+                "error_key=NULL, error_params=NULL", int(time.time()))
 
     async def progress(pct, speed):
-        _update_attempt(run.ref, "progress=?, speed_mbs=?", pct, speed,
-                        from_statuses=db.ACTIVE_STATUSES)
+        _update_run(run.ref, "progress=?, speed_mbs=?", pct, speed,
+                    from_statuses=db.ACTIVE_STATUSES)
 
     await download_file(client, run.msg, run.save_path, progress_cb=progress)
     safety.record_download(fsize)
-    return _update_attempt(run.ref, "status='completed', progress=1.0, finished_at=?",
-                           int(time.time()), from_statuses=db.ACTIVE_STATUSES)
+    return _update_run(run.ref, "status='completed', progress=1.0, finished_at=?",
+                       int(time.time()), from_statuses=db.ACTIVE_STATUSES)
 
 
 def _announce_completed(channel_id: int, save_path: str) -> None:
@@ -360,14 +371,14 @@ def _announce_completed(channel_id: int, save_path: str) -> None:
 
 
 def _on_cancelled(run: _Run) -> None:
-    """Record why the task stopped. A paused row, or a newer attempt, keeps its
+    """Record why the task stopped. A paused row, or a newer run, keeps its
     state; the partial file goes unless the row will resume on the next boot."""
-    if _shutting_down and _update_attempt(run.ref, "status='queued', progress=0, speed_mbs=0",
-                                          from_statuses=db.ACTIVE_STATUSES):
+    if _shutting_down and _update_run(run.ref, "status='queued', progress=0, speed_mbs=0",
+                                      from_statuses=db.ACTIVE_STATUSES):
         return   # process is stopping — leave it queued so it resumes on next boot
     with db.conn() as c:
-        stopped = _set_attempt_error(c, run.ref, "cancelled", message(CANCELLED_BY_USER),
-                                     from_statuses=(*db.ACTIVE_STATUSES, "cancelled"))
+        stopped = _set_run_error(c, run.ref, "cancelled", message(CANCELLED_BY_USER),
+                                 from_statuses=(*db.ACTIVE_STATUSES, "cancelled"))
     _remove_partial(run.save_path)
     if stopped:
         db.log("WARN", message("event.cancelled", file=os.path.basename(run.save_path)),
@@ -376,77 +387,76 @@ def _on_cancelled(run: _Run) -> None:
 
 def _on_failed(run: _Run, error: Exception) -> None:
     """Fail the row. One stopped meanwhile (the error came while winding down),
-    or on a newer attempt, keeps its state, and the partial file goes."""
+    or on a newer run, keeps its state, and the partial file goes."""
     with db.conn() as c:
-        failed = _set_attempt_error(c, run.ref, "failed", message(DOWNLOAD_FAILED, error=str(error)),
-                                    from_statuses=db.ACTIVE_STATUSES)
+        failed = _set_run_error(c, run.ref, "failed", message(DOWNLOAD_FAILED, error=str(error)),
+                                from_statuses=db.ACTIVE_STATUSES)
     if not failed:
         _remove_partial(run.save_path)
-        log.warning("download %s attempt %s: error while stopping: %s", *run.ref, error)
+        log.warning("download %s run %s: error while stopping: %s", *run.ref, error)
         return
     db.log("ERROR", message("event.download_failed", error=str(error)), channel_id=run.channel_id)
 
 
 class _SlotHolder(NamedTuple):
-    """The task holding an episode's in-flight slot, and the attempt it downloads."""
-    ref: AttemptRef
+    """The task holding an episode's in-flight slot, and the run it downloads."""
+    ref: RunRef
     task: asyncio.Task
 
 
-def _download_ref(channel_id: int, message_id: int) -> AttemptRef | None:
+def _download_ref(channel_id: int, message_id: int) -> RunRef | None:
     with db.conn() as c:
-        row = c.execute("SELECT id, attempt FROM downloads WHERE channel_id=? AND message_id=?",
+        row = c.execute("SELECT id, run FROM downloads WHERE channel_id=? AND message_id=?",
                         (channel_id, message_id)).fetchone()
-    return AttemptRef(row["id"], row["attempt"]) if row else None
+    return RunRef(row["id"], row["run"]) if row else None
 
 
-def _current_ref(dl_id: int) -> AttemptRef | None:
+def _current_run(dl_id: int) -> RunRef | None:
     with db.conn() as c:
-        row = c.execute("SELECT id, attempt FROM downloads WHERE id=?", (dl_id,)).fetchone()
-    return AttemptRef(row["id"], row["attempt"]) if row else None
+        row = c.execute("SELECT id, run FROM downloads WHERE id=?", (dl_id,)).fetchone()
+    return RunRef(row["id"], row["run"]) if row else None
 
 
-def _still_wanted(ref: AttemptRef) -> bool:
-    """True while the row is on attempt ``ref`` and not stopped or paused. A
-    cancel or pause that finds no registered task only changes the row, so a task
-    checks this before it starts and again once it holds the slot (it may have
-    waited)."""
+def _still_wanted(ref: RunRef) -> bool:
+    """True while the row is on run ``ref`` and not stopped or paused. A cancel or
+    pause that finds no registered task only changes the row, so a task checks
+    this before it starts and again once it holds the slot (it may have waited)."""
     with db.conn() as c:
-        row = c.execute("SELECT status FROM downloads WHERE id=? AND attempt=?", (*ref,)).fetchone()
+        row = c.execute("SELECT status FROM downloads WHERE id=? AND run=?", (*ref,)).fetchone()
     return row is not None and row["status"] not in db.HALTED_STATUSES
 
 
-def _supersedes(ref: AttemptRef, holder: AttemptRef) -> bool:
-    """True when ``ref`` is a newer attempt at the row ``holder`` is downloading."""
-    return ref.download_id == holder.download_id and ref.attempt > holder.attempt
+def _supersedes(ref: RunRef, holder: RunRef) -> bool:
+    """True when ``ref`` is a newer run of the row ``holder`` is downloading."""
+    return ref.download_id == holder.download_id and ref.run > holder.run
 
 
-def _resolve_inflight_loser(ref: AttemptRef, holder: AttemptRef) -> None:
+def _resolve_inflight_loser(ref: RunRef, holder: RunRef) -> None:
     """A task lost the in-flight slot for its episode. A duplicate task for the
-    row already downloading (or a stale one for an earlier attempt) changes
+    row already downloading (or a stale one for an earlier run) changes
     nothing; a row for another message of the same episode is cancelled with a
     reason, so it isn't left queued with no task behind it (and isn't resumed
     into the same race after a restart)."""
     if ref.download_id == holder.download_id:
         return
     with db.conn() as c:   # only a row still waiting: a finished row keeps its outcome
-        _set_attempt_error(c, ref, "cancelled", message(DUPLICATE_IN_FLIGHT),
-                           from_statuses=("queued",))
+        _set_run_error(c, ref, "cancelled", message(DUPLICATE_IN_FLIGHT),
+                       from_statuses=("queued",))
 
 
-def _fail_stalled_handoff(ref: AttemptRef, holder: AttemptRef) -> None:
-    """The previous attempt's task never wound down: fail the new attempt with
-    a reason rather than wait forever (a later retry may take over)."""
-    log.warning("download %s attempt %s: attempt %s still holds the slot after %ss",
-                ref.download_id, ref.attempt, holder.attempt, SLOT_HANDOFF_TIMEOUT_SECONDS)
+def _fail_stalled_handoff(ref: RunRef, holder: RunRef) -> None:
+    """The previous run's task never wound down: fail the new run with a reason
+    rather than wait forever (a later retry may take over)."""
+    log.warning("download %s run %s: run %s still holds the slot after %ss",
+                ref.download_id, ref.run, holder.run, SLOT_HANDOFF_TIMEOUT_SECONDS)
     with db.conn() as c:
-        _set_attempt_error(c, ref, "failed", message(STALLED_HANDOFF), from_statuses=("queued",))
+        _set_run_error(c, ref, "failed", message(STALLED_HANDOFF), from_statuses=("queued",))
 
 
-async def _claim_slot(key, ref: AttemptRef) -> bool:
+async def _claim_slot(key, ref: RunRef) -> bool:
     """Take the in-flight slot for an episode; False when this task lost it. A
-    newer attempt at the row holding the slot (a retry right after a cancel)
-    waits for the older attempt's task to finish winding down, then claims it;
+    newer run of the row holding the slot (a retry right after a cancel) waits
+    for the older run's task to finish winding down, then claims it;
     it gives up after SLOT_HANDOFF_TIMEOUT_SECONDS."""
     me = asyncio.current_task()
     while True:
@@ -459,7 +469,7 @@ async def _claim_slot(key, ref: AttemptRef) -> bool:
             if not _supersedes(ref, holder.ref):
                 _resolve_inflight_loser(ref, holder.ref)
                 return False   # another task owns this episode; leave its cancel registration alone
-            register_task(ref.download_id, me)   # a cancel of the new attempt stops this task
+            register_task(ref.download_id, me)   # a cancel of the new run stops this task
         done, _ = await asyncio.wait({holder.task}, timeout=SLOT_HANDOFF_TIMEOUT_SECONDS)
         if not done:
             _fail_stalled_handoff(ref, holder.ref)
@@ -476,11 +486,11 @@ def _release_slot(key) -> None:
 
 
 async def _run_download(client, channel_id, msg, save_path, gk):
-    ref = _download_ref(channel_id, msg.id)   # every write below is scoped to this attempt
+    ref = _download_ref(channel_id, msg.id)   # every write below is scoped to this run
     if ref is None or not _still_wanted(ref):
         return   # deleted or cancelled before its task started
     if settings.get_bool("paused", False):
-        _update_attempt(ref, "status='queued'")
+        _update_run(ref, "status='queued'")
         return
     run = _Run(channel_id, msg, save_path, ref)
     key = (channel_id, gk)

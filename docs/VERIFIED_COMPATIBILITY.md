@@ -27,6 +27,11 @@ of a row that is still queued or downloading keeps its current id. A queue or hi
 delete acts only when the id is the row's current attempt; an id from an earlier attempt
 changes nothing.
 
+A transfer paused and resumed keeps its id, even though the file restarts from the
+beginning: the *arr never wrote a paused transfer off, so its grab history still matches.
+This is covered against the test fakes only; it has not been verified on a real Sonarr or
+Radarr.
+
 ## Things this testing caught and fixed
 
 - **`config.categories` must be objects**, not strings — Sonarr/Radarr deserialize them

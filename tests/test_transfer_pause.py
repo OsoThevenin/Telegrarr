@@ -63,19 +63,69 @@ async def test_pausing_an_in_flight_transfer_stops_it_and_discards_the_partial_f
 
 
 @pytest.mark.asyncio
-async def test_resuming_restarts_the_transfer_as_a_fresh_attempt(arr_app):
-    row, old = await _downloading(arr_app)
+async def test_resuming_restarts_the_file_under_the_same_download_id(arr_app, library_dirs):
+    row, nzo = await _downloading(arr_app, partial=True)
     await _pause(arr_app, row)
     await asyncio.sleep(SETTLE_S)
+    partial_after_pause = _files_named(library_dirs["DOWNLOADS_DIR"], FILE)
     arr_app.telegram.release_downloads()
 
     resumed = await _resume(arr_app, row)
-    done = await eventually(lambda: _in_status(arr_app, "completed"))
+    await eventually(lambda: _in_status(arr_app, "completed"))
 
     assert resumed == {"ok": True}
-    assert done["attempt"] == row["attempt"] + 1
+    assert partial_after_pause == []
     assert arr_app.telegram.downloaded == [(CHAT, 1)]
-    assert (await arr_app.history_slot(f"{old}-1"))["status"] == "Completed"
+    assert (await arr_app.history_slot(nzo))["status"] == "Completed"
+
+
+@pytest.mark.asyncio
+async def test_the_sab_queue_keeps_the_download_id_of_a_resumed_transfer(arr_app):
+    row, nzo = await _downloading(arr_app, late_outcome=asyncio.CancelledError)
+    await _pause(arr_app, row)
+    await _resume(arr_app, row)
+
+    queue = (await arr_app.sab(mode="queue"))["queue"]["slots"]
+    arr_app.telegram.release_downloads()
+
+    assert [s["nzo_id"] for s in queue] == [nzo]
+    await eventually(lambda: _in_status(arr_app, "completed"))
+
+
+@pytest.mark.asyncio
+async def test_an_arr_delete_of_a_resumed_transfer_cancels_it(arr_app):
+    row, nzo = await _downloading(arr_app)
+    await _pause(arr_app, row)
+    await asyncio.sleep(SETTLE_S)
+    await _resume(arr_app, row)
+    await eventually(lambda: _in_status(arr_app, "downloading"))
+
+    await arr_app.sab(mode="queue", name="delete", value=nzo)
+    cancelled = await eventually(lambda: _in_status(arr_app, "cancelled"))
+    arr_app.telegram.release_downloads()
+    await asyncio.sleep(SETTLE_S)
+
+    assert cancelled["error_msg"] == {"key": "dl.err.cancelled", "params": {}}
+    assert (await arr_app.download(FILE))["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_a_transfer_retried_after_a_resume_gets_a_new_download_id(arr_app):
+    row, nzo = await _downloading(arr_app)
+    await _pause(arr_app, row)
+    await asyncio.sleep(SETTLE_S)
+    await _resume(arr_app, row)
+    await eventually(lambda: _in_status(arr_app, "downloading"))
+    (await arr_app.http.post(f"/api/downloads/{row['id']}/cancel")).raise_for_status()
+    await eventually(lambda: _in_status(arr_app, "cancelled"))
+    await asyncio.sleep(SETTLE_S)
+    arr_app.telegram.release_downloads()
+
+    retried = (await arr_app.http.post(f"/api/downloads/{row['id']}/retry")).raise_for_status().json()
+    await eventually(lambda: _in_status(arr_app, "completed"))
+
+    assert retried == {"ok": True}
+    assert (await arr_app.history_ids()) == [f"{nzo}-1"]
 
 
 @pytest.mark.asyncio
@@ -325,7 +375,7 @@ async def test_a_file_that_lands_while_pausing_stays_paused_and_a_resume_finishe
 @pytest.mark.asyncio
 @pytest.mark.parametrize("late_outcome", [asyncio.CancelledError, RuntimeError],
                          ids=["stops-as-cancelled", "stops-with-an-error"])
-async def test_a_resume_while_the_paused_transfer_winds_down_downloads_the_new_attempt(
+async def test_a_resume_while_the_paused_transfer_winds_down_still_downloads_it(
         arr_app, late_outcome):
     row, _ = await _downloading(arr_app, late_outcome=late_outcome)
     await _pause(arr_app, row)
@@ -338,11 +388,11 @@ async def test_a_resume_while_the_paused_transfer_winds_down_downloads_the_new_a
 
 
 @pytest.mark.asyncio
-async def test_pausing_a_resumed_attempt_while_the_old_one_winds_down_holds_it(arr_app):
+async def test_pausing_a_resumed_transfer_while_the_old_run_winds_down_holds_it(arr_app):
     row, _ = await _downloading(arr_app, late_outcome=asyncio.CancelledError)
     await _pause(arr_app, row)
     await _resume(arr_app, row)
-    await asyncio.sleep(SETTLE_S)   # the new attempt is waiting on the old one
+    await asyncio.sleep(SETTLE_S)   # the new run is waiting on the old one
 
     repaused = await _pause(arr_app, row)
     arr_app.telegram.release_downloads()
