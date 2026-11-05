@@ -35,8 +35,8 @@ DEFAULTS = {
     "max_concurrent": config.MAX_CONCURRENT_DOWNLOADS,
     "min_free_gb": config.MIN_FREE_SPACE_GB,
     "progress_interval": config.PROGRESS_MIN_INTERVAL,
-    "plex_url": config.PLEX_URL,
-    "plex_token": config.PLEX_TOKEN,
+    "plex_url": "",
+    "plex_token": "",
     "notify_webhook": config.NOTIFY_WEBHOOK,
     "notify_telegram": "0",        # DM completed downloads to the account's Saved Messages
     "default_poll_minutes": config.POLL_FLOOR_MINUTES,
@@ -80,6 +80,8 @@ ENV_VARS = {
     "radarr_key": "TELEARR_RADARR_KEY",
     "tg_api_id": "TG_API_ID",
     "tg_api_hash": "TG_API_HASH",
+    "plex_url": "PLEX_URL",
+    "plex_token": "PLEX_TOKEN",
 }
 # Env values that mean "not provisioned". .env.example ships TG_API_ID=0, and locking
 # on it would refuse the setup wizard on every fresh install.

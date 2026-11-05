@@ -3,9 +3,10 @@
 The env var used to be a default the saved value overrode. The outside view: the
 settings API, the Telegram setup and proxy endpoints, the credentials the Telegram
 client is built with, and what reaches Plex on the wire."""
+import httpx
 import pytest
 
-from app import tg
+from app import plex, tg
 
 ENV_API_ID = 7654321
 ENV_API_HASH = "env-api-hash-0123456789abcdef"
@@ -146,3 +147,103 @@ async def test_api_hash_never_comes_back(arr_app, built_clients, monkeypatch):
     refused = await arr_app.http.post("/api/telegram/auth/api", json={"api_id": 1, "api_hash": "x"})
 
     assert ENV_API_HASH not in read.text + auth.text + status.text + refused.text
+
+
+# ── Plex ──────────────────────────────────────────────────────────────
+PLEX_ENV_URL = "http://plex.env:32400"
+PLEX_ENV_TOKEN = "env-plex-token-abcdef"
+PLEX_SAVED_URL = "http://plex.saved:32400"
+PLEX_SAVED_TOKEN = "saved-plex-token-123456"
+
+
+@pytest.fixture()
+def plex_seen(monkeypatch) -> list[tuple[str, str]]:
+    """(host, token) of each request reaching Plex, which answers all of them."""
+    seen = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url.host), request.headers.get("X-Plex-Token", "")))
+        return httpx.Response(200, json={"MediaContainer": {"Directory": [{"title": "Sèries"}]}})
+
+    monkeypatch.setattr(plex, "transport", httpx.MockTransport(answer))
+    return seen
+
+
+async def _save_plex(arr_app) -> None:
+    r = await arr_app.http.patch("/api/settings", json={"plex_url": PLEX_SAVED_URL, "plex_token": PLEX_SAVED_TOKEN})
+    r.raise_for_status()
+
+
+async def _test_plex(arr_app) -> dict:
+    return (await arr_app.http.post("/api/integrations/plex/test", json={})).raise_for_status().json()
+
+
+@pytest.mark.asyncio
+async def test_plex_uses_the_env_values_on_a_fresh_database(arr_app, plex_seen, monkeypatch):
+    monkeypatch.setenv("PLEX_URL", PLEX_ENV_URL)
+    monkeypatch.setenv("PLEX_TOKEN", PLEX_ENV_TOKEN)
+
+    assert (await _test_plex(arr_app))["ok"] is True
+    assert plex_seen == [("plex.env", PLEX_ENV_TOKEN)]
+
+
+@pytest.mark.asyncio
+async def test_plex_uses_the_env_values_over_the_database(arr_app, plex_seen, monkeypatch):
+    await _save_plex(arr_app)
+    monkeypatch.setenv("PLEX_URL", PLEX_ENV_URL)
+    monkeypatch.setenv("PLEX_TOKEN", PLEX_ENV_TOKEN)
+
+    await _test_plex(arr_app)
+
+    assert plex_seen == [("plex.env", PLEX_ENV_TOKEN)]
+
+
+@pytest.mark.asyncio
+async def test_saved_plex_values_apply_with_the_env_vars_unset(arr_app, plex_seen):
+    await _save_plex(arr_app)
+
+    await _test_plex(arr_app)
+
+    assert plex_seen == [("plex.saved", PLEX_SAVED_TOKEN)]
+
+
+@pytest.mark.asyncio
+async def test_settings_report_the_normalised_env_plex_url_and_lock_it(arr_app, monkeypatch):
+    await _save_plex(arr_app)
+    monkeypatch.setenv("PLEX_URL", f" {PLEX_ENV_URL}/ ")
+
+    view = await _settings(arr_app)
+
+    assert view["plex_url"] == PLEX_ENV_URL
+    assert view["plex_url_env_locked"] is True
+    assert view["plex_token_env_locked"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("setting, env_var, value", [("plex_url", "PLEX_URL", PLEX_SAVED_URL),
+                                                     ("plex_token", "PLEX_TOKEN", PLEX_SAVED_TOKEN)])
+async def test_plex_write_is_refused_while_env_provides_it(arr_app, monkeypatch, setting, env_var, value):
+    monkeypatch.setenv(env_var, "from-env")
+
+    r = await arr_app.http.patch("/api/settings", json={setting: value})
+
+    assert r.status_code == 400
+    assert r.json()["detail"] == {"key": "err.settings.env_locked", "params": {"env": env_var}}
+
+
+@pytest.mark.asyncio
+async def test_env_plex_token_never_comes_back_even_when_plex_fails(arr_app, monkeypatch):
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"cannot reach Plex with {PLEX_ENV_TOKEN}")
+
+    monkeypatch.setattr(plex, "transport", httpx.MockTransport(refuse))
+    monkeypatch.setenv("PLEX_URL", PLEX_ENV_URL)
+    monkeypatch.setenv("PLEX_TOKEN", PLEX_ENV_TOKEN)
+
+    read = await arr_app.http.get("/api/settings")
+    failed = await arr_app.http.post("/api/integrations/plex/test", json={})
+    refused = await arr_app.http.patch("/api/settings", json={"plex_token": "new"})
+
+    assert failed.json()["ok"] is False
+    assert read.json()["settings"]["plex_token_set"] is True
+    assert PLEX_ENV_TOKEN not in read.text + failed.text + refused.text

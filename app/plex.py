@@ -5,6 +5,8 @@ from . import settings
 from .i18n import message
 
 log = logging.getLogger("plex")
+# Outbound seam, as in app/tmdb.py: tests set an httpx.MockTransport to fake Plex.
+transport: httpx.AsyncBaseTransport | None = None
 
 
 def _creds():
@@ -29,7 +31,7 @@ async def refresh_path(folder: str):
     if not (url and token):
         return
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(transport=transport) as client:
             best = None
             for sec in await _sections(client, url, token):
                 for loc in sec.get("Location", []) or []:
@@ -53,7 +55,7 @@ async def test() -> dict:
     if not (url and token):
         return {"ok": False, "detail": message("plex.test.not_set")}
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(transport=transport) as client:
             secs = await _sections(client, url, token)
         return {"ok": True, "detail": message("plex.test.ok", n=len(secs)),
                 "sections": [s.get("title") for s in secs]}
