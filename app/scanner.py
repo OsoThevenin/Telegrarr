@@ -137,7 +137,7 @@ def _already_have(channel, gk, size) -> bool:
                 """SELECT status, file_size FROM downloads
                    WHERE channel_id=? AND group_key=? ORDER BY file_size DESC LIMIT 1""",
                 (channel["id"], gk)).fetchone()
-    return bool(row and row["status"] in ("completed", "downloading", "queued")
+    return bool(row and row["status"] in ("completed", *db.ACTIVE_STATUSES, db.PAUSED_STATUS)
                 and row["file_size"] >= size)
 
 

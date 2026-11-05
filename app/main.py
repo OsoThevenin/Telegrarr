@@ -168,17 +168,24 @@ async def service_worker():
                         headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
 
+def _stats(c) -> dict:
+    """The channel and transfer counts the UI shows."""
+    stats = {k: c.execute(q).fetchone()[0] for k, q in {
+        "channels": "SELECT COUNT(*) FROM channels",
+        "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
+        "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
+        "paused": f"SELECT COUNT(*) FROM downloads WHERE status='{db.PAUSED_STATUS}'",
+        "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
+        "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
+    }.items()}
+    stats["total_size"] = c.execute(
+        "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+    return stats
+
+
 def _live_snapshot():
     with db.conn() as c:
-        stats = {k: c.execute(q).fetchone()[0] for k, q in {
-            "channels": "SELECT COUNT(*) FROM channels",
-            "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
-            "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
-            "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
-            "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
-        }.items()}
-        stats["total_size"] = c.execute(
-            "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+        stats = _stats(c)
         active = [dict(r) for r in c.execute(
             "SELECT d.*, ch.title AS channel_title, ch.topic_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
@@ -213,15 +220,7 @@ async def api_status(user=Depends(auth.require_user)):
     except Exception:
         authed = False
     with db.conn() as c:
-        stats = {k: c.execute(q).fetchone()[0] for k, q in {
-            "channels": "SELECT COUNT(*) FROM channels",
-            "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
-            "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
-            "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
-            "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
-        }.items()}
-        stats["total_size"] = c.execute(
-            "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+        stats = _stats(c)
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
             "disk": system.disk_usage(),
             "stats": stats, "config": summary(), "budget": safety.budget_status()}
@@ -407,7 +406,7 @@ async def api_downloads(limit: int = 100, status: str = "",
 async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     action = payload.get("action")
     ids = payload.get("ids", [])
-    if action not in ("cancel", "retry", "delete"):
+    if action not in ("cancel", "retry", "delete", "pause", "resume"):
         raise _bad(400, "err.downloads.bad_action")
     count = 0
     for i in ids:
@@ -422,6 +421,10 @@ async def _single_action(action: str, dl_id: int) -> bool:
         return transfers.cancel_download(dl_id)
     if action == "retry":
         return await transfers.retry_download(dl_id) is None
+    if action == "pause":
+        return transfers.pause_download(dl_id)
+    if action == "resume":
+        return await transfers.resume_download(dl_id) is None
     with db.conn() as c:
         return c.execute("DELETE FROM downloads WHERE id=?", (dl_id,)).rowcount > 0
 
@@ -429,6 +432,17 @@ async def _single_action(action: str, dl_id: int) -> bool:
 @app.post("/api/downloads/{dl_id}/cancel")
 async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
     return {"ok": transfers.cancel_download(dl_id)}
+
+
+@app.post("/api/downloads/{dl_id}/pause")
+async def api_pause_download(dl_id: int, user=Depends(auth.require_user)):
+    return {"ok": transfers.pause_download(dl_id)}
+
+
+@app.post("/api/downloads/{dl_id}/resume")
+async def api_resume_download(dl_id: int, user=Depends(auth.require_user)):
+    reason = await transfers.resume_download(dl_id)
+    return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
 @app.post("/api/downloads/{dl_id}/retry")

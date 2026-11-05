@@ -303,10 +303,17 @@ def job_name(r) -> str:
     return r["release_title"] or (r["save_path"] or r["file_name"] or "").split("/")[-1]
 
 
+# the transfer statuses the SABnzbd queue lists, and how it names them
+_SAB_QUEUE_STATUS = {"downloading": "Downloading", "queued": "Queued",
+                     db.PAUSED_STATUS: "Paused"}
+
+
 def sab_queue():
+    listed = tuple(_SAB_QUEUE_STATUS)
     with db.conn() as c:
         rows = c.execute(f"""{_JOB_SELECT}
-                            WHERE d.status IN ('downloading','queued') ORDER BY d.id""").fetchall()
+                            WHERE d.status IN ({db.placeholders(listed)}) ORDER BY d.id""",
+                         listed).fetchall()
     slots = []
     for r in rows:
         size = r["file_size"] or 0
@@ -317,7 +324,7 @@ def sab_queue():
             "filename": job_name(r),
             "cat": category_for(r["kind"]),
             "storage": storage_path(r["save_path"]),
-            "status": "Downloading" if r["status"] == "downloading" else "Queued",
+            "status": _SAB_QUEUE_STATUS[r["status"]],
             "index": len(slots), "percentage": str(int(prog * 100)),
             "mb": str(_mb(size)), "mbleft": str(_mb(left)),
             "size": f"{size / 1e9:.2f} GB", "sizeleft": f"{left / 1e9:.2f} GB",
