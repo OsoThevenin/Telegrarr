@@ -69,6 +69,8 @@ class FakeArr:
     # radarr only: Radarr movie id -> GET /release JSON (see ``radarr_release``)
     releases: dict[int, list[dict]] = field(default_factory=dict)
     release_search_s: float = 0.0       # radarr only: how long a release search takes; a shorter read timeout gives up
+    # radarr only: GET /queue records (see ``radarr_queue_item``), or any JSON to serve as is
+    queue: list[dict] | object = field(default_factory=list)
 
     @property
     def provider_path(self) -> str:
@@ -159,7 +161,18 @@ class FakeArr:
             return httpx.Response(201, json={**body, "id": len(self.commands()), "status": "queued"})
         if path == f"{self.api}/release" and method == "GET":
             return self._release_search(request)
+        if path == f"{self.api}/queue" and method == "GET":
+            return self._queue(request)
         return None
+
+    def _queue(self, request: httpx.Request) -> httpx.Response:
+        """GET /queue?movieIds=: one page of the download queue, as Radarr pages it."""
+        if not isinstance(self.queue, list):             # a malformed answer, served as is
+            return httpx.Response(200, json=self.queue)
+        wanted = request.url.params.get_list("movieIds")
+        records = [q for q in self.queue if not wanted or str(q["movieId"]) in wanted]
+        return httpx.Response(200, json={"page": 1, "pageSize": 10, "sortKey": "timeleft",
+                                         "totalRecords": len(records), "records": records})
 
     def _release_search(self, request: httpx.Request) -> httpx.Response:
         """GET /release?movieId=: searches every indexer, however long they take to answer."""
@@ -211,11 +224,19 @@ def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, 
 
 
 def radarr_release(title: str, *, indexer: str = "Telegrarr", guid: str = "telearr-1-1",
-                   rejections: tuple[str, ...] = ()) -> dict:
-    """One release as GET /release returns it; Radarr approves what it has no rejection for."""
+                   rejections: tuple[str, ...] = (), temporary: bool = False) -> dict:
+    """One release as GET /release returns it; Radarr approves what it has no rejection for.
+    ``temporary`` says every rejection is a temporary one (a minimum age, say)."""
     return {"guid": guid, "title": title, "indexer": indexer, "indexerId": 3, "protocol": "usenet",
-            "approved": not rejections, "rejected": bool(rejections), "temporarilyRejected": False,
+            "approved": not rejections, "rejected": bool(rejections) and not temporary,
+            "temporarilyRejected": bool(rejections) and temporary,
             "rejections": list(rejections), "size": 1024, "customFormatScore": 0}
+
+
+def radarr_queue_item(movie_id: int, *, state: str = "downloading") -> dict:
+    """One record of GET /queue; ``state`` is its trackedDownloadState."""
+    return {"id": 1, "movieId": movie_id, "title": "Queued.Release", "status": "downloading",
+            "trackedDownloadStatus": "ok", "trackedDownloadState": state}
 
 
 def radarr_file_details(*, size: int, relative_path: str, resolution: str, video_codec: str,

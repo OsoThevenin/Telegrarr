@@ -55,7 +55,7 @@ async def test_the_operator_can_turn_scanning_off_and_back_on(arr_app):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("value", ["off", None, 2, [], {}])
+@pytest.mark.parametrize("value", ["off", None, 2, 1, 0, 1.0, 0.0, [], {}])
 async def test_a_scanning_value_that_is_no_switch_is_refused(arr_app, value):
     source = await _source(arr_app)
 

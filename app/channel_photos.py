@@ -8,10 +8,15 @@
 # Account safety: reads wait for one shared slot, and the flood gate, the daily
 # budget and the scanning switch are checked again right before the read. A read
 # that can't happen leaves the entry as it is; the caller gets what is cached.
+#
+# Cache files are touched off the event loop. A chat has one refresh at a time, so
+# only a reader can meet a file a refresh is replacing.
 import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
+from typing import Any
 
 from telethon.errors import FloodWaitError
 
@@ -31,6 +36,10 @@ def _now() -> float:
     return time.time()
 
 
+async def _off_loop(blocking_call: Callable[..., Any], *args: Any) -> Any:
+    return await asyncio.get_running_loop().run_in_executor(None, blocking_call, *args)
+
+
 def _photo_path(chat_id: int) -> str:
     return os.path.join(PHOTOS_DIR, f"{int(chat_id)}.jpg")
 
@@ -46,7 +55,10 @@ def _entry(chat_id: int) -> str | None:
 
 def _is_fresh(chat_id: int) -> bool:
     entry = _entry(chat_id)
-    return entry is not None and _now() < os.path.getmtime(entry) + PHOTO_TTL_S
+    try:
+        return entry is not None and _now() < os.path.getmtime(entry) + PHOTO_TTL_S
+    except FileNotFoundError:   # a refresh swapped the entry for its other form
+        return False
 
 
 def _cached(chat_id: int) -> bytes | None:
@@ -55,6 +67,10 @@ def _cached(chat_id: int) -> bytes | None:
             return fh.read()
     except FileNotFoundError:
         return None
+
+
+def _make_cache_dir() -> None:
+    os.makedirs(PHOTOS_DIR, exist_ok=True)
 
 
 def _stamp(path: str, when: float) -> None:
@@ -99,7 +115,7 @@ def _read_held(chat_id: int, topic_id: int | None) -> bool:
 
 
 async def _refresh(chat_id: int, topic_id: int | None) -> None:
-    os.makedirs(PHOTOS_DIR, exist_ok=True)
+    await _off_loop(_make_cache_dir)
     async with _read_slot:
         client = await tg.authorized_client()
         if not client or _read_held(chat_id, topic_id):   # things may have changed in the queue
@@ -111,13 +127,13 @@ async def _refresh(chat_id: int, topic_id: int | None) -> None:
             return
         except Exception as e:
             log.warning("reading the photo of %s failed: %s", chat_id, e)
-            _retry_soon(chat_id)
+            await _off_loop(_retry_soon, chat_id)
             return
     if photo:
-        _remember_photo(chat_id, photo)
+        await _off_loop(_remember_photo, chat_id, photo)
         safety.record_download(len(photo))
     else:
-        _remember_no_photo(chat_id)
+        await _off_loop(_remember_no_photo, chat_id)
 
 
 def _shared_refresh(chat_id: int, topic_id: int | None) -> asyncio.Task:
@@ -134,7 +150,7 @@ async def photo_of(channel: dict) -> bytes | None:
     """The photo to show for `channel`, or None when there is none to show. Refreshes
     a stale entry first when Telegram may be read; otherwise answers from the cache."""
     chat_id, topic_id = int(channel["chat_id"]), channel["topic_id"]
-    if not _is_fresh(chat_id) and not _read_held(chat_id, topic_id):
+    if not await _off_loop(_is_fresh, chat_id) and not _read_held(chat_id, topic_id):
         # shielded: a browser dropping the request must not abort the others waiting on it
         await asyncio.shield(_shared_refresh(chat_id, topic_id))
-    return _cached(chat_id)
+    return await _off_loop(_cached, chat_id)

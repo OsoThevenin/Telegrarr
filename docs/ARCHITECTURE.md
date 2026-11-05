@@ -5,7 +5,7 @@ Telegrarr is a single-process FastAPI application (Python 3.13) built on the
 the web UI and JSON API **and** runs the background scanner in the same event loop.
 
 > **Single-worker invariant.** The transfer lifecycle (`app/transfers.py`) holds
-> process-wide asyncio state — a semaphore, an in-flight map (episode → the attempt
+> process-wide asyncio state — a semaphore, an in-flight map (episode → the run
 > and task holding its slot), and a task registry. This is
 > correct **only** under a single event loop / single uvicorn worker. The container
 > runs `--workers 1`; do not raise that without first moving the scanner and the
@@ -22,8 +22,11 @@ the web UI and JSON API **and** runs the background scanner in the same event lo
 | `app/tg.py` | The single shared Telethon client, configured with connection retries, auto-reconnect, and a flood-sleep threshold for a resilient long-lived connection. Also hosts the **interactive web sign-in** flow (`send_code` → `sign_in_code` → `sign_in_password`), account status/logout, `list_dialogs()` (the account's channels/groups for the picker), and `resolve()` (turn a `@username` / `t.me` / invite link / id into a chat, joining it if needed). `reset_client()` disconnects before dropping the client so one session never has two live clients. |
 | `app/namer.py` | Pure parsing/naming logic. Extracts season/episode/date/quality from filenames and captions, detects UHD, computes a per-episode `group_key` for dedup, cleans episode titles, queries IMDb suggestions, and builds the final Plex-style `save_path`. |
 | `app/downloader.py` | The fast downloader. A parallel multi-sender ("FastTelethon") engine that splits a file into part-ranges, fetches each range on its own exported sender, and `pwrite`s into a preallocated file — with an automatic fallback to Telethon's built-in sequential downloader if the fast path raises. Enforces a minimum-free-space check and a global flood-wait gate. |
-| `app/scanner.py` | The channel scanner. Polls enabled channels with scanning on, on schedule, keeps the largest file per episode, indexes releases, and resolves where each file goes before handing it to the transfer queue. |
+| `app/scanner.py` | The channel scanner. Polls enabled channels with scanning on, on schedule, while the flood gate is open, keeps the largest file per episode, indexes releases, and resolves where each file goes before handing it to the transfer queue. |
 | `app/history.py` | The background history fetch. Keeps each source's cursor in the `channels` table and reads the source's older messages in small throttled batches, one per scan-loop tick, held by the flood gate and the daily budget. Started by a source's first finished scan; also reads a gap a later scan could not reach, and serves the manual history recovery. |
+| `app/channel_photos.py` | Channels' Telegram profile photos, cached on disk with a one-week lifetime. Only a stale or missing entry reads Telegram, one read at a time, held by the flood gate, the daily budget and the scanning switch. Served by `app/routes/photos.py`. |
+| `app/catalog_why.py` | "Why not grabbed?": Radarr's verdict on a Catalog film's Releases, from its interactive search and its queue. Runs only on the operator's request, costs no Telegram reads, and caches each film's answer. |
+| `app/routes/downloads.py` | The pause and resume routes of one transfer. |
 | `app/transfers.py` | The transfer lifecycle. Queues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles cancel, retry, pause/resume and crash-resume of interrupted downloads. |
 | `app/plex.py` | Targeted Plex refresh. Finds the library section whose path best matches the download folder and refreshes only that path, so new media appears in seconds. Includes a connectivity `test()`. |
 | `app/notify.py` | Fire-and-forget completion notifications: a generic webhook (Discord/Slack-compatible JSON) **and** a rich Telegram Saved-Messages DM (poster image downloaded and sent as a photo, plus an "Open in Plex" deep link). Includes a `test()`. |
@@ -122,7 +125,8 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
 - **`downloads`** — one row per media item: `id` (PK), `channel_id`, `message_id`,
   `file_unique_id`, `group_key`, `file_name`, `file_size`, `save_path`, `status`
   (`queued`/`downloading`/`paused`/`completed`/`failed`/`cancelled`), `error`, `progress`,
-  `speed_mbs`, `started_at`, `finished_at`, `created_at`. Unique on
+  `speed_mbs`, `started_at`, `finished_at`, `created_at`, `attempt` (part of the id the
+  \*arr tracks) and `run` (which download task may write to the row). Unique on
   `(channel_id, message_id)`.
 - **`imdb_candidates`** — cached IMDb suggestions per channel: `(channel_id, rank)`
   PK, `imdb_id`, `title`, `year`, `kind`.

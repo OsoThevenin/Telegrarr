@@ -10,7 +10,7 @@ from collections import defaultdict
 import pytest
 
 from app import catalog_why
-from fake_arr import RADARR_KEY, radarr_movie, radarr_release
+from fake_arr import RADARR_KEY, radarr_movie, radarr_queue_item, radarr_release
 from fake_tmdb import API_KEY
 
 MOVIE_CHAT = -1005555555555
@@ -20,6 +20,8 @@ RADARR = {"radarr_url": "http://radarr.test:7878", "radarr_key": RADARR_KEY}
 THEORY_RELEASE = "La.teoria.del.tot.2014.CAT.1080p.WEB-DL"
 CUTOFF = "Existing file meets cutoff: Bluray-1080p"
 LANGUAGE = "Language is not wanted in profile"
+IN_QUEUE = "Release in queue is of equal or higher preference: WEBDL-1080p"
+TOO_NEW = "Only 12.5 minutes old, minimum age is 60 minutes"
 
 
 @pytest.fixture(autouse=True)
@@ -99,6 +101,52 @@ async def test_an_approved_release_answers_that_radarr_would_accept_it(arr_app, 
     assert body["verdict"] == "would_accept"
     assert body["message"]["key"] == "cat.why.would_accept"
     assert {"title": THEORY_RELEASE, "approved": True, "rejections": []} in body["releases"]
+
+
+@pytest.mark.asyncio
+async def test_a_film_already_in_radarrs_queue_answers_that_radarr_would_accept_it(arr_app, arrs, films):
+    _in_radarr(arrs, radarr_release(THEORY_RELEASE, rejections=(IN_QUEUE,)))
+    arrs.radarr.queue = [radarr_queue_item(RADARR_ID)]
+    channel = await _channel_offering_theory(arr_app)
+
+    body = (await _why(arr_app, channel["id"])).json()
+
+    assert body["verdict"] == "would_accept"
+    assert body["message"]["key"] == "cat.why.would_accept"
+    assert body["releases"] == [{"title": THEORY_RELEASE, "approved": False, "rejections": [IN_QUEUE]}]
+
+
+@pytest.mark.asyncio
+async def test_a_temporarily_rejected_release_answers_that_radarr_would_accept_it(arr_app, arrs, films):
+    _in_radarr(arrs, radarr_release(THEORY_RELEASE, rejections=(TOO_NEW,), temporary=True))
+    channel = await _channel_offering_theory(arr_app)
+
+    body = (await _why(arr_app, channel["id"])).json()
+
+    assert body["verdict"] == "would_accept"
+    assert body["releases"] == [{"title": THEORY_RELEASE, "approved": False, "rejections": [TOO_NEW]}]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_download_radarr_is_replacing_does_not_count_as_queued(arr_app, arrs, films):
+    _in_radarr(arrs, radarr_release(THEORY_RELEASE, rejections=(CUTOFF,)))
+    arrs.radarr.queue = [radarr_queue_item(RADARR_ID, state="failedPending")]
+    channel = await _channel_offering_theory(arr_app)
+
+    body = (await _why(arr_app, channel["id"])).json()
+
+    assert body["verdict"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_another_films_download_does_not_count_as_queued(arr_app, arrs, films):
+    _in_radarr(arrs, radarr_release(THEORY_RELEASE, rejections=(CUTOFF,)))
+    arrs.radarr.queue = [radarr_queue_item(RADARR_ID + 1)]
+    channel = await _channel_offering_theory(arr_app)
+
+    body = (await _why(arr_app, channel["id"])).json()
+
+    assert body["verdict"] == "rejected"
 
 
 @pytest.mark.asyncio
@@ -220,6 +268,18 @@ async def test_a_film_the_catalog_does_not_offer_is_refused_without_asking_radar
 async def test_a_malformed_search_answer_is_a_keyed_error(arr_app, arrs, films):
     _in_radarr(arrs)
     arrs.radarr.releases = {RADARR_ID: {"not": "a list"}}
+    channel = await _channel_offering_theory(arr_app)
+
+    r = await _why(arr_app, channel["id"])
+
+    assert r.status_code == 502
+    assert r.json()["detail"]["key"] == "err.arr.bad_shape"
+
+
+@pytest.mark.asyncio
+async def test_a_malformed_queue_answer_is_a_keyed_error(arr_app, arrs, films):
+    _in_radarr(arrs, radarr_release(THEORY_RELEASE))
+    arrs.radarr.queue = "not a queue"
     channel = await _channel_offering_theory(arr_app)
 
     r = await _why(arr_app, channel["id"])

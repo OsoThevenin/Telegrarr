@@ -21,17 +21,35 @@
   (new `paused` status, counted in the stats) is held while the rest of the queue
   runs, stays paused across a restart and a global resume, and shows as `Paused` in
   the SABnzbd queue. Pausing an in-flight transfer discards its partial file; resuming
-  restarts the file from the beginning as a new attempt.
+  restarts the file from the beginning under the same download id.
 - A scanning switch per Channel, on by default (`scanning`, set with `PATCH
   /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
   polls skip it, and a manual Scan, a history fetch or a directory scan of it is
   refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
   transfer. Failed transfers of the Channel are not retried automatically while it is
   off; a manual Retry still works.
+- Why not grabbed? `POST /api/channels/{id}/catalog/{tmdb_id}/why-not-grabbed` asks
+  Radarr, on the operator's request only, what it thinks of a Catalog film's Releases
+  and shows its rejections word for word. A film Radarr would take but is waiting on,
+  or already has in its own queue, answers "would accept".
+- Channel photos: `GET /api/channels/{id}/photo` serves a Channel's Telegram profile
+  photo from a local cache, so showing the grid costs no Telegram reads while the
+  cache is fresh. Reads are one at a time and held by the flood gate, the daily budget
+  and the scanning switch.
+- File details on Catalog films Radarr holds: `file` in
+  `GET /api/channels/{id}/catalog/status` reports the file's quality, resolution, codec,
+  container, audio and subtitle languages and size.
+- The channels API reports each Channel's history fetch as a `history` object (`read`,
+  `total_estimate`, `complete`, `next_batch_at`).
 
 ### Changed
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
+- Scans respect the flood gate: while it is closed polls read nothing and catch up once
+  it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
+  scan closes the gate for every other Telegram read.
+
+## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
@@ -69,6 +87,9 @@
   than the running version. An older version (v1.0.2 while running v1.1.0), an
   unreadable tag, or a tag inherited from upstream Telearr (v2.1.0–v2.3.3) now reads
   as up to date. Telegrarr's own v2 releases are still offered.
+- Every version tag now gets a GitHub Release alongside its image, with notes from
+  this changelog, so the latest release always matches the newest version.
+  Pre-release tags are marked as pre-releases and are not offered as updates.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 

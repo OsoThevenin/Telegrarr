@@ -166,7 +166,8 @@ COLUMN_MIGRATIONS = (
     ("channels", "topic_title", "TEXT"),
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
-    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
+    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a failed/cancelled row
+    ("downloads", "run", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of any kind; owns a task's writes
     ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
     ("channels", "scanning", "INTEGER NOT NULL DEFAULT 1"),  # 0: Telegrarr doesn't read this source
     ("channels", "history_oldest_id", "INTEGER NOT NULL DEFAULT 0"),  # cursor (0: from the newest)
