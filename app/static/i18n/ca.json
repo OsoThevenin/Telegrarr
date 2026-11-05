@@ -4,6 +4,7 @@
  "err.settings.budget": "El pressupost diari ha de ser 0 (il·limitat) o més GB",
  "err.settings.url_scheme": "Els URL han de començar per http:// o https://",
  "err.settings.ui_lang": "Idioma desconegut",
+ "err.settings.env_locked": "Definit per la variable d’entorn {env}. Canvia-la allà.",
  "err.channel.chat_id_required": "Cal indicar el chat_id",
  "err.channel.chat_id_numeric": "El chat_id ha de ser numèric",
  "err.channel.topic_id_numeric": "El topic_id ha de ser un nombre positiu",

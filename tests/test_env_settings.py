@@ -4,6 +4,7 @@ The outside view: the settings API, and what actually reaches TMDB and the *arr
 apps on the wire (tests/fake_tmdb.py, tests/fake_arr.py)."""
 import pytest
 
+from app import i18n
 from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY
 from fake_tmdb import API_KEY as TMDB_KEY
 
@@ -186,3 +187,131 @@ async def test_a_blank_env_var_does_not_lock(arr_app, monkeypatch):
     monkeypatch.setenv("TELEARR_TMDB_KEY", "  ")
 
     assert (await _settings(arr_app))["tmdb_key_env_locked"] is False
+
+
+# ── writes to a locked setting are refused ────────────────────────────
+LOCKED_WRITES = [
+    ("tmdb_key", "TELEARR_TMDB_KEY", "new-key"),
+    ("prowlarr_url", "TELEARR_PROWLARR_URL", "http://new.test:1"),
+    ("prowlarr_key", "TELEARR_PROWLARR_KEY", "new-key"),
+    ("sonarr_url", "TELEARR_SONARR_URL", "http://new.test:1"),
+    ("sonarr_key", "TELEARR_SONARR_KEY", "new-key"),
+    ("radarr_url", "TELEARR_RADARR_URL", "http://new.test:1"),
+    ("radarr_key", "TELEARR_RADARR_KEY", "new-key"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("setting, env_var, value", LOCKED_WRITES)
+async def test_write_to_a_locked_setting_is_refused_with_a_keyed_error(arr_app, monkeypatch, setting, env_var, value):
+    monkeypatch.setenv(env_var, "http://env.test:1")
+
+    r = await arr_app.http.patch("/api/settings", json={setting: value})
+
+    assert r.status_code == 400
+    assert r.json()["detail"] == {"key": "err.settings.env_locked", "params": {"env": env_var}}
+
+
+@pytest.mark.parametrize("lang, expected", [
+    ("en", "Set by the environment variable TELEARR_TMDB_KEY. Change it there."),
+    ("ca", "Definit per la variable d’entorn TELEARR_TMDB_KEY. Canvia-la allà."),
+])
+def test_refusal_reads_in_both_languages(lang, expected):
+    assert i18n.translate("err.settings.env_locked", lang, env="TELEARR_TMDB_KEY") == expected
+
+
+@pytest.mark.asyncio
+async def test_clearing_a_locked_setting_is_refused(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_TMDB_KEY", "env-tmdb-key")
+
+    r = await arr_app.http.patch("/api/settings", json={"tmdb_key": ""})
+
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_malformed_write_to_a_locked_setting_reports_the_lock(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
+
+    r = await arr_app.http.patch("/api/settings", json={"sonarr_url": "ftp://new.test"})
+
+    assert r.json()["detail"]["key"] == "err.settings.env_locked"
+
+
+@pytest.mark.asyncio
+async def test_refused_write_leaves_the_saved_value_for_when_the_env_var_goes(arr_app, monkeypatch):
+    await arr_app.http.patch("/api/settings", json={"sonarr_url": "http://saved.test:8989"})
+    monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
+    await arr_app.http.patch("/api/settings", json={"sonarr_url": "http://new.test:1"})
+
+    monkeypatch.delenv("TELEARR_SONARR_URL")
+
+    assert (await _settings(arr_app))["sonarr_url"] == "http://saved.test:8989"
+
+
+@pytest.mark.asyncio
+async def test_patch_touching_a_locked_setting_persists_nothing(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_SONARR_KEY", "env-sonarr-key")
+
+    r = await arr_app.http.patch("/api/settings", json={"daily_budget_gb": 5, "sonarr_key": "new-key"})
+
+    assert r.status_code == 400
+    assert (await _settings(arr_app))["daily_budget_gb"] == 0
+
+
+@pytest.mark.asyncio
+async def test_other_settings_stay_writable_next_to_a_locked_one(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
+
+    r = await arr_app.http.patch("/api/settings", json={"sonarr_external_url": "https://sonarr.example.com",
+                                                        "sonarr_key": "saved-key"})
+
+    assert r.status_code == 200
+    assert r.json()["settings"]["sonarr_external_url"] == "https://sonarr.example.com"
+    assert r.json()["settings"]["sonarr_key_set"] is True
+
+
+@pytest.mark.asyncio
+async def test_null_for_a_locked_setting_is_no_write(arr_app, monkeypatch):
+    monkeypatch.setenv("TELEARR_TMDB_KEY", "env-tmdb-key")
+
+    r = await arr_app.http.patch("/api/settings", json={"tmdb_key": None})
+
+    assert r.status_code == 200
+
+
+# ── env-provided keys never come back ─────────────────────────────────
+@pytest.mark.asyncio
+async def test_settings_responses_never_echo_env_keys(arr_app, monkeypatch):
+    secrets = {"TELEARR_TMDB_KEY": "env-secret-tmdb", "TELEARR_PROWLARR_KEY": "env-secret-prowlarr",
+               "TELEARR_SONARR_KEY": "env-secret-sonarr", "TELEARR_RADARR_KEY": "env-secret-radarr"}
+    for name, value in secrets.items():
+        monkeypatch.setenv(name, value)
+
+    read = await arr_app.http.get("/api/settings")
+    saved = await arr_app.http.patch("/api/settings", json={"daily_budget_gb": 5})
+    refused = await arr_app.http.patch("/api/settings", json={"tmdb_key": "new-key"})
+
+    for value in secrets.values():
+        assert value not in read.text + saved.text + refused.text
+
+
+@pytest.mark.asyncio
+async def test_failed_connection_test_does_not_echo_the_env_key(arr_app, arrs, monkeypatch):
+    _set_arr_env(monkeypatch, "sonarr")
+    monkeypatch.setenv("TELEARR_SONARR_KEY", "env-secret-sonarr")
+
+    r = await arr_app.http.post("/api/connect/test", json={"app": "sonarr"})
+
+    assert r.json()["ok"] is False
+    assert "env-secret-sonarr" not in r.text
+
+
+@pytest.mark.asyncio
+async def test_rejected_tmdb_key_test_does_not_echo_the_env_key(arr_app, fake_tmdb, monkeypatch):
+    monkeypatch.setenv("TELEARR_TMDB_KEY", "env-secret-tmdb")
+
+    r = await arr_app.http.post("/api/integrations/tmdb/test", json={})
+
+    assert r.json()["ok"] is False
+    assert "env-secret-tmdb" not in r.text

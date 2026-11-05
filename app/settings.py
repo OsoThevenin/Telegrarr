@@ -100,6 +100,12 @@ def env_locked(key: str) -> bool:
     return bool(_env_value(key))
 
 
+def refuse_if_env_locked(key: str) -> None:
+    """Call before persisting ``key``: a locked setting is refused, not ignored."""
+    if env_locked(key):
+        raise SettingRejected("err.settings.env_locked", env=ENV_VARS[key])
+
+
 def get(key, default=None):
     """The effective value: the env value, else the database's, else the default."""
     env_value = _env_value(key)
@@ -262,10 +268,12 @@ def apply(payload: dict) -> dict:
     """Validate + persist a settings patch; returns the new public view.
 
     Malformed values are skipped, but a SettingRejected aborts the whole patch
-    (nothing is persisted) so the UI can show the reason."""
+    (nothing is persisted) so the UI can show the reason. That includes a value
+    for an env-locked setting, whatever it is."""
     coerced = {}
     for k, v in payload.items():
         if k in WRITABLE and v is not None:
+            refuse_if_env_locked(k)
             try:
                 coerced[k] = WRITABLE[k](v)
             except SettingRejected:
