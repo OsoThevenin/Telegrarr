@@ -86,17 +86,17 @@ def library_dirs(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def scanner_sync(monkeypatch):
-    """Give the scanner's module-level lock and semaphore to this test alone.
+    """Give the transfers module-level lock and semaphore to this test alone.
 
     An asyncio primitive binds to the first event loop that waits on it, and each
     test runs on its own loop, so shared ones fail a later test under contention
     ("bound to a different event loop").
     """
-    from app import scanner
+    from app import transfers
 
-    monkeypatch.setattr(scanner, "_queue_lock", asyncio.Lock())
-    monkeypatch.setattr(scanner, "_sem", asyncio.Semaphore(scanner.MAX_CONCURRENT_DOWNLOADS))
-    monkeypatch.setattr(scanner, "_sem_limit", scanner.MAX_CONCURRENT_DOWNLOADS)
+    monkeypatch.setattr(transfers, "_queue_lock", asyncio.Lock())
+    monkeypatch.setattr(transfers, "_sem", asyncio.Semaphore(transfers.MAX_CONCURRENT_DOWNLOADS))
+    monkeypatch.setattr(transfers, "_sem_limit", transfers.MAX_CONCURRENT_DOWNLOADS)
 
 
 async def _drain_background_tasks():

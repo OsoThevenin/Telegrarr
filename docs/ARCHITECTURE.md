@@ -4,12 +4,12 @@ Telegrarr is a single-process FastAPI application (Python 3.13) built on the
 [Telethon](https://docs.telethon.dev/) MTProto client. One uvicorn worker serves
 the web UI and JSON API **and** runs the background scanner in the same event loop.
 
-> **Single-worker invariant.** The scanner (`app/scanner.py`) holds process-wide
-> asyncio state — a semaphore, an in-flight map (episode → the attempt and task
-> holding its slot), and a task registry. This is
+> **Single-worker invariant.** The transfer lifecycle (`app/transfers.py`) holds
+> process-wide asyncio state — a semaphore, an in-flight map (episode → the attempt
+> and task holding its slot), and a task registry. This is
 > correct **only** under a single event loop / single uvicorn worker. The container
-> runs `--workers 1`; do not raise that without first moving the scanner into its
-> own process.
+> runs `--workers 1`; do not raise that without first moving the scanner and the
+> transfers into their own process.
 
 ## Module map
 
@@ -22,7 +22,8 @@ the web UI and JSON API **and** runs the background scanner in the same event lo
 | `app/tg.py` | The single shared Telethon client, configured with connection retries, auto-reconnect, and a flood-sleep threshold for a resilient long-lived connection. Also hosts the **interactive web sign-in** flow (`send_code` → `sign_in_code` → `sign_in_password`), account status/logout, `list_dialogs()` (the account's channels/groups for the picker), and `resolve()` (turn a `@username` / `t.me` / invite link / id into a chat, joining it if needed). `reset_client()` disconnects before dropping the client so one session never has two live clients. |
 | `app/namer.py` | Pure parsing/naming logic. Extracts season/episode/date/quality from filenames and captions, detects UHD, computes a per-episode `group_key` for dedup, cleans episode titles, queries IMDb suggestions, and builds the final Plex-style `save_path`. |
 | `app/downloader.py` | The fast downloader. A parallel multi-sender ("FastTelethon") engine that splits a file into part-ranges, fetches each range on its own exported sender, and `pwrite`s into a preallocated file — with an automatic fallback to Telethon's built-in sequential downloader if the fast path raises. Enforces a minimum-free-space check and a global flood-wait gate. |
-| `app/scanner.py` | The orchestrator. Polls enabled channels on schedule, keeps the largest file per episode, enqueues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles pause/resume and crash-resume of interrupted downloads. |
+| `app/scanner.py` | The channel scanner. Polls enabled channels on schedule, keeps the largest file per episode, indexes releases, and resolves where each file goes before handing it to the transfer queue. |
+| `app/transfers.py` | The transfer lifecycle. Queues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles cancel, retry, pause/resume and crash-resume of interrupted downloads. |
 | `app/plex.py` | Targeted Plex refresh. Finds the library section whose path best matches the download folder and refreshes only that path, so new media appears in seconds. Includes a connectivity `test()`. |
 | `app/notify.py` | Fire-and-forget completion notifications: a generic webhook (Discord/Slack-compatible JSON) **and** a rich Telegram Saved-Messages DM (poster image downloaded and sent as a photo, plus an "Open in Plex" deep link). Includes a `test()`. |
 | `app/tmdb.py` | Poster/backdrop art resolver. Prefers TMDB when an API key is set (server-side proxy, so the key never reaches the browser) and falls back to the keyless IMDb suggestion API otherwise; returns poster, backdrop, overview, year, and rating. Includes a `test(key)` that validates a supplied key. |
@@ -79,8 +80,8 @@ Step by step:
    episode, else air date, else message id) and keeps only the **largest** file per
    group. `_already_have` skips groups already downloaded/queued at equal-or-greater
    size.
-3. **Download.** `_enqueue` resolves the Plex-style `save_path`, writes a `queued`
-   row, and spawns `_run_download`, which acquires the concurrency semaphore and
+3. **Download.** The scanner resolves the Plex-style `save_path`; `transfers.enqueue`
+   writes a `queued` row and spawns `_run_download`, which acquires the concurrency semaphore and
    calls `download_file`. The downloader preallocates a `.tmp`, fetches part-ranges
    in parallel, verifies the final size, and atomically renames into place.
 4. **Name.** The path was computed by `namer.build_save_path` from the parsed show
@@ -139,7 +140,7 @@ protocol-translation layer (`app/arr.py`) with three parts:
 2. **SABnzbd shim** — a SABnzbd-compatible API on the same host/port. Sonarr/Radarr
    add Telegrarr as a SABnzbd download client; when they grab a release they call the
    shim's `addurl`/`addfile` mode, which Telegrarr resolves (via the release GUID) to
-   a Telegram message and hands to the scanner's download path. Queue/history
+   a Telegram message and hands to the transfer queue. Queue/history
    endpoints report status back to the \*arr app so it can track and import.
 3. **On-demand grab** — a grab enqueues into the same `_run_download` pipeline as an
    organic scan, so it shares the fast multi-connection downloader, the concurrency

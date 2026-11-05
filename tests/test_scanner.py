@@ -59,7 +59,7 @@ def test_larger_replacement_not_deduped(fresh_db):
 
 def test_retry_failed_requeues_and_bounds(fresh_db, monkeypatch):
     import asyncio
-    from app import db, scanner
+    from app import db, scanner, transfers
 
     ch = _add_channel(db, -1, "A", imdb_id="tt1")
     with db.conn() as c:
@@ -76,7 +76,7 @@ def test_retry_failed_requeues_and_bounds(fresh_db, monkeypatch):
         async def get_messages(self, chat, ids=None):
             return object()  # truthy message
 
-    monkeypatch.setattr(scanner, "_spawn", lambda coro: coro.close())
+    monkeypatch.setattr(transfers, "spawn", lambda coro: coro.close())
     asyncio.run(scanner._retry_failed(FakeClient(), ch))
 
     with db.conn() as c:

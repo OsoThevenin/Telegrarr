@@ -5,7 +5,7 @@ sets the budget in Settings and reads ``/api/downloads`` and ``/api/status``.
 """
 import pytest
 
-from app import scanner
+from app import transfers
 from http_harness import eventually
 
 CHAT = -1001000000078
@@ -16,7 +16,7 @@ FIRST, SECOND = "The.Show.S01E01.mkv", "The.Show.S01E02.mkv"
 
 @pytest.fixture()
 def fast_recheck(monkeypatch):
-    monkeypatch.setattr(scanner, "BUDGET_RECHECK_SECONDS", 0.01)
+    monkeypatch.setattr(transfers, "BUDGET_RECHECK_SECONDS", 0.01)
 
 
 async def _set_budget(arr_app, gb: float) -> None:

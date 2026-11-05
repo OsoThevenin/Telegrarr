@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
 from . import release_titles
 from . import i18n
+from . import transfers
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     yield
     retitle.cancel()
     # graceful shutdown: requeue anything in flight so it resumes next boot
-    scanner.begin_shutdown()
+    transfers.begin_shutdown()
     with contextlib.suppress(Exception):
         with db.conn() as c:
             c.execute("UPDATE downloads SET status='queued', progress=0, speed_mbs=0 "
@@ -418,21 +419,21 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
 async def _single_action(action: str, dl_id: int) -> bool:
     """Apply ``action`` to one download; True if it acted on the row."""
     if action == "cancel":
-        return scanner.cancel_download(dl_id)
+        return transfers.cancel_download(dl_id)
     if action == "retry":
-        return await scanner.retry_download(dl_id) is None
+        return await transfers.retry_download(dl_id) is None
     with db.conn() as c:
         return c.execute("DELETE FROM downloads WHERE id=?", (dl_id,)).rowcount > 0
 
 
 @app.post("/api/downloads/{dl_id}/cancel")
 async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
-    return {"ok": scanner.cancel_download(dl_id)}
+    return {"ok": transfers.cancel_download(dl_id)}
 
 
 @app.post("/api/downloads/{dl_id}/retry")
 async def api_retry(dl_id: int, user=Depends(auth.require_user)):
-    reason = await scanner.retry_download(dl_id)
+    reason = await transfers.retry_download(dl_id)
     return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
@@ -537,14 +538,14 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
 # ── queue control ─────────────────────────────────────────────────────
 @app.post("/api/queue/pause")
 async def api_pause(user=Depends(auth.require_user)):
-    scanner.pause()
+    transfers.pause()
     db.log("INFO", i18n.message("event.downloads_paused"))
     return {"ok": True, "paused": True}
 
 
 @app.post("/api/queue/resume")
 async def api_resume(user=Depends(auth.require_user)):
-    await scanner.resume_all()
+    await transfers.resume_all()
     db.log("INFO", i18n.message("event.downloads_resumed"))
     return {"ok": True, "paused": False}
 
@@ -672,7 +673,7 @@ def _sab_delete(nzo):
     """A queue or history delete (files are never deleted, whatever del_files says)."""
     ref = arr.parse_nzo(nzo)
     if ref is not None:
-        scanner.delete_for_arr(ref)
+        transfers.delete_for_arr(ref)
 
 
 async def _sab(request: Request):
