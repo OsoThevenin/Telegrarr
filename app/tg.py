@@ -271,7 +271,7 @@ class MessageRead:
     count: int
     newest_id: int           # 0 when Telegram returned nothing
     oldest_id: int
-    total: int | None        # Telegram's message count for the chat, or the named topic
+    total: int | None        # Telegram's message count for the chat or named topic; None: it gave none
 
 
 async def read_messages(c, chat_id: int, *, limit: int, topic_id: int | None = None,
@@ -282,7 +282,7 @@ async def read_messages(c, chat_id: int, *, limit: int, topic_id: int | None = N
     got = [m async for m in raw]
     kept = tuple(m for m in got if topic_id != GENERAL_TOPIC_ID or _in_general(m))
     return MessageRead(messages=kept, count=len(got), newest_id=got[0].id if got else 0,
-                       oldest_id=got[-1].id if got else 0, total=raw.total)
+                       oldest_id=got[-1].id if got else 0, total=raw.total or None)
 
 
 FORUM_TOPICS_LIMIT = 100   # topics asked for in one forum-topics request (Telegram's page size)

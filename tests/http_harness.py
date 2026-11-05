@@ -91,7 +91,7 @@ class FakeMessageIter:
         chat = tg.readable(read.chat_id)
         keep = tg.in_topic(chat, read.topic) if read.topic is not None else (lambda _m: True)
         msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
-        self.total = len(msgs)
+        self.total = tg.count_reported(len(msgs))
         window = [m for m in msgs if m.id > read.min_id and (not read.offset_id or m.id < read.offset_id)]
         for msg in window[:read.limit] if read.limit else window:
             yield msg
@@ -161,6 +161,7 @@ class FakeTelegram:
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
         self.flood_on_next_read = False              # raise FloodWaitError serving the next history read
+        self.count_reported = lambda count: count    # what a read says the chat's message count is
         self.fail_next_read = False                  # raise a transient error serving the next history read
         self.flood_on_topics_page: int | None = None  # raise FloodWaitError serving this topics page (1 = first)
         self.topics_pages_served = 0

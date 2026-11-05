@@ -53,6 +53,24 @@ def request(cid: int) -> None:
                      WHERE id=?""", (int(time.time()), cid))
 
 
+def _progress(channel: dict) -> dict:
+    """What the operator sees of source `channel`'s history. Telegram's count is an
+    estimate, and a gap walk reads some messages twice, so messages read stop at it.
+    A next batch shows only while one is really coming (see _due)."""
+    total = channel["history_total"]
+    read = channel["history_read"] if total is None else min(channel["history_read"], total)
+    coming = (channel["scanning"] and not channel["history_complete"]
+              and (channel["enabled"] or channel["history_requested"]))
+    return {"read": read, "total_estimate": total, "complete": bool(channel["history_complete"]),
+            "next_batch_at": channel["history_next_at"] if coming else None}
+
+
+def public(channel: dict) -> dict:
+    """Source `channel` as the channels API shows it: its progress, not its cursor."""
+    return {**{k: v for k, v in channel.items() if not k.startswith("history_")},
+            "history": _progress(channel)}
+
+
 def _due(now: float) -> list[dict]:
     """The sources whose next batch is due, the most overdue first. The operator's
     request reaches a disabled source too, and goes on whatever its weekdays."""
