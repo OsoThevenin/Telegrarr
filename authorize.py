@@ -4,6 +4,7 @@ Run interactively:  docker compose run --rm telegrarr python authorize.py
 It writes /data/session.session, after which the service runs unattended.
 """
 import asyncio
+import os
 import sys
 
 from app import db, tg
@@ -11,6 +12,15 @@ from app import db, tg
 MISSING_CREDS = ("Telegram API credentials are missing. Set TG_API_ID and TG_API_HASH "
                  "in .env (from https://my.telegram.org -> API development tools) and "
                  "recreate the container, or sign in from the web UI setup wizard instead.")
+RUNNING_AS_ROOT = ("Refusing to run as root: the session file would be owned by root and the "
+                   "app couldn't use it. Run `docker compose run --rm telegrarr python authorize.py`, "
+                   "or add `-u telegrarr` to your `docker exec`.")
+
+
+def refuse_root() -> None:
+    """A plain `docker exec` is root even though the app isn't (no geteuid on Windows)."""
+    if getattr(os, "geteuid", lambda: None)() == 0:
+        sys.exit(RUNNING_AS_ROOT)
 
 
 def build_client():
@@ -32,4 +42,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    refuse_root()
     asyncio.run(main())

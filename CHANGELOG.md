@@ -49,6 +49,11 @@
   one. `GET /api/settings` reports each such setting as `<setting>_env_locked`, and
   `PATCH /api/settings` refuses to change it (`err.settings.env_locked`). Keys from env
   are never returned. Nothing changes for deployments that don't set them.
+- `PUID` and `PGID` env vars, LinuxServer-style. The container starts as root, aligns
+  its app user with them (default 1000:1000), re-owns the data and log directories on
+  every start and the downloads root when its owner differs, then runs the app as that
+  user. `0` and non-numeric values stop the container with an error. Compose `user:`
+  works as before and skips all of this. A new CI job checks it on a running container.
 
 ### Changed
 - **Breaking: `TG_API_ID`/`TG_API_HASH`, `PLEX_URL`/`PLEX_TOKEN` and `TELEARR_PROXY` now
@@ -60,6 +65,12 @@
   `err.settings.env_locked`: `PATCH /api/settings` with a 400, and `POST
   /api/telegram/auth/api` and `POST /api/telegram/proxy` in the `error` field of their
   reply. `TG_API_ID=0`, the value `.env.example` ships, counts as not set.
+- `PUID`/`PGID` in `.env` now take effect without `user:` in compose. If yours differ
+  from 1000, the next start runs the app as those ids and re-owns `/data` to match.
+- `authorize.py` refuses to run as root, as a `docker exec` without `-u telegrarr` now
+  would. `docker compose run --rm telegrarr python authorize.py` works as before.
+- `deploy.sh` reports a container that never becomes healthy, with its last log lines,
+  instead of saying Telegrarr is up.
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
 - Scans respect the flood gate: while it is closed polls read nothing and catch up once

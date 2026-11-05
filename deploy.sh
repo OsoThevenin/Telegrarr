@@ -20,8 +20,18 @@ echo "==> Building and starting Telegrarr"
 $DC up -d --build
 
 echo "==> Waiting for health"
-for _ in $(seq 1 30); do curl -fsS -m3 http://127.0.0.1:8790/healthz >/dev/null 2>&1 && break; sleep 2; done
+healthy=""
+for _ in $(seq 1 30); do
+  if curl -fsS -m3 http://127.0.0.1:8790/healthz >/dev/null 2>&1; then healthy=1; break; fi
+  sleep 2
+done
 $DC ps
+if [ -z "$healthy" ]; then
+  # A refused PUID/PGID lands here: the container exits before serving anything.
+  echo "Telegrarr did not become healthy. Its last log lines:" >&2
+  $DC logs --tail 20 telegrarr >&2
+  exit 1
+fi
 echo
 echo "Telegrarr is up on port 8790. First-time Telegram login (if no session yet):"
 echo "  $DC run --rm telegrarr python authorize.py"

@@ -41,6 +41,13 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+  container:
+    name: Container (PUID/PGID)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: tests/container/puid_pgid.sh
+
   audit:
     name: Dependency audit (pip-audit)
     runs-on: ubuntu-latest
