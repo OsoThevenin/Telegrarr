@@ -43,6 +43,12 @@
   container, audio and subtitle languages and size.
 - The channels API reports each Channel's history fetch as a `history` object (`read`,
   `total_estimate`, `complete`, `next_batch_at`).
+- Env vars for TMDB and the *arr connections: `TELEARR_TMDB_KEY`, and
+  `TELEARR_PROWLARR_URL`/`_KEY`, `TELEARR_SONARR_URL`/`_KEY` and
+  `TELEARR_RADARR_URL`/`_KEY`. A value that is set and not empty wins over the saved
+  one. `GET /api/settings` reports each such setting as `<setting>_env_locked`, and
+  `PATCH /api/settings` refuses to change it (`err.settings.env_locked`). Keys from env
+  are never returned. Nothing changes for deployments that don't set them.
 
 - `PUID` and `PGID` env vars, LinuxServer-style. The container starts as root, aligns
   its app user with them (default 1000:1000), re-owns the data and log directories on

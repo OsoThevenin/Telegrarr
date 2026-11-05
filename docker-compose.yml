@@ -5,6 +5,16 @@ services:
     container_name: telegrarr
     restart: unless-stopped
     env_file: .env
+    # Or provision TMDB and the *arr connections here; each one set wins over the
+    # saved value and can't be changed from the UI (see .env.example):
+    # environment:
+    #   TELEARR_TMDB_KEY: ${TMDB_KEY}
+    #   TELEARR_PROWLARR_URL: http://prowlarr:9696
+    #   TELEARR_PROWLARR_KEY: ${PROWLARR_KEY}
+    #   TELEARR_SONARR_URL: http://sonarr:8989
+    #   TELEARR_SONARR_KEY: ${SONARR_KEY}
+    #   TELEARR_RADARR_URL: http://radarr:7878
+    #   TELEARR_RADARR_KEY: ${RADARR_KEY}
     # The container starts as root only to apply PUID/PGID from .env (default
     # 1000): it re-owns /data and, if its owner differs, /downloads, then runs
     # the app as that user. Uncomment to skip all of that and run as a fixed user;

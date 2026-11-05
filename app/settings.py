@@ -1,5 +1,6 @@
 # app/settings.py — DB-backed runtime settings with env-based defaults.
-# Anything here can be changed from the UI and takes effect live (no rebuild).
+# Anything here can be changed from the UI and takes effect live (no rebuild),
+# except the env-backed settings in ENV_VARS while their env var is set.
 import os
 
 from . import db
@@ -67,8 +68,49 @@ DEFAULTS = {
 OPERATING_MODES = ("arr", "standalone")
 ARR_APPS = ("prowlarr", "sonarr", "radarr")
 
+# Env-backed settings: setting -> the env var that provisions it. A non-empty env
+# value wins over the database and locks the setting. Read on every lookup.
+ENV_VARS = {
+    "tmdb_key": "TELEARR_TMDB_KEY",
+    "prowlarr_url": "TELEARR_PROWLARR_URL",
+    "prowlarr_key": "TELEARR_PROWLARR_KEY",
+    "sonarr_url": "TELEARR_SONARR_URL",
+    "sonarr_key": "TELEARR_SONARR_KEY",
+    "radarr_url": "TELEARR_RADARR_URL",
+    "radarr_key": "TELEARR_RADARR_KEY",
+}
+
+
+def _env_value(key: str) -> str:
+    """The value env provides for ``key``, normalised as a saved one is; "" if none.
+
+    A value its coercer rejects stays as written: the operator's env still wins,
+    and using it fails visibly as a connection error."""
+    raw = os.environ.get(ENV_VARS[key], "").strip() if key in ENV_VARS else ""
+    if not raw or key not in WRITABLE:
+        return raw
+    try:
+        return WRITABLE[key](raw)
+    except ValueError:
+        return raw
+
+
+def env_locked(key: str) -> bool:
+    """Whether env provides ``key``, so it cannot be changed from the UI or API."""
+    return bool(_env_value(key))
+
+
+def refuse_if_env_locked(key: str) -> None:
+    """Call before persisting ``key``: a locked setting is refused, not ignored."""
+    if env_locked(key):
+        raise SettingRejected("err.settings.env_locked", env=ENV_VARS[key])
+
 
 def get(key, default=None):
+    """The effective value: the env value, else the database's, else the default."""
+    env_value = _env_value(key)
+    if env_value:
+        return env_value
     with db.conn() as c:
         r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     if r is not None:
@@ -126,6 +168,7 @@ def public() -> dict:
         "operating_mode": operating_mode(),
         "downloads_dir": get("downloads_dir"),
         **_arr_public(),
+        **{f"{key}_env_locked": env_locked(key) for key in ENV_VARS},
     }
 
 
@@ -225,10 +268,12 @@ def apply(payload: dict) -> dict:
     """Validate + persist a settings patch; returns the new public view.
 
     Malformed values are skipped, but a SettingRejected aborts the whole patch
-    (nothing is persisted) so the UI can show the reason."""
+    (nothing is persisted) so the UI can show the reason. That includes a value
+    for an env-locked setting, whatever it is."""
     coerced = {}
     for k, v in payload.items():
         if k in WRITABLE and v is not None:
+            refuse_if_env_locked(k)
             try:
                 coerced[k] = WRITABLE[k](v)
             except SettingRejected:
