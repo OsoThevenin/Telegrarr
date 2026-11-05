@@ -54,8 +54,10 @@ DEFAULTS = {
     "prowlarr_key": "",
     "sonarr_url": "",
     "sonarr_key": "",
+    "sonarr_external_url": "",     # browser links; "" = sonarr_url
     "radarr_url": "",
     "radarr_key": "",
+    "radarr_external_url": "",     # browser links; "" = radarr_url
     # Defaults for films Telegrarr adds to Radarr; 0 / "" = Radarr's first.
     "radarr_quality_profile_id": 0,
     "radarr_root_folder": "",
@@ -172,6 +174,8 @@ def _arr_public() -> dict:
     for name in ARR_APPS:
         view[f"{name}_url"] = get(f"{name}_url", "")
         view[f"{name}_key_set"] = bool(get(f"{name}_key", ""))
+    view["sonarr_external_url"] = get("sonarr_external_url", "")
+    view["radarr_external_url"] = get("radarr_external_url", "")
     view["radarr_quality_profile_id"] = get_int("radarr_quality_profile_id", 0)
     view["radarr_root_folder"] = get("radarr_root_folder", "")
     return view
@@ -207,8 +211,10 @@ WRITABLE = {
     "prowlarr_url": _http_url,
     "prowlarr_key": lambda v: str(v).strip(),
     "sonarr_url": _http_url,
+    "sonarr_external_url": _http_url,
     "sonarr_key": lambda v: str(v).strip(),
     "radarr_url": _http_url,
+    "radarr_external_url": _http_url,
     "radarr_key": lambda v: str(v).strip(),
     "radarr_quality_profile_id": lambda v: str(max(0, int(v))),
     "radarr_root_folder": lambda v: str(v).strip(),

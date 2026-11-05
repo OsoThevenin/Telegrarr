@@ -6,7 +6,8 @@
 # the larger file); each pending-review message is its own "unidentified" row.
 #
 # Row JSON (later slices add fields; existing ones keep their meaning):
-#   film:         {kind: "film", tmdb_id, imdb_id, title, year, quality, size, language}
+#   film:         {kind: "film", tmdb_id, imdb_id, title, year, quality, size, language,
+#                  radarr_link (null when no Radarr URL is configured)}
 #   unidentified: {kind: "unidentified", review: {channel_id, message_id},
 #                  title (raw file name), quality, size, language}
 # `quality` is a resolution label on RESOLUTION_LADDER; `language` a release token (CAT, …).
@@ -27,7 +28,7 @@
 import time
 from datetime import datetime
 
-from . import channels, connect, db, series_titles, tmdb
+from . import channels, connect, db, series_titles, settings, tmdb
 from .i18n import KeyedError, message
 from .movies import STATUS_PENDING
 from .namer import CHANNEL_QUALITIES, DEFAULT_LANGUAGE, LANGUAGE_TOKENS, QUALITY_SD
@@ -111,7 +112,12 @@ def _best_per_film(releases: list) -> dict[int, list]:
     return {tmdb_id: _best_first(rs) for tmdb_id, rs in by_film.items()}
 
 
-def _film_row(releases: list, language: str) -> dict:
+def _radarr_base_url() -> str:
+    """The Radarr address a browser can open: the external URL, else the connection URL."""
+    return settings.get("radarr_external_url", "") or settings.get("radarr_url", "")
+
+
+def _film_row(releases: list, language: str, radarr_base: str) -> dict:
     best = releases[0]
     return {
         "kind": KIND_FILM,
@@ -122,6 +128,7 @@ def _film_row(releases: list, language: str) -> dict:
         "quality": resolution(best["quality"]),
         "size": best["size"] or 0,
         "language": language,
+        "radarr_link": f"{radarr_base}/movie/{best['movie_tmdb_id']}" if radarr_base else None,
     }
 
 
@@ -158,7 +165,8 @@ def build(cid: int) -> dict:
         raise NotMovieChannel()
     language = _language(channel)
     releases, pending = _stored(cid)
-    dated = [(max(map(_newest, rs)), _film_row(rs, language))
+    radarr_base = _radarr_base_url()
+    dated = [(max(map(_newest, rs)), _film_row(rs, language, radarr_base))
              for rs in _best_per_film(releases).values()]
     dated += [(_newest(p), _unidentified_row(p, language)) for p in pending]
     rows = [row for _, row in sorted(dated, key=lambda d: d[0], reverse=True)]
