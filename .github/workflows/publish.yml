@@ -81,13 +81,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          title="$(python3 .github/scripts/release_notes.py "$TAG" "$RUNNER_TEMP/notes.md")"
+          notes="$RUNNER_TEMP/notes.md"
+          title="$(python3 .github/scripts/release_notes.py "$TAG" "$notes")"
           # A re-run refreshes the Release it already created instead of failing on it.
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release edit "$TAG" --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
-          elif [[ "$TAG" == *-* ]]; then
-            # Pre-releases never become "latest", which System → Updates reads.
-            gh release create "$TAG" --verify-tag --prerelease --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
-          else
-            gh release create "$TAG" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release edit "$TAG" --title "$title" --notes-file "$notes"
+            exit 0
           fi
+          # Pre-releases never become "latest", which System → Updates reads.
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" --verify-tag "${prerelease[@]}" --title "$title" --notes-file "$notes"
