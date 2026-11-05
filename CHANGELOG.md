@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- History fetch: Telegrarr reads a Channel's older messages by itself, in batches of
+  200 about 5 minutes apart, until it reaches the oldest message. A Channel's first
+  finished Scan starts it. Batches are held while the
+  queue is paused, the flood gate is closed or the daily budget is spent, and skip a
+  Channel that is disabled, has scanning off or isn't due that weekday. The cursor
+  survives a restart. Films and episodes found this way are offered like polled ones,
+  but in standalone mode they aren't queued: only a recovered history queues what it
+  finds. Messages a Scan can't reach, because more than it reads arrived while scanning
+  was off, are read the same way. Existing Channels start at their next poll.
 - Optional external URLs for Radarr and Sonarr (`radarr_external_url`,
   `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
   hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,
@@ -19,6 +28,10 @@
   refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
   transfer. Failed transfers of the Channel are not retried automatically while it is
   off; a manual Retry still works.
+
+### Changed
+- Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
+  history fetch's batches instead of a single pass over the whole history.
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb

@@ -192,7 +192,7 @@ async def test_a_movie_topic_offers_only_its_own_films_to_radarr(arr_app, films)
     assert await _review(arr_app) == []
 
 
-async def _backfill(arr_app, channel_id):
+async def _backfill(arr_app, batches_only, channel_id):
     """Re-index the source's whole history and wait for it to finish."""
     (await arr_app.http.post(f"/api/channels/{channel_id}/backfill")).raise_for_status()
 
@@ -200,18 +200,19 @@ async def _backfill(arr_app, channel_id):
         logs = (await arr_app.http.get("/api/logs", params={"channel_id": channel_id})).json()
         return any("[Backfill]" in line["message"] for line in logs)
 
-    await eventually(finished)
+    async with batches_only():
+        await eventually(finished)
 
 
 @pytest.mark.asyncio
-async def test_backfill_of_a_topic_indexes_only_that_topics_history(arr_app, films):
+async def test_backfill_of_a_topic_indexes_only_that_topics_history(arr_app, films, batches_only):
     forum, source = await _film_forum(arr_app)
     arr_app.telegram.post(FORUM, **THEORY_POST, topic=forum.topic_id("Pel·lícules HD"))
     arr_app.telegram.post(FORUM, text="Pa negre (2010)", file_name="Pa_negre_2010_720p.mkv",
                           topic=forum.topic_id("Novetats"))
     arr_app.telegram.post(FORUM, text="Una pel·lícula sense any", file_name="sense_any.mkv")
 
-    await _backfill(arr_app, source["id"])
+    await _backfill(arr_app, batches_only, source["id"])
 
     assert await _movie_search(arr_app, tmdbid=str(THEORY_TMDB)) == {THEORY_RELEASE}
     assert await _movie_search(arr_app, tmdbid=str(PA_NEGRE_TMDB)) == set()

@@ -71,7 +71,9 @@ def test_a_channel_stored_without_a_poll_interval_polls_at_the_floor(fresh_db):
     assert row["poll_minutes"] == config.POLL_FLOOR_MINUTES == 15
 
 
-def test_a_channel_stored_before_the_scanning_switch_has_scanning_on(tmp_path, monkeypatch):
+def _old_channel_row(tmp_path, monkeypatch):
+    """The row of a channel stored by a version that knew only the basic columns,
+    once ``db.init`` has migrated its database, twice over."""
     from app import config, db
     dbfile = str(tmp_path / "legacy.db")
     with sqlite3.connect(dbfile) as c:
@@ -86,5 +88,17 @@ def test_a_channel_stored_before_the_scanning_switch_has_scanning_on(tmp_path, m
     db.init()  # idempotent
 
     with db.conn() as c:
-        row = c.execute("SELECT * FROM channels WHERE chat_id=-1").fetchone()
-    assert row["scanning"] == 1
+        return c.execute("SELECT * FROM channels WHERE chat_id=-1").fetchone()
+
+
+def test_a_channel_stored_before_the_scanning_switch_has_scanning_on(tmp_path, monkeypatch):
+    assert _old_channel_row(tmp_path, monkeypatch)["scanning"] == 1
+
+
+def test_a_channel_stored_before_the_history_fetch_keeps_its_row_with_no_history_read(tmp_path, monkeypatch):
+    row = _old_channel_row(tmp_path, monkeypatch)
+
+    assert row["title"] == "Old"
+    assert (row["history_oldest_id"], row["history_read"], row["history_complete"]) == (0, 0, 0)
+    assert (row["history_total"], row["history_next_at"], row["history_requested"]) == (None, None, 0)
+    assert row["history_floor"] == 0

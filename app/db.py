@@ -169,6 +169,13 @@ COLUMN_MIGRATIONS = (
     ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
     ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
     ("channels", "scanning", "INTEGER NOT NULL DEFAULT 1"),  # 0: Telegrarr doesn't read this source
+    ("channels", "history_oldest_id", "INTEGER NOT NULL DEFAULT 0"),  # cursor (0: from the newest)
+    ("channels", "history_read", "INTEGER NOT NULL DEFAULT 0"),  # messages read so far
+    ("channels", "history_total", "INTEGER"),    # Telegram's message count, an estimate
+    ("channels", "history_complete", "INTEGER NOT NULL DEFAULT 0"),  # 1: nothing left to read
+    ("channels", "history_next_at", "INTEGER"),  # next batch's time (NULL: no scan finished yet)
+    ("channels", "history_requested", "INTEGER NOT NULL DEFAULT 0"),  # 1: the operator asked for it
+    ("channels", "history_floor", "INTEGER NOT NULL DEFAULT 0"),  # already read at and below this id
 )
 
 # download row statuses, grouped by what the code asks of a row

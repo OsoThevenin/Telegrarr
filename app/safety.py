@@ -115,6 +115,16 @@ class PollScheduler:
         return now >= last_scanned_at + interval + self._jitter_for(channel_id, last_scanned_at, interval)
 
 
+# ── history fetch ─────────────────────────────────────────────────────
+HISTORY_INTERVAL_S = 5 * SECONDS_PER_MINUTE   # between two history batches of a source
+
+
+def next_history_batch(now: float, rng: Callable[[], float] = random.random) -> int:
+    """When a source's next history batch may run: the interval plus up to the
+    same fraction of jitter as a poll, so batches never fall into a rhythm."""
+    return int(now + HISTORY_INTERVAL_S * (1 + rng() * POLL_JITTER_FRACTION))
+
+
 # ── daily download budget ─────────────────────────────────────────────
 GB = 1024 ** 3
 

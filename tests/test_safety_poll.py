@@ -1,5 +1,6 @@
 """Channel polling: 15-minute floor plus bounded random jitter (faked time and randomness)."""
-from app.safety import POLL_FLOOR_MINUTES, POLL_JITTER_FRACTION, PollScheduler
+from app.safety import (HISTORY_INTERVAL_S, POLL_FLOOR_MINUTES, POLL_JITTER_FRACTION, PollScheduler,
+                        next_history_batch)
 
 LAST = 1_000_000
 
@@ -60,3 +61,15 @@ def test_channels_have_independent_jitter():
     sched = PollScheduler(rng=_rng(0.9, 0.0))
     assert not sched.is_due(1, LAST, 15, now=LAST + 15 * 60)
     assert sched.is_due(2, LAST, 15, now=LAST + 15 * 60)
+
+
+def test_a_history_batch_waits_the_interval_at_the_least():
+    assert next_history_batch(LAST, rng=lambda: 0.0) == LAST + HISTORY_INTERVAL_S
+
+
+def test_a_history_batch_waits_a_fifth_more_at_the_most():
+    assert next_history_batch(LAST, rng=lambda: 1.0) == LAST + HISTORY_INTERVAL_S * 1.2
+
+
+def test_history_batches_vary_with_the_jitter():
+    assert next_history_batch(LAST, rng=lambda: 0.5) == LAST + HISTORY_INTERVAL_S * 1.1

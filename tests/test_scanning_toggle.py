@@ -4,11 +4,9 @@ Releases stay offered and Grabs of them keep transferring.
 Driven over HTTP (``arr_app``) with Telegram faked at the client (``FakeTelegram``).
 """
 import asyncio
-import contextlib
 import xml.etree.ElementTree as ET
 
 import pytest
-import pytest_asyncio
 
 from http_harness import eventually
 
@@ -16,7 +14,6 @@ CHAT = -1007500000001
 OTHER_CHAT = -1007500000002
 SHOW = "The Show"
 FILE = "The.Show.S01E01.mkv"
-TICK_S = 0.01
 
 
 async def _status(arr_app, file_name, status):
@@ -136,35 +133,6 @@ async def test_the_scheduled_tasks_promise_no_next_run_while_scanning_is_off(arr
 
     assert task["next_run"] is None
     assert task["enabled"] is True
-
-
-class _AlwaysDue:
-    """Every source is due at every tick: time is not what these tests are about."""
-
-    def is_due(self, *_args) -> bool:
-        return True
-
-
-@pytest_asyncio.fixture()
-async def polling(arr_app, monkeypatch):
-    """Start the real scan loop, ticking fast with every source due; stops it after
-    the test. Sources polled in each pass are newest first."""
-    from app import scanner
-
-    monkeypatch.setattr(scanner, "LOOP_PAUSE_S", TICK_S)
-    monkeypatch.setattr(scanner, "_poll", _AlwaysDue())
-    monkeypatch.setattr(scanner, "_active", None)
-
-    @contextlib.asynccontextmanager
-    async def run():
-        task = scanner.start_background()
-        try:
-            yield
-        finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-
-    return run
 
 
 def _polled_times(arr_app, chat_id, n):

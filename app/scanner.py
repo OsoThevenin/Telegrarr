@@ -5,11 +5,11 @@
 import time
 import asyncio
 
-from . import channels, db, settings, safety, resolver, movies, topic_errors
+from . import channels, db, history, settings, safety, resolver, movies, topic_errors
 from .arr import category_for
 from .i18n import message
 from .series_titles import cached_series_name, display_title, is_tv, series_name
-from .tg import get_client, source_messages
+from .tg import MessageRead, get_client, read_messages
 from .namer import (group_key, message_episode, extract_episode_title,
                     build_save_path, flat_save_path, is_uhd, release_name, quality_from_dims,
                     DEFAULT_LANGUAGE, extract_movie)
@@ -23,6 +23,7 @@ _active = None
 _poll = safety.PollScheduler()          # 15-min floor + per-scan random jitter
 DEFAULT_SEASON = 1                      # season of an episode-only series release
 LOOP_PAUSE_S = 30                       # how often the scan loop looks for due channels
+SCAN_LIMIT = 80                         # newest messages one scan reads
 
 
 def base_dir_for(channel, quality=None):
@@ -142,14 +143,10 @@ def _already_have(channel, gk, size) -> bool:
                 and row["file_size"] >= size)
 
 
-async def _iter_best(client, chat_id, *, limit, stop_at=0, topic_id=None):
-    """Yield newest→older media, keeping only the largest file per group_key."""
+def _best_per_group(messages) -> dict:
+    """The media among `messages` (newest→older), only the largest file per group_key."""
     best = {}
-    max_seen = stop_at
-    async for msg in source_messages(client, chat_id, limit=limit, topic_id=topic_id):
-        if stop_at and msg.id <= stop_at:
-            break
-        max_seen = max(max_seen, msg.id)
+    for msg in messages:
         doc = msg.document or msg.video
         if not doc:
             continue
@@ -158,7 +155,7 @@ async def _iter_best(client, chat_id, *, limit, stop_at=0, topic_id=None):
         cur = best.get(gk)
         if cur is None or doc.size > cur[1]:
             best[gk] = (msg, doc.size, fn)
-    return best, max_seen
+    return best
 
 
 def _flat_path(channel, msg, fn):
@@ -247,12 +244,28 @@ async def _enqueue(client, channel, msg, size, fn, gk):
     await enqueue(client, channel, msg, size, fn, gk, _resolve_path(channel, msg, fn))
 
 
-async def _read_source(client, channel, *, limit, stop_at=0):
-    """``_iter_best`` over the source's messages, or None (with the reason in the
-    event log) when it is a topic source whose topic is gone or inaccessible."""
+async def _index_messages(client, channel, messages, *, may_queue=True) -> None:
+    """Index the largest file of each group among `messages`; in standalone mode
+    queue what is new (in *arr mode Sonarr/Radarr decide what to grab)."""
+    auto_download = may_queue and not settings.is_arr_mode()
+    for gk, (msg, size, fn) in _best_per_group(messages).items():
+        offered = await _index_release(channel, msg, size, fn, gk)
+        if offered and auto_download and not _already_have(channel, gk, size):
+            await _enqueue(client, channel, msg, size, fn, gk)
+
+
+async def _index_history(client, channel, messages) -> None:
+    """Index a history batch. Only a history the operator asked for queues what it
+    finds: an unattended walk must not download a whole channel by itself."""
+    await _index_messages(client, channel, messages, may_queue=bool(channel["history_requested"]))
+
+
+async def _read_source(client, channel, *, limit, min_id=0) -> MessageRead | None:
+    """The source's newest messages, or None (with the reason in the event log)
+    when it is a topic source whose topic is gone or inaccessible."""
     try:
-        return await _iter_best(client, channel["chat_id"], limit=limit, stop_at=stop_at,
-                                topic_id=channel["topic_id"])
+        return await read_messages(client, channel["chat_id"], limit=limit, min_id=min_id,
+                                   topic_id=channel["topic_id"])
     except Exception as e:
         reason = topic_errors.unreadable_topic(channel, e)
         if reason is None:
@@ -266,40 +279,18 @@ async def scan_channel(client, channel):
     if not channels.scanning_on(cid):   # `channel` may predate the switch: a pass can take minutes
         return
     last = channel["last_message_id"] or 0
-    scanned = await _read_source(client, channel, limit=80, stop_at=last)
-    if scanned is None:   # retried at the next poll, not every loop cycle
+    read = await _read_source(client, channel, limit=SCAN_LIMIT, min_id=last)
+    if read is None:   # retried at the next poll, not every loop cycle
         with db.conn() as c:
             c.execute("UPDATE channels SET last_scanned_at=? WHERE id=?", (int(time.time()), cid))
         return
-    best, max_seen = scanned
-    auto_download = not settings.is_arr_mode()   # *arr mode: Sonarr/Radarr decide what to grab
-    for gk, (msg, size, fn) in best.items():
-        offered = await _index_release(channel, msg, size, fn, gk)
-        if offered and auto_download and not _already_have(channel, gk, size):
-            await _enqueue(client, channel, msg, size, fn, gk)
+    await _index_messages(client, channel, read.messages)
     await _retry_failed(client, channel)   # recover transient download failures
     with db.conn() as c:
         c.execute("UPDATE channels SET last_scanned_at=?, last_message_id=? WHERE id=?",
-                  (int(time.time()), max_seen, cid))
+                  (int(time.time()), max(last, read.newest_id), cid))
+    history.note_scan(cid, read, last, SCAN_LIMIT)
 
-
-async def backfill_channel(client, channel, full=True):
-    cid = channel["id"]
-    scanned = await _read_source(client, channel, limit=None)
-    if scanned is None:
-        return 0
-    best, _ = scanned
-    auto_download = not settings.is_arr_mode()   # *arr mode: index only, never auto-grab
-    queued = 0
-    for gk, (msg, size, fn) in best.items():
-        offered = await _index_release(channel, msg, size, fn, gk)
-        if not (offered and auto_download) or _already_have(channel, gk, size):
-            continue
-        await _enqueue(client, channel, msg, size, fn, gk)
-        queued += 1
-    db.log("INFO", message("event.backfill_done", channel=channel["title"], indexed=len(best), queued=queued),
-           channel_id=cid)
-    return queued
 
 async def grab_message(channel_id, message_id):
     """On-demand grab used by the SABnzbd shim; returns the row's current attempt
@@ -357,6 +348,7 @@ async def scan_loop():
                     await scan_channel(client, ch)
                 except Exception as e:
                     db.log("ERROR", message("event.scan_failed", channel=ch["title"], error=str(e)), channel_id=ch["id"])
+            await history.run_due(client, _index_history, may_run=channel_should_run_today)
         except Exception as e:
             db.log("ERROR", message("event.scan_loop_error", error=str(e)))
         await asyncio.sleep(LOOP_PAUSE_S)
