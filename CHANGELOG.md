@@ -38,6 +38,9 @@
   than the running version. An older version (v1.0.2 while running v1.1.0), an
   unreadable tag, or a tag inherited from upstream Telearr (v2.1.0–v2.3.3) now reads
   as up to date. Telegrarr's own v2 releases are still offered.
+- Every version tag now gets a GitHub Release alongside its image, with notes from
+  this changelog, so the latest release always matches the newest version.
+  Pre-release tags are marked as pre-releases and are not offered as updates.
 
 ## 1.1.0 — Movie-channel Catalog with Download to Radarr (2026-10-28)
 

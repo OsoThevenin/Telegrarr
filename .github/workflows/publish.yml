@@ -13,13 +13,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
           cache: pip
       - run: pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m pytest -q
+      # Refuse a tag without release notes here, before any image ships without its Release.
+      - name: Check the CHANGELOG has notes for this tag
+        if: github.ref_type == 'tag'
+        run: python .github/scripts/release_notes.py "$GITHUB_REF_NAME" /dev/null
 
   publish:
     needs: test
@@ -28,7 +32,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -62,3 +66,29 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          notes="$RUNNER_TEMP/notes.md"
+          title="$(python3 .github/scripts/release_notes.py "$TAG" "$notes")"
+          # A re-run refreshes the Release it already created instead of failing on it.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file "$notes"
+            exit 0
+          fi
+          # Pre-releases never become "latest", which System → Updates reads.
+          prerelease=()
+          if [[ "$TAG" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$TAG" --verify-tag "${prerelease[@]}" --title "$title" --notes-file "$notes"
