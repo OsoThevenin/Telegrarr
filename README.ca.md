@@ -223,7 +223,9 @@ s'aplica a la interfície, als missatges d'error i a les notificacions.
 
 La configuració de desplegament és al `.env` (vegeu [`.env.example`](.env.example));
 moltes opcions es poden canviar en calent a *Configuració*, que té prioritat sobre el
-`.env`.
+`.env`. Les variables de TMDB i dels *arr funcionen al revés: mentre una estigui
+definida i no sigui buida, té prioritat sobre el valor desat i l’API no deixa canviar
+aquella opció.
 
 | Variable | Funció | Per defecte |
 | --- | --- | --- |
@@ -239,6 +241,10 @@ moltes opcions es poden canviar en calent a *Configuració*, que té prioritat s
 | `TELEARR_MIN_FREE_GB` | No baixa res per sota d'aquest espai lliure | `50` |
 | `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari | — |
 | `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Integracions opcionals heretades | — |
+| `TELEARR_TMDB_KEY` | Clau de l’API de TMDB; té prioritat sobre *Configuració* | — |
+| `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Connexió amb Prowlarr; té prioritat sobre *Connexió* | — |
+| `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Connexió amb Sonarr; té prioritat sobre *Connexió* | — |
+| `TELEARR_RADARR_URL` / `TELEARR_RADARR_KEY` | Connexió amb Radarr; té prioritat sobre *Connexió* | — |
 
 ## Servidor intermediari / VPN
 
