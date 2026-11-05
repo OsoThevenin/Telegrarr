@@ -142,7 +142,8 @@ async def set_proxy(url):
         authed = await c.is_user_authorized()
         return {"ok": True, "proxy": proxy_display(), "authorized": authed}
     except Exception as e:
-        return {"error": message("err.tg.proxy", error=_without_proxy_secrets(str(e), _proxy_url()))}
+        reason = _without_proxy_secrets(str(e), _proxy_url())
+        return {"error": message("err.tg.proxy", error=reason)}
 
 
 async def reset_client():
