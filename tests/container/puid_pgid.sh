@@ -109,20 +109,15 @@ assert_tree_owned_by() { # <container> <path> <uid> <gid>
     "$(docker exec "$1" find "$2" \( ! -uid "$3" -o ! -gid "$4" \) -print | head -n 5)"
 }
 
-assert_logged() { # <container> <text>
-  if docker logs "$1" 2>&1 | grep -qF -- "$2"; then
-    pass "logs say: $2"
-  else
-    fail "logs don't say: $2"
-    docker logs --tail 5 "$1" 2>&1 | sed 's/^/        /'
-  fi
-}
-
 assert_contains() { # <what> <text> <actual>
   case "$3" in
     *"$2"*) pass "$1" ;;
     *) fail "$1: expected '$2' in '$3'" ;;
   esac
+}
+
+assert_logged() { # <container> <text>
+  assert_contains "logs say so" "$2" "$(docker logs "$1" 2>&1)"
 }
 
 # The container must exit by itself with an error that says why, and uvicorn must
