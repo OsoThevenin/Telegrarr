@@ -15,8 +15,8 @@ def default_poll_minutes() -> int:
 
 
 # Columns a user may edit on an existing channel (PATCH /api/channels/{id}).
-EDITABLE = frozenset({"title", "kind", "weekdays", "poll_minutes", "enabled", "imdb_id",
-                      "imdb_title", "language", "fallback_quality"})
+EDITABLE = frozenset({"title", "kind", "weekdays", "poll_minutes", "enabled", "scanning",
+                      "imdb_id", "imdb_title", "language", "fallback_quality"})
 
 
 def get(cid: int) -> dict | None:
@@ -31,6 +31,26 @@ def listed(*, enabled_only: bool = False) -> list[dict]:
     where = " WHERE enabled=1" if enabled_only else ""
     with db.conn() as c:
         return [dict(r) for r in c.execute(f"SELECT * FROM channels{where} ORDER BY id DESC")]
+
+
+def scannable() -> list[dict]:
+    """The sources a poll or a Scan-all reads: enabled, with scanning on."""
+    return [ch for ch in listed(enabled_only=True) if ch["scanning"]]
+
+
+def scanning_on(cid: int) -> bool:
+    """Whether Telegrarr may read source `cid` right now (False if it is gone)."""
+    row = get(cid)
+    return bool(row and row["scanning"])
+
+
+def read_forbidden(chat_id: int, topic_id: int | None) -> bool:
+    """Whether reading (chat, topic) — topic None is the whole chat — covers a source
+    with scanning off: that topic, the whole chat, or any topic of a whole-chat read."""
+    with db.conn() as c:
+        return c.execute("""SELECT 1 FROM channels WHERE chat_id=? AND scanning=0
+                            AND (topic_id IS NULL OR ? IS NULL OR topic_id=?) LIMIT 1""",
+                         (chat_id, topic_id, topic_id)).fetchone() is not None
 
 
 def update(cid: int, fields: dict) -> dict | None:

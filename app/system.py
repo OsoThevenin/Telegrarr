@@ -92,7 +92,7 @@ def tasks() -> list:
     out = []
     with db.conn() as c:
         rows = [dict(r) for r in c.execute(
-            "SELECT id, title, poll_minutes, weekdays, enabled, last_scanned_at "
+            "SELECT id, title, poll_minutes, weekdays, enabled, scanning, last_scanned_at "
             "FROM channels ORDER BY title COLLATE NOCASE")]
     for r in rows:
         poll = r["poll_minutes"] or 10
@@ -105,7 +105,7 @@ def tasks() -> list:
             "weekdays": days,
             "enabled": bool(r["enabled"]),
             "last_run": last or None,
-            "next_run": nxt if r["enabled"] else None,
+            "next_run": nxt if r["enabled"] and r["scanning"] else None,
             "channel_id": r["id"],
         })
     return out

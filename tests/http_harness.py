@@ -117,6 +117,7 @@ class FakeTelegram:
         self.requests: list[Any] = []                # raw TL requests sent via client(...)
         self.lookups: list[int | str] = []           # every get_entity() query, in order
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
+        self.message_reads: list[int] = []           # chat ids asked for a message by id
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
         self.flood_on_topics_page: int | None = None  # raise FloodWaitError serving this topics page (1 = first)
@@ -128,6 +129,20 @@ class FakeTelegram:
         self._downloads_open.set()
         self._hold_partial = False
         self._late_outcome: type[BaseException] | None = None
+        self._history_open = asyncio.Event()
+        self._history_open.set()
+
+    def reads_of(self, chat_id: int) -> int:
+        """Every Telegram read of ``chat_id`` so far: history, messages by id, lookups."""
+        reads = (*self.history_reads, *self.message_reads, *self.lookups)
+        return sum(1 for chat in reads if chat == chat_id)
+
+    def hold_history(self) -> None:
+        """Block history reads, once counted, until :meth:`release_history`."""
+        self._history_open.clear()
+
+    def release_history(self) -> None:
+        self._history_open.set()
 
     def hold_downloads(self, *, partial: bool = False,
                        late_outcome: type[BaseException] | None = None) -> None:
@@ -327,6 +342,7 @@ class FakeTelegram:
 
     async def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None):
         self.history_reads.append(chat_id)
+        await self._history_open.wait()
         chat = self._readable(chat_id)
         keep = self._in_topic(chat, reply_to) if reply_to is not None else (lambda _m: True)
         msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
@@ -338,6 +354,7 @@ class FakeTelegram:
         self.saved_messages.append(text)
 
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
+        self.message_reads.append(chat_id)
         return self._readable(chat_id).messages.get(ids)
 
     async def _wait_until_released(self) -> None:

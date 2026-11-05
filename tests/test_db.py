@@ -69,3 +69,22 @@ def test_a_channel_stored_without_a_poll_interval_polls_at_the_floor(fresh_db):
         row = c.execute("SELECT poll_minutes FROM channels WHERE chat_id=-2").fetchone()
 
     assert row["poll_minutes"] == config.POLL_FLOOR_MINUTES == 15
+
+
+def test_a_channel_stored_before_the_scanning_switch_has_scanning_on(tmp_path, monkeypatch):
+    from app import config, db
+    dbfile = str(tmp_path / "legacy.db")
+    with sqlite3.connect(dbfile) as c:
+        c.execute("""CREATE TABLE channels (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                     chat_id INTEGER NOT NULL UNIQUE, title TEXT NOT NULL,
+                     kind TEXT NOT NULL DEFAULT 'tv', created_at INTEGER NOT NULL)""")
+        c.execute("INSERT INTO channels(chat_id,title,created_at) VALUES(-1,'Old',0)")
+    monkeypatch.setattr(config, "DB_PATH", dbfile, raising=False)
+    monkeypatch.setattr(db, "DB_PATH", dbfile, raising=False)
+
+    db.init()
+    db.init()  # idempotent
+
+    with db.conn() as c:
+        row = c.execute("SELECT * FROM channels WHERE chat_id=-1").fetchone()
+    assert row["scanning"] == 1

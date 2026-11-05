@@ -7,6 +7,12 @@
   `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
   hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,
   when unset, the connection URL.
+- A scanning switch per Channel, on by default (`scanning`, set with `PATCH
+  /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
+  polls skip it, and a manual Scan, a history fetch or a directory scan of it is
+  refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
+  transfer. Failed transfers of the Channel are not retried automatically while it is
+  off; a manual Retry still works.
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
