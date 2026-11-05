@@ -1,5 +1,56 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- History fetch: Telegrarr reads a Channel's older messages by itself, in batches of
+  200 about 5 minutes apart, until it reaches the oldest message. A Channel's first
+  finished Scan starts it. Batches are held while the
+  queue is paused, the flood gate is closed or the daily budget is spent, and skip a
+  Channel that is disabled, has scanning off or isn't due that weekday. The cursor
+  survives a restart. Films and episodes found this way are offered like polled ones,
+  except that a TV Channel keeps one Release per episode from them, the largest; a poll
+  still offers a re-upload next to it. In standalone mode they aren't queued: only a
+  recovered history queues what it finds. Messages a Scan can't reach, because more
+  than it reads arrived while scanning was off, are read the same way. Existing
+  Channels start at their next poll.
+- Optional external URLs for Radarr and Sonarr (`radarr_external_url`,
+  `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
+  hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,
+  when unset, the connection URL.
+- Per-transfer pause and resume: `POST /api/downloads/{id}/pause` and `/resume`, and
+  the `pause` and `resume` actions of `POST /api/downloads/bulk`. A paused transfer
+  (new `paused` status, counted in the stats) is held while the rest of the queue
+  runs, stays paused across a restart and a global resume, and shows as `Paused` in
+  the SABnzbd queue. Pausing an in-flight transfer discards its partial file; resuming
+  restarts the file from the beginning under the same download id.
+- A scanning switch per Channel, on by default (`scanning`, set with `PATCH
+  /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
+  polls skip it, and a manual Scan, a history fetch or a directory scan of it is
+  refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
+  transfer. Failed transfers of the Channel are not retried automatically while it is
+  off; a manual Retry still works.
+- Why not grabbed? `POST /api/channels/{id}/catalog/{tmdb_id}/why-not-grabbed` asks
+  Radarr, on the operator's request only, what it thinks of a Catalog film's Releases
+  and shows its rejections word for word. A film Radarr would take but is waiting on,
+  or already has in its own queue, answers "would accept".
+- Channel photos: `GET /api/channels/{id}/photo` serves a Channel's Telegram profile
+  photo from a local cache, so showing the grid costs no Telegram reads while the
+  cache is fresh. Reads are one at a time and held by the flood gate, the daily budget
+  and the scanning switch.
+- File details on Catalog films Radarr holds: `file` in
+  `GET /api/channels/{id}/catalog/status` reports the file's quality, resolution, codec,
+  container, audio and subtitle languages and size.
+- The channels API reports each Channel's history fetch as a `history` object (`read`,
+  `total_estimate`, `complete`, `next_batch_at`).
+
+### Changed
+- Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
+  history fetch's batches instead of a single pass over the whole history.
+- Scans respect the flood gate: while it is closed polls read nothing and catch up once
+  it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
+  scan closes the gate for every other Telegram read.
+
 ## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 
 ### Fixed

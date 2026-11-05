@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from app import scanner
+from app import transfers
 from http_harness import eventually
 
 CHAT = -1001000000030
@@ -45,7 +45,7 @@ async def test_retry_while_the_cancelled_transfer_winds_down_downloads_the_new_a
 @pytest.mark.asyncio
 async def test_a_retry_behind_a_transfer_that_never_stops_fails_with_a_reason(
         arr_app, monkeypatch):
-    monkeypatch.setattr(scanner, "SLOT_HANDOFF_TIMEOUT_SECONDS", SHORT_HANDOFF_S)
+    monkeypatch.setattr(transfers, "SLOT_HANDOFF_TIMEOUT_SECONDS", SHORT_HANDOFF_S)
     [url] = await arr_app.publish_episodes(CHAT, "The Show", 1)
     arr_app.telegram.hold_downloads(late_outcome=asyncio.CancelledError)
     [nzo] = (await arr_app.sab(mode="addurl", name=url, cat="tv"))["nzo_ids"]

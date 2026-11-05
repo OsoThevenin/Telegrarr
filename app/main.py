@@ -11,15 +11,18 @@ from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, auth, channels, scanner, settings, plex, notify, arr, tmdb, tg, system, safety, __version__
+from . import db, auth, channels, downloader, history, scanner, settings, plex, notify, arr, tmdb, tg, system, safety
+from . import __version__
 from . import release_titles
 from . import i18n
+from . import transfers
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
-from .routes import catalog as catalog_routes, topics as topic_routes
-from .routes.common import bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
+from .routes import catalog as catalog_routes, downloads as download_routes, photos as photo_routes
+from .routes import topics as topic_routes
+from .routes.common import CONFLICT, TOO_MANY, bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 from .routes.common import normalize_topic_id as _normalize_topic_id
 
 logging.basicConfig(level=logging.INFO,
@@ -52,7 +55,7 @@ async def lifespan(app: FastAPI):
     yield
     retitle.cancel()
     # graceful shutdown: requeue anything in flight so it resumes next boot
-    scanner.begin_shutdown()
+    transfers.begin_shutdown()
     with contextlib.suppress(Exception):
         with db.conn() as c:
             c.execute("UPDATE downloads SET status='queued', progress=0, speed_mbs=0 "
@@ -63,8 +66,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
-for _router in (catalog_routes, channel_series, connect_routes, directory_routes, review, tmdb_routes,
-                topic_routes):
+for _router in (catalog_routes, channel_series, connect_routes, directory_routes, download_routes,
+                photo_routes, review, tmdb_routes, topic_routes):
     app.include_router(_router.router)
 
 
@@ -167,17 +170,24 @@ async def service_worker():
                         headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
 
+def _stats(c) -> dict:
+    """The channel and transfer counts the UI shows."""
+    stats = {k: c.execute(q).fetchone()[0] for k, q in {
+        "channels": "SELECT COUNT(*) FROM channels",
+        "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
+        "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
+        "paused": f"SELECT COUNT(*) FROM downloads WHERE status='{db.PAUSED_STATUS}'",
+        "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
+        "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
+    }.items()}
+    stats["total_size"] = c.execute(
+        "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+    return stats
+
+
 def _live_snapshot():
     with db.conn() as c:
-        stats = {k: c.execute(q).fetchone()[0] for k, q in {
-            "channels": "SELECT COUNT(*) FROM channels",
-            "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
-            "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
-            "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
-            "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
-        }.items()}
-        stats["total_size"] = c.execute(
-            "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+        stats = _stats(c)
         active = [dict(r) for r in c.execute(
             "SELECT d.*, ch.title AS channel_title, ch.topic_title FROM downloads d "
             "LEFT JOIN channels ch ON ch.id=d.channel_id "
@@ -212,15 +222,7 @@ async def api_status(user=Depends(auth.require_user)):
     except Exception:
         authed = False
     with db.conn() as c:
-        stats = {k: c.execute(q).fetchone()[0] for k, q in {
-            "channels": "SELECT COUNT(*) FROM channels",
-            "queued": "SELECT COUNT(*) FROM downloads WHERE status='queued'",
-            "downloading": "SELECT COUNT(*) FROM downloads WHERE status='downloading'",
-            "completed": "SELECT COUNT(*) FROM downloads WHERE status='completed'",
-            "failed": "SELECT COUNT(*) FROM downloads WHERE status='failed'",
-        }.items()}
-        stats["total_size"] = c.execute(
-            "SELECT COALESCE(SUM(file_size),0) FROM downloads WHERE status='completed'").fetchone()[0]
+        stats = _stats(c)
     return {"authorized": authed, "paused": settings.get_bool("paused", False),
             "disk": system.disk_usage(),
             "stats": stats, "config": summary(), "budget": safety.budget_status()}
@@ -244,12 +246,13 @@ async def api_system_tasks(user=Depends(auth.require_user)):
 
 @app.post("/api/system/tasks/scan_all")
 async def api_system_scan_all(user=Depends(auth.require_user)):
+    _refuse_while_flood_gate_closed()
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    chans = channels.listed(enabled_only=True)
+    chans = channels.scannable()
     for ch in chans:
-        scanner._spawn(scanner.scan_channel(client, ch))
+        transfers.spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.all_started", n=len(chans))}
 
 
@@ -286,7 +289,7 @@ async def api_system_updates(user=Depends(auth.require_user)):
 # ── channels ──────────────────────────────────────────────────────────
 @app.get("/api/channels")
 async def api_channels(user=Depends(auth.require_user)):
-    return channels.listed()
+    return [history.public(ch) for ch in channels.listed()]
 
 
 _CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
@@ -299,6 +302,15 @@ def _release_fields(payload: dict) -> dict:
         if value not in _CHANNEL_CHOICES[key]:
             raise _bad(400, "err.channel.choice", field=key, choices=", ".join(_CHANNEL_CHOICES[key]))
     return fields
+
+
+def _scanning_field(payload: dict) -> dict:
+    """The validated scanning switch from a channel payload (only when present)."""
+    if "scanning" not in payload:
+        return {}
+    if not isinstance(payload["scanning"], bool):
+        raise _bad(400, "err.channel.choice", field="scanning", choices="true, false")
+    return {"scanning": int(payload["scanning"])}
 
 
 def _topic_fields(payload: dict) -> dict:
@@ -331,13 +343,13 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         forum = bool(getattr(ent, "forum", False))
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
-    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
-                           release=release, forum=forum, **topic)
+    return history.public(channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
+                                          release=release, forum=forum, **topic))
 
 
 @app.patch("/api/channels/{cid}")
 async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_user)):
-    payload = {**payload, **_release_fields(payload)}
+    payload = {**payload, **_release_fields(payload), **_scanning_field(payload)}
     if "poll_minutes" in payload:
         try:
             payload = {**payload, "poll_minutes": settings.poll_minutes(payload["poll_minutes"])}
@@ -348,7 +360,7 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     ch = channels.update(cid, payload)
     if not ch:
         raise HTTPException(404)
-    return ch
+    return history.public(ch)
 
 
 @app.delete("/api/channels/{cid}")
@@ -357,27 +369,37 @@ async def api_delete_channel(cid: int, user=Depends(auth.require_user)):
     return {"ok": True}
 
 
-@app.post("/api/channels/{cid}/scan")
-async def api_scan(cid: int, user=Depends(auth.require_user)):
+def _readable_source(cid: int) -> dict:
+    """Channel `cid`, for a manual read: refused while its scanning is off."""
     ch = channels.get(cid)
     if not ch:
         raise HTTPException(404)
+    if not ch["scanning"]:
+        raise _bad(CONFLICT, "err.channel.scanning_off")
+    return ch
+
+
+def _refuse_while_flood_gate_closed() -> None:
+    """A scan reads nothing while the gate is closed, so say so instead of 'started'."""
+    if minutes := downloader.flood_gate.minutes_closed():
+        raise _bad(TOO_MANY, "err.scan.rate_limit_active", minutes=minutes)
+
+
+@app.post("/api/channels/{cid}/scan")
+async def api_scan(cid: int, user=Depends(auth.require_user)):
+    ch = _readable_source(cid)
+    _refuse_while_flood_gate_closed()
     client = get_client()
     if not client.is_connected():
         await client.connect()
-    scanner._spawn(scanner.scan_channel(client, ch))
+    transfers.spawn(scanner.scan_channel(client, ch))
     return {"ok": True, "message": i18n.message("scan.started")}
 
 
 @app.post("/api/channels/{cid}/backfill")
 async def api_backfill(cid: int, user=Depends(auth.require_user)):
-    ch = channels.get(cid)
-    if not ch:
-        raise HTTPException(404)
-    client = get_client()
-    if not client.is_connected():
-        await client.connect()
-    scanner._spawn(scanner.backfill_channel(client, ch))
+    _readable_source(cid)
+    history.request(cid)
     return {"ok": True, "message": i18n.message("scan.backfill_started")}
 
 
@@ -406,7 +428,7 @@ async def api_downloads(limit: int = 100, status: str = "",
 async def api_bulk(payload: dict, user=Depends(auth.require_user)):
     action = payload.get("action")
     ids = payload.get("ids", [])
-    if action not in ("cancel", "retry", "delete"):
+    if action not in ("cancel", "retry", "delete", "pause", "resume"):
         raise _bad(400, "err.downloads.bad_action")
     count = 0
     for i in ids:
@@ -418,21 +440,25 @@ async def api_bulk(payload: dict, user=Depends(auth.require_user)):
 async def _single_action(action: str, dl_id: int) -> bool:
     """Apply ``action`` to one download; True if it acted on the row."""
     if action == "cancel":
-        return scanner.cancel_download(dl_id)
+        return transfers.cancel_download(dl_id)
     if action == "retry":
-        return await scanner.retry_download(dl_id) is None
+        return await transfers.retry_download(dl_id) is None
+    if action == "pause":
+        return transfers.pause_download(dl_id)
+    if action == "resume":
+        return await transfers.resume_download(dl_id) is None
     with db.conn() as c:
         return c.execute("DELETE FROM downloads WHERE id=?", (dl_id,)).rowcount > 0
 
 
 @app.post("/api/downloads/{dl_id}/cancel")
 async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
-    return {"ok": scanner.cancel_download(dl_id)}
+    return {"ok": transfers.cancel_download(dl_id)}
 
 
 @app.post("/api/downloads/{dl_id}/retry")
 async def api_retry(dl_id: int, user=Depends(auth.require_user)):
-    reason = await scanner.retry_download(dl_id)
+    reason = await transfers.retry_download(dl_id)
     return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
@@ -537,14 +563,14 @@ async def api_change_username(request: Request, payload: dict, user=Depends(auth
 # ── queue control ─────────────────────────────────────────────────────
 @app.post("/api/queue/pause")
 async def api_pause(user=Depends(auth.require_user)):
-    scanner.pause()
+    transfers.pause()
     db.log("INFO", i18n.message("event.downloads_paused"))
     return {"ok": True, "paused": True}
 
 
 @app.post("/api/queue/resume")
 async def api_resume(user=Depends(auth.require_user)):
-    await scanner.resume_all()
+    await transfers.resume_all()
     db.log("INFO", i18n.message("event.downloads_resumed"))
     return {"ok": True, "paused": False}
 
@@ -672,7 +698,7 @@ def _sab_delete(nzo):
     """A queue or history delete (files are never deleted, whatever del_files says)."""
     ref = arr.parse_nzo(nzo)
     if ref is not None:
-        scanner.delete_for_arr(ref)
+        transfers.delete_for_arr(ref)
 
 
 async def _sab(request: Request):

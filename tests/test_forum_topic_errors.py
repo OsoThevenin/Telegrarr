@@ -87,12 +87,13 @@ async def test_a_deleted_topic_does_not_stop_other_sources_from_scanning(arr_app
 
 
 @pytest.mark.asyncio
-async def test_backfilling_a_deleted_topic_logs_the_same_keyed_error(arr_app):
+async def test_backfilling_a_deleted_topic_logs_the_same_keyed_error(arr_app, batches_only):
     forum = arr_app.telegram.add_forum(FORUM, GROUP, topics=("Sèries HD",))
     source = await _topic_source(arr_app, forum, "Sèries HD")
     arr_app.telegram.delete_topic(FORUM, forum.topic_id("Sèries HD"))
 
     (await arr_app.http.post(f"/api/channels/{source['id']}/backfill")).raise_for_status()
 
-    row = await _logged(arr_app, "event.topic_gone")
+    async with batches_only():
+        row = await _logged(arr_app, "event.topic_gone")
     assert row["msg"]["params"] == {"source": f"{GROUP} › Sèries HD"}

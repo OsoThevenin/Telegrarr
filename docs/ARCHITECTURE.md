@@ -4,12 +4,12 @@ Telegrarr is a single-process FastAPI application (Python 3.13) built on the
 [Telethon](https://docs.telethon.dev/) MTProto client. One uvicorn worker serves
 the web UI and JSON API **and** runs the background scanner in the same event loop.
 
-> **Single-worker invariant.** The scanner (`app/scanner.py`) holds process-wide
-> asyncio state — a semaphore, an in-flight map (episode → the attempt and task
-> holding its slot), and a task registry. This is
+> **Single-worker invariant.** The transfer lifecycle (`app/transfers.py`) holds
+> process-wide asyncio state — a semaphore, an in-flight map (episode → the run
+> and task holding its slot), and a task registry. This is
 > correct **only** under a single event loop / single uvicorn worker. The container
-> runs `--workers 1`; do not raise that without first moving the scanner into its
-> own process.
+> runs `--workers 1`; do not raise that without first moving the scanner and the
+> transfers into their own process.
 
 ## Module map
 
@@ -22,7 +22,12 @@ the web UI and JSON API **and** runs the background scanner in the same event lo
 | `app/tg.py` | The single shared Telethon client, configured with connection retries, auto-reconnect, and a flood-sleep threshold for a resilient long-lived connection. Also hosts the **interactive web sign-in** flow (`send_code` → `sign_in_code` → `sign_in_password`), account status/logout, `list_dialogs()` (the account's channels/groups for the picker), and `resolve()` (turn a `@username` / `t.me` / invite link / id into a chat, joining it if needed). `reset_client()` disconnects before dropping the client so one session never has two live clients. |
 | `app/namer.py` | Pure parsing/naming logic. Extracts season/episode/date/quality from filenames and captions, detects UHD, computes a per-episode `group_key` for dedup, cleans episode titles, queries IMDb suggestions, and builds the final Plex-style `save_path`. |
 | `app/downloader.py` | The fast downloader. A parallel multi-sender ("FastTelethon") engine that splits a file into part-ranges, fetches each range on its own exported sender, and `pwrite`s into a preallocated file — with an automatic fallback to Telethon's built-in sequential downloader if the fast path raises. Enforces a minimum-free-space check and a global flood-wait gate. |
-| `app/scanner.py` | The orchestrator. Polls enabled channels on schedule, keeps the largest file per episode, enqueues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles pause/resume and crash-resume of interrupted downloads. |
+| `app/scanner.py` | The channel scanner. Polls enabled channels with scanning on, on schedule, while the flood gate is open, keeps the largest file per episode, indexes releases, and resolves where each file goes before handing it to the transfer queue. |
+| `app/history.py` | The background history fetch. Keeps each source's cursor in the `channels` table and reads the source's older messages in small throttled batches, one per scan-loop tick, held by the flood gate and the daily budget. Started by a source's first finished scan; also reads a gap a later scan could not reach, and serves the manual history recovery. |
+| `app/channel_photos.py` | Channels' Telegram profile photos, cached on disk with a one-week lifetime. Only a stale or missing entry reads Telegram, one read at a time, held by the flood gate, the daily budget and the scanning switch. Served by `app/routes/photos.py`. |
+| `app/catalog_why.py` | "Why not grabbed?": Radarr's verdict on a Catalog film's Releases, from its interactive search and its queue. Runs only on the operator's request, costs no Telegram reads, and caches each film's answer. |
+| `app/routes/downloads.py` | The pause and resume routes of one transfer. |
+| `app/transfers.py` | The transfer lifecycle. Queues and runs downloads under a concurrency semaphore, drives progress updates, prunes history, and triggers Plex refresh + notifications. Also handles cancel, retry, pause/resume and crash-resume of interrupted downloads. |
 | `app/plex.py` | Targeted Plex refresh. Finds the library section whose path best matches the download folder and refreshes only that path, so new media appears in seconds. Includes a connectivity `test()`. |
 | `app/notify.py` | Fire-and-forget completion notifications: a generic webhook (Discord/Slack-compatible JSON) **and** a rich Telegram Saved-Messages DM (poster image downloaded and sent as a photo, plus an "Open in Plex" deep link). Includes a `test()`. |
 | `app/tmdb.py` | Poster/backdrop art resolver. Prefers TMDB when an API key is set (server-side proxy, so the key never reaches the browser) and falls back to the keyless IMDb suggestion API otherwise; returns poster, backdrop, overview, year, and rating. Includes a `test(key)` that validates a supplied key. |
@@ -40,7 +45,7 @@ flowchart TD
     subgraph poll["Scan loop (scanner.scan_loop)"]
         A[Timer ticks every 30s] --> B{Paused?}
         B -- yes --> A
-        B -- no --> C[For each enabled channel]
+        B -- no --> C[For each enabled channel<br/>with scanning on]
         C --> D{Due this weekday<br/>and past poll interval?}
         D -- no --> C
         D -- yes --> E[scan_channel]
@@ -72,15 +77,27 @@ flowchart TD
 
 Step by step:
 
-1. **Scan.** `scan_loop` wakes every 30s. For each enabled channel that is due
-   (right weekday, poll interval elapsed), `scan_channel` iterates messages from
-   newest toward `last_message_id`.
-2. **Dedup.** `_iter_best` groups media by `group_key` (season/episode, else
+1. **Scan.** `scan_loop` wakes every 30s. For each enabled channel with scanning on
+   that is due (right weekday, poll interval elapsed), `scan_channel` iterates
+   messages from newest toward `last_message_id`. With `scanning` off a channel costs
+   no Telegram reads: polls skip it and manual reads are refused, while its indexed
+   Releases stay searchable and Grabs of them still transfer. A scan reads at most the
+   newest 80 messages; after the polls of a tick, `history.run_due` reads one batch of
+   200 older messages of the most overdue source, walking down from where the scan
+   stopped, and the next batch of that source waits for `HISTORY_INTERVAL_S` plus
+   jitter. Batches go through the scan loop's pause and are held while the flood gate
+   is closed or the daily budget is spent. A scan that fills its 80 without reaching
+   `last_message_id` (say, after scanning was off) starts the walk again from there,
+   down to the message it knew. Batches only index: only a history the operator asked
+   for queues what it finds in standalone mode.
+2. **Dedup.** `_best_per_group` groups media by `group_key` (season/episode, else
    episode, else air date, else message id) and keeps only the **largest** file per
    group. `_already_have` skips groups already downloaded/queued at equal-or-greater
-   size.
-3. **Download.** `_enqueue` resolves the Plex-style `save_path`, writes a `queued`
-   row, and spawns `_run_download`, which acquires the concurrency semaphore and
+   size. On a TV Channel a history batch also compares each winner with the Channel's
+   Releases of that group: an equal or larger copy skips it, and a larger winner replaces
+   the smaller Releases in one transaction. Polls and Movie channels don't compare.
+3. **Download.** The scanner resolves the Plex-style `save_path`; `transfers.enqueue`
+   writes a `queued` row and spawns `_run_download`, which acquires the concurrency semaphore and
    calls `download_file`. The downloader preallocates a `.tmp`, fetches part-ranges
    in parallel, verifies the final size, and atomically renames into place.
 4. **Name.** The path was computed by `namer.build_save_path` from the parsed show
@@ -101,12 +118,17 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
 - **`users`** — `username` (PK), `pw_hash` (bcrypt). Seeded on first run.
 - **`channels`** — watched Telegram channels: `id` (PK), `chat_id` (unique, `-100…`
   form), `title`, `kind` (`tv`/`movie`/other), `imdb_id`, `imdb_title`, `weekdays`
-  (CSV of 0–6), `poll_minutes`, `enabled`, `last_scanned_at`, `last_message_id`,
-  `created_at`.
+  (CSV of 0–6), `poll_minutes`, `enabled`, `scanning`, `last_scanned_at`,
+  `last_message_id`, `created_at`, and the history fetch's `history_oldest_id` (the
+  cursor), `history_floor` (the walk stops here), `history_read`, `history_total`
+  (Telegram's count, an estimate), `history_complete`, `history_next_at` and
+  `history_requested`. These columns stay internal: the channels API shows a `history`
+  object instead (`read`, `total_estimate`, `complete`, `next_batch_at`).
 - **`downloads`** — one row per media item: `id` (PK), `channel_id`, `message_id`,
   `file_unique_id`, `group_key`, `file_name`, `file_size`, `save_path`, `status`
-  (`queued`/`downloading`/`completed`/`failed`/`cancelled`), `error`, `progress`,
-  `speed_mbs`, `started_at`, `finished_at`, `created_at`. Unique on
+  (`queued`/`downloading`/`paused`/`completed`/`failed`/`cancelled`), `error`, `progress`,
+  `speed_mbs`, `started_at`, `finished_at`, `created_at`, `attempt` (part of the id the
+  \*arr tracks) and `run` (which download task may write to the row). Unique on
   `(channel_id, message_id)`.
 - **`imdb_candidates`** — cached IMDb suggestions per channel: `(channel_id, rank)`
   PK, `imdb_id`, `title`, `year`, `kind`.
@@ -139,7 +161,7 @@ protocol-translation layer (`app/arr.py`) with three parts:
 2. **SABnzbd shim** — a SABnzbd-compatible API on the same host/port. Sonarr/Radarr
    add Telegrarr as a SABnzbd download client; when they grab a release they call the
    shim's `addurl`/`addfile` mode, which Telegrarr resolves (via the release GUID) to
-   a Telegram message and hands to the scanner's download path. Queue/history
+   a Telegram message and hands to the transfer queue. Queue/history
    endpoints report status back to the \*arr app so it can track and import.
 3. **On-demand grab** — a grab enqueues into the same `_run_download` pipeline as an
    organic scan, so it shares the fast multi-connection downloader, the concurrency

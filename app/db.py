@@ -166,8 +166,17 @@ COLUMN_MIGRATIONS = (
     ("channels", "topic_title", "TEXT"),
     ("channels", "forum", "INTEGER NOT NULL DEFAULT 0"),   # 1: the chat is a forum group
     ("downloads", "arr_hidden", "INTEGER NOT NULL DEFAULT 0"),  # 1: deleted from *arr history
-    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a stopped row
+    ("downloads", "attempt", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of a failed/cancelled row
+    ("downloads", "run", "INTEGER NOT NULL DEFAULT 0"),  # +1 per re-queue of any kind; owns a task's writes
     ("releases", "movie_title", "TEXT"),     # movie channels: the film's display title (Catalan first)
+    ("channels", "scanning", "INTEGER NOT NULL DEFAULT 1"),  # 0: Telegrarr doesn't read this source
+    ("channels", "history_oldest_id", "INTEGER NOT NULL DEFAULT 0"),  # cursor (0: from the newest)
+    ("channels", "history_read", "INTEGER NOT NULL DEFAULT 0"),  # messages read so far
+    ("channels", "history_total", "INTEGER"),    # Telegram's message count, an estimate
+    ("channels", "history_complete", "INTEGER NOT NULL DEFAULT 0"),  # 1: nothing left to read
+    ("channels", "history_next_at", "INTEGER"),  # next batch's time (NULL: no scan finished yet)
+    ("channels", "history_requested", "INTEGER NOT NULL DEFAULT 0"),  # 1: the operator asked for it
+    ("channels", "history_floor", "INTEGER NOT NULL DEFAULT 0"),  # already read at and below this id
 )
 
 # download row statuses, grouped by what the code asks of a row
@@ -175,6 +184,8 @@ ACTIVE_STATUSES = ("queued", "downloading")      # waiting for or holding a down
 STOPPED_STATUSES = ("failed", "cancelled")       # re-queuing one of these starts a new attempt
 FINISHED_STATUSES = ("completed", *STOPPED_STATUSES)   # an *arr history delete hides these
 HISTORY_STATUSES = ("completed", "failed")       # what the SABnzbd history reports
+PAUSED_STATUS = "paused"                         # held by the user until resumed, with no task
+HALTED_STATUSES = (*STOPPED_STATUSES, PAUSED_STATUS)   # no download task may run these
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 
 

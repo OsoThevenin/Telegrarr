@@ -66,6 +66,11 @@ class FakeArr:
     movies: list[dict] = field(default_factory=list)
     reject_movie: str | None = None                             # radarr only: validation error on POST /movie
     fail_status: int | None = None      # a 5xx answered to every authenticated request (server failing)
+    # radarr only: Radarr movie id -> GET /release JSON (see ``radarr_release``)
+    releases: dict[int, list[dict]] = field(default_factory=dict)
+    release_search_s: float = 0.0       # radarr only: how long a release search takes; a shorter read timeout gives up
+    # radarr only: GET /queue records (see ``radarr_queue_item``), or any JSON to serve as is
+    queue: list[dict] | object = field(default_factory=list)
 
     @property
     def provider_path(self) -> str:
@@ -136,6 +141,10 @@ class FakeArr:
         """JSON bodies of every POST /command received."""
         return self._posted(f"{self.api}/command")
 
+    def release_searches(self) -> list[int]:
+        """The movie id of every interactive release search received, in order."""
+        return [int(r.url.params["movieId"]) for r in self.requests if r.url.path == f"{self.api}/release"]
+
     def _posted(self, path: str) -> list[dict]:
         return [json.loads(r.content) for r in self.requests if r.method == "POST" and r.url.path == path]
 
@@ -150,7 +159,26 @@ class FakeArr:
         if path == f"{self.api}/command" and method == "POST":
             body = json.loads(request.content)
             return httpx.Response(201, json={**body, "id": len(self.commands()), "status": "queued"})
+        if path == f"{self.api}/release" and method == "GET":
+            return self._release_search(request)
+        if path == f"{self.api}/queue" and method == "GET":
+            return self._queue(request)
         return None
+
+    def _queue(self, request: httpx.Request) -> httpx.Response:
+        """GET /queue?movieIds=: one page of the download queue, as Radarr pages it."""
+        if not isinstance(self.queue, list):             # a malformed answer, served as is
+            return httpx.Response(200, json=self.queue)
+        wanted = request.url.params.get_list("movieIds")
+        records = [q for q in self.queue if not wanted or str(q["movieId"]) in wanted]
+        return httpx.Response(200, json={"page": 1, "pageSize": 10, "sortKey": "timeleft",
+                                         "totalRecords": len(records), "records": records})
+
+    def _release_search(self, request: httpx.Request) -> httpx.Response:
+        """GET /release?movieId=: searches every indexer, however long they take to answer."""
+        if self.release_search_s > request.extensions["timeout"]["read"]:
+            raise httpx.ReadTimeout("search still running", request=request)
+        return httpx.Response(200, json=self.releases.get(int(request.url.params["movieId"]), []))
 
     def _lookup(self, tmdb_id: int) -> httpx.Response:
         """Radarr's TMDB lookup: the film's metadata, ready to be posted back to /movie."""
@@ -179,9 +207,11 @@ class FakeArr:
 
 
 def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, title: str = "",
-                 year: int | None = None, file_added: str | None = None, poster: str | None = None) -> dict:
+                 year: int | None = None, file_added: str | None = None, poster: str | None = None,
+                 file_details: dict | None = None) -> dict:
     """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file,
-    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl."""
+    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl,
+    ``file_details`` extra movieFile fields (see ``radarr_file_details``)."""
     images = [{"coverType": "poster", "url": f"/MediaCover/{movie_id}/poster.jpg", "remoteUrl": poster}] \
         if poster else []
     movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year,
@@ -189,8 +219,33 @@ def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, 
     if resolution is not None:
         quality = {"quality": {"id": 0, "name": f"{resolution}p", "resolution": resolution}}
         movie["movieFile"] = {"id": movie_id, "quality": quality,
-                              **({"dateAdded": file_added} if file_added else {})}
+                              **({"dateAdded": file_added} if file_added else {}), **(file_details or {})}
     return movie
+
+
+def radarr_release(title: str, *, indexer: str = "Telegrarr", guid: str = "telearr-1-1",
+                   rejections: tuple[str, ...] = (), temporary: bool = False) -> dict:
+    """One release as GET /release returns it; Radarr approves what it has no rejection for.
+    ``temporary`` says every rejection is a temporary one (a minimum age, say)."""
+    return {"guid": guid, "title": title, "indexer": indexer, "indexerId": 3, "protocol": "usenet",
+            "approved": not rejections, "rejected": bool(rejections) and not temporary,
+            "temporarilyRejected": bool(rejections) and temporary,
+            "rejections": list(rejections), "size": 1024, "customFormatScore": 0}
+
+
+def radarr_queue_item(movie_id: int, *, state: str = "downloading") -> dict:
+    """One record of GET /queue; ``state`` is its trackedDownloadState."""
+    return {"id": 1, "movieId": movie_id, "title": "Queued.Release", "status": "downloading",
+            "trackedDownloadStatus": "ok", "trackedDownloadState": state}
+
+
+def radarr_file_details(*, size: int, relative_path: str, resolution: str, video_codec: str,
+                        audio_languages: str, subtitles: str) -> dict:
+    """The movieFile fields Radarr adds once it has scanned a file. It has no container
+    field, and it joins the languages of each kind with "/" into one string."""
+    return {"size": size, "relativePath": relative_path,
+            "mediaInfo": {"resolution": resolution, "videoCodec": video_codec,
+                          "audioLanguages": audio_languages, "subtitles": subtitles}}
 
 
 PROWLARR_KEY = "prowlarr-secret-key"

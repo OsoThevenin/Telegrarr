@@ -2,7 +2,7 @@
 from fastapi import Depends
 from pydantic import BaseModel
 
-from .. import auth, directory, tg
+from .. import auth, channels, directory, tg
 from .common import (BAD_REQUEST, CONFLICT, TOO_MANY, LooseId, bad, keyed, keyed_router,
                      normalize_chat_id, normalize_topic_id)
 
@@ -32,6 +32,8 @@ class DirectoryImport(BaseModel):
 async def api_directory_scan(payload: DirectoryScan, user=Depends(auth.require_user)):
     chat_id = normalize_chat_id(payload.chat_id)
     topic_id = normalize_topic_id(payload.topic_id)
+    if channels.read_forbidden(chat_id, topic_id):
+        raise bad(CONFLICT, "err.channel.scanning_off")
     client = await tg.authorized_client()
     if not client:
         raise bad(CONFLICT, "err.tg.not_connected")

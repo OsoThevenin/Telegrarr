@@ -17,6 +17,7 @@ from .i18n import KeyedError
 transport: httpx.AsyncBaseTransport | None = None
 
 TIMEOUT_S = 15.0
+RELEASE_SEARCH_TIMEOUT_S = 120.0   # an interactive search waits on every indexer Radarr has
 APP_TITLES = {"prowlarr": "Prowlarr", "sonarr": "Sonarr", "radarr": "Radarr"}
 API_ROOTS = {"prowlarr": "/api/v1", "sonarr": "/api/v3", "radarr": "/api/v3"}
 
@@ -52,13 +53,13 @@ def configured(app: str) -> ArrApp:
 
 
 async def _request(target: ArrApp, method: str, path: str, *, params: dict | None = None,
-                   json: object = None) -> object:
+                   json: object = None, timeout: float = TIMEOUT_S) -> object:
     """One API call; returns the decoded JSON body or raises ArrError."""
     keys = ErrorKeys(error=ArrError, unreachable="err.arr.unreachable", bad_key="err.arr.bad_key",
                      http="err.arr.http", not_json="err.arr.not_json",
                      params={"app": target.title}, where={"url": target.url},
                      http_detail=lambda r: {"detail": _validation_detail(r)})
-    async with httpx.AsyncClient(transport=transport, timeout=TIMEOUT_S) as client:
+    async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
         return await request_json(client, keys, method, f"{target.url}{target.api}{path}", params=params,
                                   json=json, headers={"X-Api-Key": target.key})
 
@@ -284,6 +285,7 @@ async def radarr_defaults() -> RadarrDefaults:
 
 
 RADARR_ADDED, RADARR_SEARCHED = "added", "searched"
+QUEUE_FAILED_PENDING = "failedPending"   # a failed download Radarr is about to replace
 MOVIES_SEARCH = "MoviesSearch"
 
 
@@ -314,3 +316,34 @@ async def radarr_request(tmdb_id: int) -> str:
     search = {"name": MOVIES_SEARCH, "movieIds": [movie["id"]]}
     await _request(target, "POST", "/command", json=search)
     return RADARR_SEARCHED
+
+
+@dataclass(frozen=True)
+class ReleaseSearch:
+    """Radarr's interactive search for a film, and whether its download queue holds the film."""
+    releases: tuple[dict, ...]
+    queued: bool
+
+
+async def _radarr_queued(target: ArrApp, movie_id: int) -> bool:
+    """Whether Radarr's queue, delayed releases included, holds the film; raises ArrError."""
+    found = await _request(target, "GET", "/queue", params={"movieIds": movie_id})
+    records = found.get("records") if isinstance(found, dict) else None
+    if not isinstance(records, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return any(isinstance(q, dict) and q.get("trackedDownloadState") != QUEUE_FAILED_PENDING for q in records)
+
+
+async def radarr_release_search(tmdb_id: int) -> ReleaseSearch | None:
+    """Radarr's interactive release search for the film: every release its indexers offer
+    with Radarr's decision on it, or None when Radarr doesn't have the film. Raises ArrError."""
+    target = configured("radarr")
+    movie = await _radarr_movie(target, tmdb_id)
+    if movie is None:
+        return None
+    found = await _request(target, "GET", "/release", params={"movieId": movie["id"]},
+                           timeout=RELEASE_SEARCH_TIMEOUT_S)
+    if not isinstance(found, list):
+        raise ArrError("err.arr.bad_shape", app=target.title, url=target.url)
+    return ReleaseSearch(tuple(r for r in found if isinstance(r, dict)),
+                         await _radarr_queued(target, movie["id"]))

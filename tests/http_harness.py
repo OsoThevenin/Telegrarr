@@ -61,6 +61,42 @@ class FakeMessage:
     action: Any = None          # set on service messages (forum creation, topic creation)
 
 
+@dataclass(frozen=True)
+class HistoryRead:
+    """One history read as Telegram sees it: its window on the chat."""
+    chat_id: int
+    limit: int | None
+    offset_id: int
+    min_id: int
+    topic: int | None
+
+
+class FakeMessageIter:
+    """What ``iter_messages`` returns: like Telethon's iterator it yields messages
+    and, once the first chunk arrived, knows Telegram's message count (``total``)."""
+
+    def __init__(self, telegram: "FakeTelegram", read: HistoryRead) -> None:
+        self._telegram = telegram
+        self._read = read
+        self.total: int | None = None
+
+    def __aiter__(self):
+        return self._messages()
+
+    async def _messages(self):
+        tg, read = self._telegram, self._read
+        tg.history_reads.append(read.chat_id)
+        tg.reads.append(read)
+        await tg.history_gate(read)
+        chat = tg.readable(read.chat_id)
+        keep = tg.in_topic(chat, read.topic) if read.topic is not None else (lambda _m: True)
+        msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
+        self.total = tg.count_reported(len(msgs))
+        window = [m for m in msgs if m.id > read.min_id and (not read.offset_id or m.id < read.offset_id)]
+        for msg in window[:read.limit] if read.limit else window:
+            yield msg
+
+
 @dataclass
 class FakeChannel:
     """A chat: a broadcast channel, or (``forum=True``) a forum group whose
@@ -74,6 +110,7 @@ class FakeChannel:
     topics: dict[int, str] = field(default_factory=dict)
     group: bool = False         # a plain (non-forum) supergroup rather than a channel
     hide_forum_flag: bool = False   # a "min"/partial Channel whose forum flag is unset though it is a forum
+    photo: bytes | None = None      # its small profile photo, if it has one
 
     def topic_id(self, title: str) -> int:
         """The id of the named topic ``title`` (``GENERAL_TOPIC_ID`` for General)."""
@@ -117,8 +154,16 @@ class FakeTelegram:
         self.requests: list[Any] = []                # raw TL requests sent via client(...)
         self.lookups: list[int | str] = []           # every get_entity() query, in order
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
+        self.reads: list[HistoryRead] = []           # those same reads, with their windows
+        self.message_reads: list[int] = []           # chat ids asked for a message by id
+        self.photo_reads: list[int] = []             # chat ids whose profile photo was downloaded
+        self.flood_on_photo = False                  # raise FloodWaitError downloading a profile photo
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
+        self.flood_on_next_read = False              # raise FloodWaitError serving the next history read
+        self.flood_on_next_message = False           # raise FloodWaitError serving the next message by id
+        self.count_reported = lambda count: count    # what a read says the chat's message count is
+        self.fail_next_read = False                  # raise a transient error serving the next history read
         self.flood_on_topics_page: int | None = None  # raise FloodWaitError serving this topics page (1 = first)
         self.topics_pages_served = 0
         self.saved_messages: list[str] = []          # texts sent to the account's Saved Messages
@@ -128,17 +173,68 @@ class FakeTelegram:
         self._downloads_open.set()
         self._hold_partial = False
         self._late_outcome: type[BaseException] | None = None
+        self._finish_despite_cancel = False
+        self._history_open = asyncio.Event()
+        self._history_open.set()
+        self._held_limit: int | None = None
+        self._held_after = 0
+        self._photos_open = asyncio.Event()
+        self._photos_open.set()
+
+    def reads_of(self, chat_id: int) -> int:
+        """Every Telegram read of ``chat_id`` so far: history, messages by id, lookups, photos."""
+        reads = (*self.history_reads, *self.message_reads, *self.lookups, *self.photo_reads)
+        return sum(1 for chat in reads if chat == chat_id)
+
+    def hold_history(self, limit: int | None = None, after: int = 0) -> None:
+        """Block history reads, once counted, until :meth:`release_history`: all of
+        them, or those asking for ``limit`` messages, letting ``after`` of them by."""
+        self._held_limit, self._held_after = limit, after
+        self._history_open.clear()
+
+    def release_history(self) -> None:
+        self._history_open.set()
+
+    def _is_held(self, read: HistoryRead) -> bool:
+        if self._held_limit not in (None, read.limit):
+            return False
+        if self._held_after:
+            self._held_after -= 1
+            return False
+        return True
+
+    async def history_gate(self, read: HistoryRead) -> None:
+        """Where a history read waits while held, and meets a planned FloodWait."""
+        if self._is_held(read):
+            await self._history_open.wait()
+        if self.flood_on_next_read:
+            self.flood_on_next_read = False
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
+        if self.fail_next_read:
+            self.fail_next_read = False
+            raise ConnectionError("Telegram went away")
+
+    def hold_photos(self) -> None:
+        """Block profile-photo downloads, once counted, until :meth:`release_photos`."""
+        self._photos_open.clear()
+
+    def release_photos(self) -> None:
+        self._photos_open.set()
 
     def hold_downloads(self, *, partial: bool = False,
-                       late_outcome: type[BaseException] | None = None) -> None:
+                       late_outcome: type[BaseException] | None = None,
+                       finish_despite_cancel: bool = False) -> None:
         """Block file transfers (they stay in-flight) until :meth:`release_downloads`.
 
         With ``partial``, a held transfer first writes its first byte, leaving a
         partial file on disk the way an interrupted real transfer does. With
         ``late_outcome``, a held transfer that is cancelled keeps winding down
-        (the chunk in flight) until release, then raises ``late_outcome``."""
+        (the chunk in flight) until release, then raises ``late_outcome``. With
+        ``finish_despite_cancel``, it delivers the whole file at release instead,
+        as a fallback already past its last chunk does."""
         self._hold_partial = partial
         self._late_outcome = late_outcome
+        self._finish_despite_cancel = finish_despite_cancel
         self._downloads_open.clear()
 
     def release_downloads(self) -> None:
@@ -191,7 +287,7 @@ class FakeTelegram:
         every read of it (entity, history, messages) raises ``ChannelPrivateError``."""
         self.inaccessible.add(chat_id)
 
-    def _readable(self, chat_id: int) -> FakeChannel:
+    def readable(self, chat_id: int) -> FakeChannel:
         if chat_id in self.inaccessible:
             raise ChannelPrivateError(request=None)
         return self.channels[chat_id]
@@ -241,7 +337,8 @@ class FakeTelegram:
         bare_id, _ = utils.resolve_id(channel.chat_id)
         megagroup = channel.forum or channel.group
         forum_flag = channel.forum and not channel.hide_forum_flag
-        return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
+        photo = types.ChatPhoto(photo_id=1, dc_id=2) if channel.photo else types.ChatPhotoEmpty()
+        return types.Channel(id=bare_id, title=channel.title, photo=photo, date=None,
                              broadcast=not megagroup, megagroup=megagroup, forum=forum_flag,
                              access_hash=1, username=channel.username)
 
@@ -272,7 +369,7 @@ class FakeTelegram:
             channel = self.channels.get(query)
         if channel is None:
             raise ValueError(f"Cannot find any entity corresponding to {query!r}")
-        return self._entity(self._readable(channel.chat_id))
+        return self._entity(self.readable(channel.chat_id))
 
     async def __call__(self, request: Any) -> Any:
         self.requests.append(request)
@@ -310,7 +407,7 @@ class FakeTelegram:
         return types.messages.ForumTopics(count=1 + len(chat.topics), topics=topics, messages=[],
                                           chats=[], users=[], pts=0)
 
-    def _in_topic(self, chat: FakeChannel, topic: int) -> Callable[[FakeMessage], bool]:
+    def in_topic(self, chat: FakeChannel, topic: int) -> Callable[[FakeMessage], bool]:
         """Telethon's ``reply_to=topic`` filter: the topic's posts and replies, not
         its creation message. Like Telegram, it can't read the General topic or a
         non-forum chat."""
@@ -325,30 +422,43 @@ class FakeTelegram:
 
         return in_topic
 
-    async def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None):
-        self.history_reads.append(chat_id)
-        chat = self._readable(chat_id)
-        keep = self._in_topic(chat, reply_to) if reply_to is not None else (lambda _m: True)
-        msgs = sorted((m for m in chat.messages.values() if keep(m)), key=lambda m: -m.id)
-        for msg in msgs[:limit] if limit else msgs:
-            yield msg
+    def iter_messages(self, chat_id: int, limit: int | None = None, *, reply_to: int | None = None,
+                      offset_id: int = 0, min_id: int = 0) -> FakeMessageIter:
+        """``offset_id`` and ``min_id`` bound the read as in Telethon: only messages
+        older than ``offset_id`` (0: from the newest) and newer than ``min_id``."""
+        return FakeMessageIter(self, HistoryRead(chat_id, limit, offset_id, min_id, reply_to))
 
     async def send_message(self, entity: str, text: str) -> None:
         assert entity == "me", "notifications only ever go to Saved Messages"
         self.saved_messages.append(text)
 
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
-        return self._readable(chat_id).messages.get(ids)
+        self.message_reads.append(chat_id)
+        if self.flood_on_next_message:
+            self.flood_on_next_message = False
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
+        return self.readable(chat_id).messages.get(ids)
+
+    async def download_profile_photo(self, entity: types.Channel, file: Any = None, *,
+                                     download_big: bool = True) -> bytes | None:
+        assert file is bytes and not download_big, "the app asks for the small photo, in memory"
+        chat_id = utils.get_peer_id(entity)
+        self.photo_reads.append(chat_id)
+        await self._photos_open.wait()
+        if self.flood_on_photo:
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
+        return self.readable(chat_id).photo
 
     async def _wait_until_released(self) -> None:
         try:
             await self._downloads_open.wait()
         except asyncio.CancelledError:
             late = self._late_outcome
-            if late is None:
+            if late is None and not self._finish_despite_cancel:
                 raise
             await self._downloads_open.wait()   # finish the chunk in flight first
-            raise late("transfer stopped late") from None
+            if late is not None:
+                raise late("transfer stopped late") from None
 
     async def download_media(self, message: FakeMessage, file: str | None = None,
                              progress_callback: Callable[[int, int], Any] | None = None) -> str:
@@ -415,11 +525,18 @@ class ArrApp:
         history = await self.sab(mode="history", **params)
         return [s["nzo_id"] for s in history["history"]["slots"]]
 
-    def post_episodes(self, chat_id: int, show: str, episodes: Iterable[int]) -> None:
+    async def offers_episode(self, show: str, episode: int) -> bool:
+        """Whether Newznab offers this season-1 episode of ``show``, searched as Sonarr does."""
+        r = await self.http.get("/api/newznab", params={
+            "t": "tvsearch", "apikey": self.apikey, "q": show, "season": 1, "ep": episode})
+        return bool(ET.fromstring(r.raise_for_status().text).findall("./channel/item"))
+
+    def post_episodes(self, chat_id: int, show: str, episodes: Iterable[int], topic: int | None = None) -> None:
         """One season-1 post per episode on the fake Telegram channel ``chat_id``."""
         dotted = show.replace(" ", ".")
         for ep in episodes:
-            self.telegram.post(chat_id, text=f"{show} S01E{ep:02d} 1080p", file_name=f"{dotted}.S01E{ep:02d}.mkv")
+            self.telegram.post(chat_id, text=f"{show} S01E{ep:02d} 1080p", file_name=f"{dotted}.S01E{ep:02d}.mkv",
+                               topic=topic)
 
     async def episode_url(self, show: str, ep: int) -> str:
         """Wait for season-1 episode ``ep`` of ``show`` to be searchable; returns its NZB url."""

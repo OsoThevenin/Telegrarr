@@ -261,6 +261,19 @@ async def test_import_creates_mapped_series_channels_with_derived_ids(arr_app, f
 
 
 @pytest.mark.asyncio
+async def test_an_imported_channel_comes_back_as_the_channels_api_shows_it(arr_app, fake_tmdb):
+    fake_tmdb.add_series(61662, titles={"ca-ES": "Merlí"}, tvdb_id=297571)
+    await _save_tmdb_key(arr_app)
+    _directory(arr_app)
+
+    results = await _import(arr_app, {"chat_id": MERLI, "title": "Merlí", "tmdb_id": 61662})
+
+    channel = results[MERLI]["channel"]
+    assert channel == (await _channels(arr_app))[MERLI]
+    assert not [key for key in channel if key.startswith("history_")]
+
+
+@pytest.mark.asyncio
 async def test_import_skips_channels_that_are_already_added(arr_app, fake_tmdb):
     fake_tmdb.add_series(61662, titles={"ca-ES": "Merlí"}, tvdb_id=297571)
     await _save_tmdb_key(arr_app)

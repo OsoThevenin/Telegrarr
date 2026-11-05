@@ -3,14 +3,14 @@ import functools
 
 from fastapi import Depends, Query
 
-from .. import auth, catalog, catalog_posters, connect
+from .. import auth, catalog, catalog_posters, catalog_why, connect
 from .common import BAD_GATEWAY, BAD_REQUEST, NOT_FOUND, keyed, keyed_router
 
 router = keyed_router()
 
 
 def _refused(e: catalog.CatalogError):
-    if isinstance(e, catalog.UnknownChannel | catalog.NotInCatalog):
+    if isinstance(e, catalog.UnknownChannel | catalog.NotInCatalog | catalog_why.NotInRadarr):
         return keyed(NOT_FOUND, e)
     return keyed(BAD_GATEWAY if isinstance(e, catalog.FilterNeedsRadarr) else BAD_REQUEST, e)
 
@@ -52,6 +52,15 @@ async def api_catalog_status(cid: int, user=Depends(auth.require_user)):
 async def api_catalog_download(cid: int, tmdb_id: int, user=Depends(auth.require_user)):
     """Download (Baixar): ask Radarr for the film → {tmdb_id, action: added | searched}."""
     return await catalog.download(cid, tmdb_id)
+
+
+@router.post("/api/channels/{cid}/catalog/{tmdb_id}/why-not-grabbed")
+@_keyed_errors
+async def api_catalog_why_not_grabbed(cid: int, tmdb_id: int, user=Depends(auth.require_user)):
+    """“Why not grabbed?”: Radarr's decisions on Telegrarr's releases of the film → {tmdb_id,
+    verdict, message, releases: [{title, approved, rejections}]}. A POST because it runs a
+    Radarr search, so only an operator's click can start one."""
+    return await catalog_why.why_not_grabbed(cid, tmdb_id)
 
 
 @router.get("/api/channels/{cid}/catalog/posters")

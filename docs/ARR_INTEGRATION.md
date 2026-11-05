@@ -111,7 +111,9 @@ test means Telegrarr responded as a SABnzbd client.
 4. **Report & import.** Telegrarr reports queue/history status back through the
    SABnzbd endpoints. When the file completes, it lands in the library where the
    \*arr app expects it, and Sonarr/Radarr imports it as usual. Each SAB job is
-   named after its Release title, as a real SABnzbd names a job after its NZB.
+   named after its Release title, as a real SABnzbd names a job after its NZB. A
+   Grab of a Release that has since been replaced still transfers, under the same
+   title.
 
 ### SABnzbd history
 

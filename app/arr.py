@@ -13,6 +13,7 @@ from . import db, settings, __version__ as VERSION
 from .namer import is_uhd
 
 SAB_VERSION = "4.2.0"        # advertise a modern SABnzbd to the *arr clients
+GUID_PREFIX = "telearr-"     # starts the guid of every Newznab item Telegrarr serves
 
 
 # ── API key (shared with the *arr apps; not a web-session secret) ─────
@@ -168,7 +169,7 @@ def feed_xml(base: str, releases) -> str:
         pub = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(r["added_at"] or time.time()))
         items.append(
             f'<item><title>{html.escape(r["title"] or "Unknown")}</title>'
-            f'<guid isPermaLink="false">telearr-{r["channel_id"]}-{r["message_id"]}</guid>'
+            f'<guid isPermaLink="false">{GUID_PREFIX}{r["channel_id"]}-{r["message_id"]}</guid>'
             f'<link>{dl}</link><pubDate>{pub}</pubDate>'
             f'<enclosure url="{dl}" length="{size}" type="application/x-nzb"/>'
             f'<category>{parent}</category>'
@@ -298,14 +299,23 @@ def job_name(r) -> str:
     """The SAB job name: the Release title, as a real SABnzbd names a job after its NZB.
 
     Sonarr parses it to tie the download to a series, so a bare file basename would not
-    do; it is only the fallback for downloads with no indexed release."""
-    return r["release_title"] or (r["save_path"] or r["file_name"] or "").split("/")[-1]
+    do: a flat Grab whose Release was removed keeps its title through its release folder.
+    The file's name is only the fallback for library-layout downloads with no Release."""
+    return (r["release_title"] or os.path.basename(storage_path(r["save_path"]))
+            or r["file_name"] or "")
+
+
+# the transfer statuses the SABnzbd queue lists, and how it names them
+_SAB_QUEUE_STATUS = {"downloading": "Downloading", "queued": "Queued",
+                     db.PAUSED_STATUS: "Paused"}
 
 
 def sab_queue():
+    listed = tuple(_SAB_QUEUE_STATUS)
     with db.conn() as c:
         rows = c.execute(f"""{_JOB_SELECT}
-                            WHERE d.status IN ('downloading','queued') ORDER BY d.id""").fetchall()
+                            WHERE d.status IN ({db.placeholders(listed)}) ORDER BY d.id""",
+                         listed).fetchall()
     slots = []
     for r in rows:
         size = r["file_size"] or 0
@@ -316,7 +326,7 @@ def sab_queue():
             "filename": job_name(r),
             "cat": category_for(r["kind"]),
             "storage": storage_path(r["save_path"]),
-            "status": "Downloading" if r["status"] == "downloading" else "Queued",
+            "status": _SAB_QUEUE_STATUS[r["status"]],
             "index": len(slots), "percentage": str(int(prog * 100)),
             "mb": str(_mb(size)), "mbleft": str(_mb(left)),
             "size": f"{size / 1e9:.2f} GB", "sizeleft": f"{left / 1e9:.2f} GB",
