@@ -23,11 +23,12 @@ fi
 
 # Leading zeros are refused too, so that 00 can't pass for a non-zero id.
 require_unprivileged_id() { # <name> <value>
+    refusal="$1 must be a whole number from 1 to $MAX_ID, got '$2'."
     case "$2" in
-        '' | *[!0-9]* | 0*) die "$1 must be a whole number from 1 to $MAX_ID, got '$2'. Root is refused." ;;
+        '' | *[!0-9]* | 0*) die "$refusal Root is refused." ;;
     esac
     if [ "${#2}" -gt "${#MAX_ID}" ] || [ "$2" -gt "$MAX_ID" ]; then
-        die "$1 must be a whole number from 1 to $MAX_ID, got '$2'."
+        die "$refusal"
     fi
 }
 
