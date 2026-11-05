@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from telethon import utils
 from telethon.errors import FloodWaitError
 
-from . import channels, downloader, settings, tg, tmdb, topic_errors
+from . import channels, downloader, history, settings, tg, tmdb, topic_errors
 from .config import POLL_FLOOR_MINUTES
 from .i18n import KeyedError, message
 
@@ -277,7 +277,7 @@ async def _import_one(item: ImportItem, added: dict[int, int], poll: int) -> dic
         # display title: the picked match, else TMDB's, else the cleaned channel title
         display = item.series_title or ids.title or tmdb_query(item.title)
         row = await channels.remap(row["id"], ids, display)
-    return {**base, "status": "added", "channel_id": row["id"], "channel": row}
+    return {**base, "status": "added", "channel_id": row["id"], "channel": history.public(row)}
 
 
 async def import_channels(items: list[ImportItem]) -> list[dict]:
