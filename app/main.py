@@ -307,7 +307,7 @@ def _scanning_field(payload: dict) -> dict:
     """The validated scanning switch from a channel payload (only when present)."""
     if "scanning" not in payload:
         return {}
-    if payload["scanning"] not in (True, False):
+    if not isinstance(payload["scanning"], bool):
         raise _bad(400, "err.channel.choice", field="scanning", choices="true, false")
     return {"scanning": int(payload["scanning"])}
 
