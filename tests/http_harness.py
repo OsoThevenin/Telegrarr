@@ -485,6 +485,10 @@ class ArrApp:
     telegram: FakeTelegram
     apikey: str
 
+    async def settings(self) -> dict:
+        """The public settings view, as ``GET /api/settings`` answers it."""
+        return (await self.http.get("/api/settings")).raise_for_status().json()["settings"]
+
     async def add_channel(self, chat_id: int, *, kind: str = "tv", **fields: Any) -> dict:
         """Add a source channel through the UI's API; returns the channel row."""
         r = await self.http.post("/api/channels", json={"chat_id": chat_id, "kind": kind, **fields})

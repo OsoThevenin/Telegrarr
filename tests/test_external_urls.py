@@ -14,10 +14,6 @@ EXTERNAL = "https://radarr.example.com"
 RADARR = {"radarr_url": INTERNAL, "radarr_key": RADARR_KEY}
 
 
-async def _settings(arr_app) -> dict:
-    return (await arr_app.http.get("/api/settings")).json()["settings"]
-
-
 async def _catalog_film(arr_app, fake_tmdb, settings: dict) -> dict:
     """The only row of a movie channel's Catalog, with ``settings`` applied."""
     fake_tmdb.add_movie(THEORY_TMDB, titles={"ca-ES": "La teoria del tot", "en-US": "The Theory of Everything"},
@@ -36,7 +32,7 @@ async def _catalog_film(arr_app, fake_tmdb, settings: dict) -> dict:
 
 @pytest.mark.asyncio
 async def test_external_urls_are_unset_by_default(arr_app):
-    settings = await _settings(arr_app)
+    settings = await arr_app.settings()
 
     assert settings["radarr_external_url"] == ""
     assert settings["sonarr_external_url"] == ""
@@ -48,7 +44,7 @@ async def test_settings_save_and_return_external_urls(arr_app):
                                                         "sonarr_external_url": "https://sonarr.example.com"})
 
     assert r.status_code == 200, r.text
-    settings = await _settings(arr_app)
+    settings = await arr_app.settings()
     assert settings["radarr_external_url"] == EXTERNAL
     assert settings["sonarr_external_url"] == "https://sonarr.example.com"
 
@@ -59,7 +55,7 @@ async def test_an_external_url_can_be_cleared(arr_app):
 
     await arr_app.http.patch("/api/settings", json={"radarr_external_url": ""})
 
-    assert (await _settings(arr_app))["radarr_external_url"] == ""
+    assert (await arr_app.settings())["radarr_external_url"] == ""
 
 
 @pytest.mark.asyncio
@@ -69,7 +65,7 @@ async def test_non_http_external_url_is_rejected(arr_app, field):
 
     assert r.status_code == 400
     assert r.json()["detail"]["key"] == "err.settings.url_scheme"
-    assert (await _settings(arr_app))[field] == ""
+    assert (await arr_app.settings())[field] == ""
 
 
 @pytest.mark.asyncio
