@@ -44,7 +44,19 @@
 - The channels API reports each Channel's history fetch as a `history` object (`read`,
   `total_estimate`, `complete`, `next_batch_at`).
 
+- `PUID` and `PGID` env vars, LinuxServer-style. The container starts as root, aligns
+  its app user with them (default 1000:1000), re-owns the data and log directories on
+  every start and the downloads root when its owner differs, then runs the app as that
+  user. `0` and non-numeric values stop the container with an error. Compose `user:`
+  works as before and skips all of this. A new CI job checks it on a running container.
+
 ### Changed
+- `PUID`/`PGID` in `.env` now take effect without `user:` in compose. If yours differ
+  from 1000, the next start runs the app as those ids and re-owns `/data` to match.
+- `authorize.py` refuses to run as root, as a `docker exec` without `-u telegrarr` now
+  would. `docker compose run --rm telegrarr python authorize.py` works as before.
+- `deploy.sh` reports a container that never becomes healthy, with its last log lines,
+  instead of saying Telegrarr is up.
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
 - Scans respect the flood gate: while it is closed polls read nothing and catch up once

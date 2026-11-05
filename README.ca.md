@@ -71,10 +71,27 @@ servir la imatge publicada, treu `build: .` i posa
 
 ### Carpeta de baixades
 
-- El contenidor s'executa **sense root, amb UID/GID 1000**. Les carpetes de
-  l'amfitrió muntades a `/data` i `/downloads` han de ser escrivibles per l'UID 1000
-  (`chown -R 1000:1000 …`), o bé descomenta `user:` al `docker-compose.yml` i posa a
-  `PUID`/`PGID` el propietari del teu disc.
+- Posa a `PUID` i `PGID` del `.env` el teu usuari de l'amfitrió (`id -u`, `id -g`;
+  per defecte `1000`). El contenidor arrenca com a root només per aplicar-los i
+  després executa l'aplicació amb aquest usuari:
+  - `/data` canvia de propietari a cada arrencada, així canviar els identificadors
+    no trenca la base de dades. Si defineixes `TELEARR_DATA_DIR` o `TELEARR_LOG_DIR`,
+    són aquestes carpetes les que canvien de propietari.
+  - La carpeta de baixades (`TELEARR_DOWNLOADS_DIR`) només canvia de propietari quan
+    la mateixa carpeta en té un altre. El canvi és recursiu: pot trigar una estona en
+    una carpeta gran i també afecta el que Sonarr i Radarr hi tinguin. Si falla, el
+    contenidor registra un avís i arrenca igualment.
+  - `/media` i una carpeta de baixades definida a *Configuració → Baixades* no es
+    toquen mai: `PUID:PGID` ja hi ha de poder escriure.
+  - Es rebutgen el `0` i qualsevol valor que no sigui un número: el contenidor surt
+    amb un error en lloc d'executar l'aplicació com a root.
+- El `user:` del compose continua funcionant: descomenta'l al `docker-compose.yml` i
+  el contenidor se salta tot l'anterior, de manera que aquest usuari ja ha de poder
+  escriure a les carpetes muntades.
+- `docker exec` s'executa com a root encara que l'aplicació no ho faci. Afegeix-hi
+  `-u telegrarr` per executar una ordre amb l'usuari de l'aplicació. `authorize.py`
+  es nega a executar-se com a root; per iniciar sessió a Telegram fes servir
+  `docker compose run --rm telegrarr python authorize.py`.
 - `PATH_TO_DOWNLOADS` (al `.env`) és la carpeta **de l'amfitrió** muntada a
   `/downloads`. Munta la mateixa carpeta a `/downloads` també a Sonarr i Radarr: les
   captures van a `/downloads/telegram/<tv|movies>/<nom del llançament>/<fitxer>`,
@@ -234,7 +251,7 @@ moltes opcions es poden canviar en calent a *Configuració*, que té prioritat s
 | `TELEARR_DOWNLOADS_DIR` | Base de baixades dins del contenidor | `/downloads` |
 | `TELEARR_MEDIA_ROOT` | Camí de l'amfitrió muntat a `/media` (biblioteques del mode autònom; no s'usa en mode *arr) | `./media` |
 | `TELEARR_BIND_ADDR` | Adreça de l'amfitrió on escolta la interfície | `0.0.0.0` |
-| `PUID` / `PGID` | Només si actives `user:` al compose | `1000` |
+| `PUID` / `PGID` | Usuari i grup amb què s'executa l'aplicació; s'ignoren amb el `user:` del compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Connexions per fitxer / fitxers simultanis | `4` / `2` |
 | `TELEARR_MIN_FREE_GB` | No baixa res per sota d'aquest espai lliure | `50` |
 | `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari | — |
@@ -268,7 +285,9 @@ L'aplicació llegeix `X-Forwarded-Proto` i marca la galeta de sessió com a `Sec
 
 ## Seguretat
 
-- Imatge sense root (UID/GID 1000) i `no-new-privileges` al compose.
+- L'aplicació s'executa sense privilegis com a `PUID:PGID` (mai com a root), amb
+  `no-new-privileges` al compose. Només la preparació de l'entrypoint s'executa com
+  a root.
 - Desa els secrets al `.env` (permisos `0600`, mai al repositori).
 - La interfície està protegida amb un inici de sessió bcrypt, i les API
   Newznab/SABnzbd amb una clau d'API (tracta-la com una contrasenya). **No exposis

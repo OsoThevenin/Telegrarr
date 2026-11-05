@@ -1,10 +1,26 @@
 # Telearr Security Review
 
 > **Telegrarr note (v1.0.0).** This review was written against upstream Telearr and is
-> kept for history. Since then the `Dockerfile` sets `USER` (UID/GID 1000), so the image
-> runs as non-root even with a bare `docker run`; compose adds `no-new-privileges`; and the
-> channel-supplied filename is basename-sanitized before it becomes a save path. The
-> "Container hardening" row and the matching checklist items below are resolved.
+> kept for history. Since then compose adds `no-new-privileges`, and the channel-supplied
+> filename is basename-sanitized before it becomes a save path. The "Container hardening"
+> row and the matching checklist items below are resolved.
+>
+> **Container user (v1.2.0).** The `Dockerfile` no longer sets `USER`. The container starts
+> as root so `docker/entrypoint.sh` can apply `PUID`/`PGID`, then replaces itself with the
+> app as that user through `gosu`, so the app is unprivileged even with a bare `docker run`.
+> What stays true, checked by `tests/container/puid_pgid.sh`:
+>
+> - The app never runs as root. `0` and non-numeric ids stop the container before anything
+>   changes, and a failed privilege drop ends it rather than falling back to root.
+> - `no-new-privileges` stays compatible: privileges are dropped, never gained.
+> - Re-owning doesn't follow symlinks, so a link the app leaves under `/data` can't hand it
+>   a file outside at the next start.
+> - With compose `user:` nothing runs as root at all.
+>
+> What root still does: the entrypoint's setup; the `HEALTHCHECK` (only `curl` to
+> localhost); and `docker exec` without `-u telegrarr`, which is an operator choice.
+> `authorize.py` refuses to run as root so it can't leave a session file the app can't read,
+> and the next start re-owns anything else a root exec leaves in `/data`.
 
 Scope: `app/main.py`, `app/arr.py`, `app/auth.py`, `app/scanner.py`, `app/downloader.py`,
 `app/settings.py`, `app/db.py`, `app/namer.py`, `app/config.py`, `app/plex.py`,
