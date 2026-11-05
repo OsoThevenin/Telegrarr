@@ -15,8 +15,8 @@ def _i(name: str, default: int) -> int:
 
 
 # ── Telegram ──────────────────────────────────────────────────────────
-API_ID = _i("TG_API_ID", 0)
-API_HASH = os.getenv("TG_API_HASH", "")
+# TG_API_ID / TG_API_HASH are read by app/settings.py (ENV_VARS), with the other
+# settings an env var can lock.
 # Account safety: present the client like official Telegram Desktop on Windows
 # rather than Telethon's default (which exposes the library / server OS).
 TG_DEVICE_MODEL = os.getenv("TELEARR_TG_DEVICE_MODEL", "Desktop")
@@ -60,6 +60,7 @@ DEFAULT_USER = os.getenv("TELEARR_ADMIN_USER", "admin")
 DEFAULT_PASS = os.getenv("TELEARR_ADMIN_PASS", "")
 
 # ── Integrations (all optional) ───────────────────────────────────────
+# Only for summary(): the Plex client resolves these through app/settings.py (ENV_VARS).
 PLEX_URL = os.getenv("PLEX_URL", "").rstrip("/")        # e.g. http://plex_local:32400
 PLEX_TOKEN = os.getenv("PLEX_TOKEN", "")
 NOTIFY_WEBHOOK = os.getenv("TELEARR_NOTIFY_WEBHOOK", "") # Discord/Slack/generic JSON
@@ -68,8 +69,8 @@ NOTIFY_WEBHOOK = os.getenv("TELEARR_NOTIFY_WEBHOOK", "") # Discord/Slack/generic
 # Route MTProto through a proxy when the ISP shapes/blocks Telegram DC IPs.
 # Formats: socks5://[user:pass@]host:port · socks4://host:port ·
 #          http://[user:pass@]host:port · mtproxy://<secret>@host:port
-# A DB setting (tg_proxy, set from the UI) overrides this env default.
-PROXY = os.getenv("TELEARR_PROXY", "")
+# TELEARR_PROXY is read by app/settings.py (ENV_VARS): set, it wins over the proxy
+# saved from the UI (tg_proxy) and locks it.
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
