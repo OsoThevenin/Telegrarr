@@ -205,8 +205,9 @@ async def build_resolved_release(channel, msg, fn) -> dict:
     return {**resolved, "parsed_episode": rel["episode"], "episode_source": found.source}
 
 
-async def _record_release(channel, msg, size, fn, gk):
-    """Index a seen media item so the Newznab endpoint can serve it as a release."""
+async def _record_release(channel, msg, size, fn, gk, *, replaces=()):
+    """Index a seen media item so the Newznab endpoint can serve it as a release,
+    removing the Releases of the messages in `replaces` in the same transaction."""
     rel = await build_resolved_release(channel, msg, fn)
     with db.conn() as c:
         c.execute("""INSERT INTO releases
@@ -219,6 +220,9 @@ async def _record_release(channel, msg, size, fn, gk):
               parsed_episode=excluded.parsed_episode, episode_source=excluded.episode_source""",
             (channel["id"], msg.id, gk, rel["title"], rel["season"], rel["episode"],
              rel["quality"], size, int(time.time()), rel["parsed_episode"], rel["episode_source"]))
+        if replaces:
+            c.execute(f"DELETE FROM releases WHERE channel_id=? AND message_id IN ({db.placeholders(replaces)})",
+                      (channel["id"], *replaces))
 
 
 def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
@@ -233,11 +237,30 @@ def posted_film(channel, msg, size, fn, gk) -> movies.PostedFilm:
                              quality=quality)
 
 
-async def _index_release(channel, msg, size, fn, gk) -> bool:
-    """Index a seen media item for Newznab. False when it is not offered (pending review)."""
+def _copies_to_replace(channel, msg, size, gk) -> list[int] | None:
+    """What a history batch's `msg` does to the Channel's other Releases of group
+    `gk`: the message ids it replaces, or None when it is skipped because one of
+    them is as large. A message that is already indexed replaces nothing."""
+    with db.conn() as c:
+        rows = c.execute("SELECT message_id, size FROM releases "
+                         "WHERE channel_id=? AND (group_key=? OR message_id=?)",
+                         (channel["id"], gk, msg.id)).fetchall()
+    if any(r["message_id"] == msg.id for r in rows):
+        return []
+    if any((r["size"] or 0) >= size for r in rows):
+        return None
+    return [r["message_id"] for r in rows]
+
+
+async def _index_release(channel, msg, size, fn, gk, *, from_history=False) -> bool:
+    """Index a seen media item for Newznab. False when it is not offered (pending
+    review, or a history batch's copy of what the Channel already offers)."""
     if not is_tv(channel):
         return await movies.index_message(posted_film(channel, msg, size, fn, gk))
-    await _record_release(channel, msg, size, fn, gk)
+    replaces = _copies_to_replace(channel, msg, size, gk) if from_history else []
+    if replaces is None:
+        return False
+    await _record_release(channel, msg, size, fn, gk, replaces=replaces)
     return True
 
 
@@ -245,12 +268,12 @@ async def _enqueue(client, channel, msg, size, fn, gk):
     await enqueue(client, channel, msg, size, fn, gk, _resolve_path(channel, msg, fn))
 
 
-async def _index_messages(client, channel, messages, *, may_queue=True) -> None:
+async def _index_messages(client, channel, messages, *, may_queue=True, from_history=False) -> None:
     """Index the largest file of each group among `messages`; in standalone mode
     queue what is new (in *arr mode Sonarr/Radarr decide what to grab)."""
     auto_download = may_queue and not settings.is_arr_mode()
     for gk, (msg, size, fn) in _best_per_group(messages).items():
-        offered = await _index_release(channel, msg, size, fn, gk)
+        offered = await _index_release(channel, msg, size, fn, gk, from_history=from_history)
         if offered and auto_download and not _already_have(channel, gk, size):
             await _enqueue(client, channel, msg, size, fn, gk)
 
@@ -258,7 +281,8 @@ async def _index_messages(client, channel, messages, *, may_queue=True) -> None:
 async def _index_history(client, channel, messages) -> None:
     """Index a history batch. Only a history the operator asked for queues what it
     finds: an unattended walk must not download a whole channel by itself."""
-    await _index_messages(client, channel, messages, may_queue=bool(channel["history_requested"]))
+    await _index_messages(client, channel, messages, may_queue=bool(channel["history_requested"]),
+                          from_history=True)
 
 
 async def _read_source(client, channel, *, limit, min_id=0) -> MessageRead | None:

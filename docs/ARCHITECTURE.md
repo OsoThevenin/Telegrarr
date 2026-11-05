@@ -93,7 +93,9 @@ Step by step:
 2. **Dedup.** `_best_per_group` groups media by `group_key` (season/episode, else
    episode, else air date, else message id) and keeps only the **largest** file per
    group. `_already_have` skips groups already downloaded/queued at equal-or-greater
-   size.
+   size. On a TV Channel a history batch also compares each winner with the Channel's
+   Releases of that group: an equal or larger copy skips it, and a larger winner replaces
+   the smaller Releases in one transaction. Polls and Movie channels don't compare.
 3. **Download.** The scanner resolves the Plex-style `save_path`; `transfers.enqueue`
    writes a `queued` row and spawns `_run_download`, which acquires the concurrency semaphore and
    calls `download_file`. The downloader preallocates a `.tmp`, fetches part-ranges

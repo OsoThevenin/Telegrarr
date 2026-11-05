@@ -9,9 +9,11 @@
   queue is paused, the flood gate is closed or the daily budget is spent, and skip a
   Channel that is disabled, has scanning off or isn't due that weekday. The cursor
   survives a restart. Films and episodes found this way are offered like polled ones,
-  but in standalone mode they aren't queued: only a recovered history queues what it
-  finds. Messages a Scan can't reach, because more than it reads arrived while scanning
-  was off, are read the same way. Existing Channels start at their next poll.
+  except that a TV Channel keeps one Release per episode from them, the largest; a poll
+  still offers a re-upload next to it. In standalone mode they aren't queued: only a
+  recovered history queues what it finds. Messages a Scan can't reach, because more
+  than it reads arrived while scanning was off, are read the same way. Existing
+  Channels start at their next poll.
 - Optional external URLs for Radarr and Sonarr (`radarr_external_url`,
   `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
   hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,

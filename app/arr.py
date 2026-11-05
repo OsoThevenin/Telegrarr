@@ -299,8 +299,10 @@ def job_name(r) -> str:
     """The SAB job name: the Release title, as a real SABnzbd names a job after its NZB.
 
     Sonarr parses it to tie the download to a series, so a bare file basename would not
-    do; it is only the fallback for downloads with no indexed release."""
-    return r["release_title"] or (r["save_path"] or r["file_name"] or "").split("/")[-1]
+    do: a flat Grab whose Release was removed keeps its title through its release folder.
+    The file's name is only the fallback for library-layout downloads with no Release."""
+    return (r["release_title"] or os.path.basename(storage_path(r["save_path"]))
+            or r["file_name"] or "")
 
 
 # the transfer statuses the SABnzbd queue lists, and how it names them
