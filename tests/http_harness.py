@@ -110,6 +110,7 @@ class FakeChannel:
     topics: dict[int, str] = field(default_factory=dict)
     group: bool = False         # a plain (non-forum) supergroup rather than a channel
     hide_forum_flag: bool = False   # a "min"/partial Channel whose forum flag is unset though it is a forum
+    photo: bytes | None = None      # its small profile photo, if it has one
 
     def topic_id(self, title: str) -> int:
         """The id of the named topic ``title`` (``GENERAL_TOPIC_ID`` for General)."""
@@ -155,6 +156,8 @@ class FakeTelegram:
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
         self.reads: list[HistoryRead] = []           # those same reads, with their windows
         self.message_reads: list[int] = []           # chat ids asked for a message by id
+        self.photo_reads: list[int] = []             # chat ids whose profile photo was downloaded
+        self.flood_on_photo = False                  # raise FloodWaitError downloading a profile photo
         self.flood_after_lookups: int | None = None  # raise FloodWaitError once this many lookups ran
         self.flood_seconds = 30
         self.flood_on_next_read = False              # raise FloodWaitError serving the next history read
@@ -173,10 +176,12 @@ class FakeTelegram:
         self._history_open.set()
         self._held_limit: int | None = None
         self._held_after = 0
+        self._photos_open = asyncio.Event()
+        self._photos_open.set()
 
     def reads_of(self, chat_id: int) -> int:
-        """Every Telegram read of ``chat_id`` so far: history, messages by id, lookups."""
-        reads = (*self.history_reads, *self.message_reads, *self.lookups)
+        """Every Telegram read of ``chat_id`` so far: history, messages by id, lookups, photos."""
+        reads = (*self.history_reads, *self.message_reads, *self.lookups, *self.photo_reads)
         return sum(1 for chat in reads if chat == chat_id)
 
     def hold_history(self, limit: int | None = None, after: int = 0) -> None:
@@ -206,6 +211,13 @@ class FakeTelegram:
         if self.fail_next_read:
             self.fail_next_read = False
             raise ConnectionError("Telegram went away")
+
+    def hold_photos(self) -> None:
+        """Block profile-photo downloads, once counted, until :meth:`release_photos`."""
+        self._photos_open.clear()
+
+    def release_photos(self) -> None:
+        self._photos_open.set()
 
     def hold_downloads(self, *, partial: bool = False,
                        late_outcome: type[BaseException] | None = None,
@@ -323,7 +335,8 @@ class FakeTelegram:
         bare_id, _ = utils.resolve_id(channel.chat_id)
         megagroup = channel.forum or channel.group
         forum_flag = channel.forum and not channel.hide_forum_flag
-        return types.Channel(id=bare_id, title=channel.title, photo=types.ChatPhotoEmpty(), date=None,
+        photo = types.ChatPhoto(photo_id=1, dc_id=2) if channel.photo else types.ChatPhotoEmpty()
+        return types.Channel(id=bare_id, title=channel.title, photo=photo, date=None,
                              broadcast=not megagroup, megagroup=megagroup, forum=forum_flag,
                              access_hash=1, username=channel.username)
 
@@ -420,6 +433,16 @@ class FakeTelegram:
     async def get_messages(self, chat_id: int, ids: int | None = None) -> FakeMessage | None:
         self.message_reads.append(chat_id)
         return self.readable(chat_id).messages.get(ids)
+
+    async def download_profile_photo(self, entity: types.Channel, file: Any = None, *,
+                                     download_big: bool = True) -> bytes | None:
+        assert file is bytes and not download_big, "the app asks for the small photo, in memory"
+        chat_id = utils.get_peer_id(entity)
+        self.photo_reads.append(chat_id)
+        await self._photos_open.wait()
+        if self.flood_on_photo:
+            raise FloodWaitError(request=None, capture=self.flood_seconds)
+        return self.readable(chat_id).photo
 
     async def _wait_until_released(self) -> None:
         try:
