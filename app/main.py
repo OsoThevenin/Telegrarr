@@ -20,7 +20,8 @@ from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
 from .routes import channel_series, connect as connect_routes, directory as directory_routes, review, tmdb as tmdb_routes
-from .routes import catalog as catalog_routes, photos as photo_routes, topics as topic_routes
+from .routes import catalog as catalog_routes, downloads as download_routes, photos as photo_routes
+from .routes import topics as topic_routes
 from .routes.common import CONFLICT, TOO_MANY, bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 from .routes.common import normalize_topic_id as _normalize_topic_id
 
@@ -65,8 +66,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
-for _router in (catalog_routes, channel_series, connect_routes, directory_routes, photo_routes, review,
-                tmdb_routes, topic_routes):
+for _router in (catalog_routes, channel_series, connect_routes, directory_routes, download_routes,
+                photo_routes, review, tmdb_routes, topic_routes):
     app.include_router(_router.router)
 
 
@@ -453,17 +454,6 @@ async def _single_action(action: str, dl_id: int) -> bool:
 @app.post("/api/downloads/{dl_id}/cancel")
 async def api_cancel(dl_id: int, user=Depends(auth.require_user)):
     return {"ok": transfers.cancel_download(dl_id)}
-
-
-@app.post("/api/downloads/{dl_id}/pause")
-async def api_pause_download(dl_id: int, user=Depends(auth.require_user)):
-    return {"ok": transfers.pause_download(dl_id)}
-
-
-@app.post("/api/downloads/{dl_id}/resume")
-async def api_resume_download(dl_id: int, user=Depends(auth.require_user)):
-    reason = await transfers.resume_download(dl_id)
-    return {"ok": True} if reason is None else {"ok": False, "reason": reason}
 
 
 @app.post("/api/downloads/{dl_id}/retry")

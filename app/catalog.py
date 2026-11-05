@@ -253,12 +253,12 @@ def film_status(best: str, movie: dict | None, requested_at: int | None = None) 
         asked = movie is not None or requested_at is not None
         return {"status": STATUS_REQUESTED if asked else STATUS_MISSING}
     have = _file_resolution(movie)
-    held = {"radarr_quality": have, "file": _file_details(movie)}
+    file_held = {"radarr_quality": have, "file": _file_details(movie)}
     if resolution_rank(have) >= resolution_rank(best):
-        return {"status": STATUS_DOWNLOADED, **held}
+        return {"status": STATUS_DOWNLOADED, **file_held}
     pending = requested_at is not None and not _file_added_after(movie, requested_at)
     status = STATUS_REQUESTED if pending else STATUS_UPGRADE
-    return {"status": status, **held, "best_quality": best}
+    return {"status": status, **file_held, "best_quality": best}
 
 
 def _by_tmdb(movies: list[dict]) -> dict[int, dict]:

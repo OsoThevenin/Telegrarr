@@ -53,16 +53,21 @@ def request(cid: int) -> None:
                      WHERE id=?""", (int(time.time()), cid))
 
 
+def _batch_coming(channel: dict) -> bool:
+    """Whether source `channel` has a next batch on its way. The operator's request
+    reaches a disabled source too."""
+    return bool(channel["scanning"] and not channel["history_complete"]
+                and (channel["enabled"] or channel["history_requested"]))
+
+
 def _progress(channel: dict) -> dict:
     """What the operator sees of source `channel`'s history. Telegram's count is an
     estimate, and a gap walk reads some messages twice, so messages read stop at it.
-    A next batch shows only while one is really coming (see _due)."""
+    A next batch shows only while one is really coming."""
     total = channel["history_total"]
     read = channel["history_read"] if total is None else min(channel["history_read"], total)
-    coming = (channel["scanning"] and not channel["history_complete"]
-              and (channel["enabled"] or channel["history_requested"]))
     return {"read": read, "total_estimate": total, "complete": bool(channel["history_complete"]),
-            "next_batch_at": channel["history_next_at"] if coming else None}
+            "next_batch_at": channel["history_next_at"] if _batch_coming(channel) else None}
 
 
 def public(channel: dict) -> dict:
@@ -72,14 +77,11 @@ def public(channel: dict) -> dict:
 
 
 def _due(now: float) -> list[dict]:
-    """The sources whose next batch is due, the most overdue first. The operator's
-    request reaches a disabled source too, and goes on whatever its weekdays."""
+    """The sources whose next batch is due, the most overdue first."""
     with db.conn() as c:
-        return [dict(r) for r in c.execute(
-            """SELECT * FROM channels
-               WHERE scanning=1 AND history_complete=0 AND history_next_at<=?
-                 AND (enabled=1 OR history_requested=1)
-               ORDER BY history_next_at""", (now,))]
+        rows = c.execute("SELECT * FROM channels WHERE history_next_at<=? ORDER BY history_next_at",
+                         (now,)).fetchall()
+    return [ch for ch in map(dict, rows) if _batch_coming(ch)]
 
 
 def _advance(channel: dict, read: tg.MessageRead) -> None:
