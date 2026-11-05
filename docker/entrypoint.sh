@@ -4,7 +4,7 @@
 # (compose `user:`): exec the command untouched.
 #
 # Nothing below may fall back to running the command as root: every failure
-# before the final exec ends the container, except a downloads root it can't re-own.
+# before the final exec ends the container, except a downloads folder it can't re-own.
 set -eu
 
 APP_USER=telegrarr
@@ -36,11 +36,27 @@ take_ownership() { # <directory>
     mkdir -p "$1" && chown --preserve-root -hR "$PUID:$PGID" "$1"
 }
 
+# The folder alone, not what's in it. --preserve-root only guards a recursive chown.
+take_ownership_of_root() { # <directory>
+    [ ! "$1" -ef / ] && mkdir -p "$1" && chown -h "$PUID:$PGID" "$1"
+}
+
+# The UID alone: a folder of PUID's with a shared group (1000:media) is fine as it is.
+owned_by_someone_else() { # <path>
+    [ "$(stat -c %u "$1" 2>/dev/null)" != "$PUID" ]
+}
+
+warn_downloads_not_owned() { # <path>
+    log "warning: could not take ownership of $1. Transfers fail unless $PUID:$PGID can write there."
+}
+
 PUID=${PUID:-$(id -u "$APP_USER")}
 PGID=${PGID:-$(id -g "$APP_USER")}
 DATA_DIR=${TELEARR_DATA_DIR:-/data}
 LOG_DIR=${TELEARR_LOG_DIR:-/data/logs}
 DOWNLOADS_DIR=${TELEARR_DOWNLOADS_DIR:-/downloads}
+# Where the app writes its grabs: settings.arr_root().
+TELEGRAM_DIR=${DOWNLOADS_DIR%/}/telegram
 
 require_unprivileged_id PUID "$PUID"
 require_unprivileged_id PGID "$PGID"
@@ -58,10 +74,13 @@ for dir in "$DATA_DIR" "$LOG_DIR"; do
         die "could not take ownership of $dir. Mount it writable, or set compose user: to its owner."
 done
 
-# Often shared and huge, so it is only walked when the root itself says it must be.
-if [ "$(stat -c %u:%g "$DOWNLOADS_DIR" 2>/dev/null)" != "$PUID:$PGID" ]; then
-    take_ownership "$DOWNLOADS_DIR" ||
-        log "warning: could not take ownership of $DOWNLOADS_DIR. Transfers fail unless $PUID:$PGID can write there."
+# The downloads folder is shared with Sonarr and Radarr, and often huge: only the root
+# and Telegrarr's own subtree are ever re-owned, each only when its owner differs.
+if owned_by_someone_else "$DOWNLOADS_DIR"; then
+    take_ownership_of_root "$DOWNLOADS_DIR" || warn_downloads_not_owned "$DOWNLOADS_DIR"
+fi
+if [ -e "$TELEGRAM_DIR" ] && owned_by_someone_else "$TELEGRAM_DIR"; then
+    take_ownership "$TELEGRAM_DIR" || warn_downloads_not_owned "$TELEGRAM_DIR"
 fi
 
 exec gosu "$APP_USER" "$@"

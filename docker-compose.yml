@@ -16,8 +16,9 @@ services:
     #   TELEARR_RADARR_URL: http://radarr:7878
     #   TELEARR_RADARR_KEY: ${RADARR_KEY}
     # The container starts as root only to apply PUID/PGID from .env (default
-    # 1000): it re-owns /data and, if its owner differs, /downloads, then runs
-    # the app as that user. Uncomment to skip all of that and run as a fixed user;
+    # 1000): it re-owns /data and, if their owner differs, /downloads itself and
+    # /downloads/telegram, then runs the app as that user. Sonarr's and Radarr's
+    # files stay as they are. Uncomment to skip all of that and run as a fixed user;
     # the mounted folders must then already be writable by it:
     # user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]

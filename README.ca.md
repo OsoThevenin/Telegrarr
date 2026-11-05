@@ -77,10 +77,12 @@ servir la imatge publicada, treu `build: .` i posa
   - `/data` canvia de propietari a cada arrencada, així canviar els identificadors
     no trenca la base de dades. Si defineixes `TELEARR_DATA_DIR` o `TELEARR_LOG_DIR`,
     són aquestes carpetes les que canvien de propietari.
-  - La carpeta de baixades (`TELEARR_DOWNLOADS_DIR`) només canvia de propietari quan
-    la mateixa carpeta en té un altre. El canvi és recursiu: pot trigar una estona en
-    una carpeta gran i també afecta el que Sonarr i Radarr hi tinguin. Si falla, el
-    contenidor registra un avís i arrenca igualment.
+  - A la carpeta de baixades (`TELEARR_DOWNLOADS_DIR`) canvien de propietari dues
+    coses, cadascuna només quan el seu propietari no és `PUID`: la carpeta mateixa,
+    sense el que conté, i la subcarpeta `telegram/` de Telegrarr, de manera recursiva.
+    Una carpeta de `PUID` amb un grup compartit, com ara `1000:media`, es queda tal
+    com està, i el que Sonarr i Radarr tinguin al costat de `telegram/` no es toca
+    mai. Si un canvi falla, el contenidor registra un avís i arrenca igualment.
   - `/media` i una carpeta de baixades definida a *Configuració → Baixades* no es
     toquen mai: `PUID:PGID` ja hi ha de poder escriure.
   - Es rebutgen el `0` i qualsevol valor que no sigui un número: el contenidor surt
