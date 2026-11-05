@@ -66,6 +66,9 @@ class FakeArr:
     movies: list[dict] = field(default_factory=list)
     reject_movie: str | None = None                             # radarr only: validation error on POST /movie
     fail_status: int | None = None      # a 5xx answered to every authenticated request (server failing)
+    # radarr only: Radarr movie id -> GET /release JSON (see ``radarr_release``)
+    releases: dict[int, list[dict]] = field(default_factory=dict)
+    release_search_s: float = 0.0       # radarr only: how long a release search takes; a shorter read timeout gives up
 
     @property
     def provider_path(self) -> str:
@@ -136,6 +139,10 @@ class FakeArr:
         """JSON bodies of every POST /command received."""
         return self._posted(f"{self.api}/command")
 
+    def release_searches(self) -> list[int]:
+        """The movie id of every interactive release search received, in order."""
+        return [int(r.url.params["movieId"]) for r in self.requests if r.url.path == f"{self.api}/release"]
+
     def _posted(self, path: str) -> list[dict]:
         return [json.loads(r.content) for r in self.requests if r.method == "POST" and r.url.path == path]
 
@@ -150,7 +157,15 @@ class FakeArr:
         if path == f"{self.api}/command" and method == "POST":
             body = json.loads(request.content)
             return httpx.Response(201, json={**body, "id": len(self.commands()), "status": "queued"})
+        if path == f"{self.api}/release" and method == "GET":
+            return self._release_search(request)
         return None
+
+    def _release_search(self, request: httpx.Request) -> httpx.Response:
+        """GET /release?movieId=: searches every indexer, however long they take to answer."""
+        if self.release_search_s > request.extensions["timeout"]["read"]:
+            raise httpx.ReadTimeout("search still running", request=request)
+        return httpx.Response(200, json=self.releases.get(int(request.url.params["movieId"]), []))
 
     def _lookup(self, tmdb_id: int) -> httpx.Response:
         """Radarr's TMDB lookup: the film's metadata, ready to be posted back to /movie."""
@@ -193,6 +208,14 @@ def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, 
         movie["movieFile"] = {"id": movie_id, "quality": quality,
                               **({"dateAdded": file_added} if file_added else {}), **(file_details or {})}
     return movie
+
+
+def radarr_release(title: str, *, indexer: str = "Telegrarr", guid: str = "telearr-1-1",
+                   rejections: tuple[str, ...] = ()) -> dict:
+    """One release as GET /release returns it; Radarr approves what it has no rejection for."""
+    return {"guid": guid, "title": title, "indexer": indexer, "indexerId": 3, "protocol": "usenet",
+            "approved": not rejections, "rejected": bool(rejections), "temporarilyRejected": False,
+            "rejections": list(rejections), "size": 1024, "customFormatScore": 0}
 
 
 def radarr_file_details(*, size: int, relative_path: str, resolution: str, video_codec: str,

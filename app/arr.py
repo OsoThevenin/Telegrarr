@@ -13,6 +13,7 @@ from . import db, settings, __version__ as VERSION
 from .namer import is_uhd
 
 SAB_VERSION = "4.2.0"        # advertise a modern SABnzbd to the *arr clients
+GUID_PREFIX = "telearr-"     # starts the guid of every Newznab item Telegrarr serves
 
 
 # ── API key (shared with the *arr apps; not a web-session secret) ─────
@@ -168,7 +169,7 @@ def feed_xml(base: str, releases) -> str:
         pub = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(r["added_at"] or time.time()))
         items.append(
             f'<item><title>{html.escape(r["title"] or "Unknown")}</title>'
-            f'<guid isPermaLink="false">telearr-{r["channel_id"]}-{r["message_id"]}</guid>'
+            f'<guid isPermaLink="false">{GUID_PREFIX}{r["channel_id"]}-{r["message_id"]}</guid>'
             f'<link>{dl}</link><pubDate>{pub}</pubDate>'
             f'<enclosure url="{dl}" length="{size}" type="application/x-nzb"/>'
             f'<category>{parent}</category>'
