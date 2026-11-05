@@ -128,17 +128,22 @@ class FakeTelegram:
         self._downloads_open.set()
         self._hold_partial = False
         self._late_outcome: type[BaseException] | None = None
+        self._finish_despite_cancel = False
 
     def hold_downloads(self, *, partial: bool = False,
-                       late_outcome: type[BaseException] | None = None) -> None:
+                       late_outcome: type[BaseException] | None = None,
+                       finish_despite_cancel: bool = False) -> None:
         """Block file transfers (they stay in-flight) until :meth:`release_downloads`.
 
         With ``partial``, a held transfer first writes its first byte, leaving a
         partial file on disk the way an interrupted real transfer does. With
         ``late_outcome``, a held transfer that is cancelled keeps winding down
-        (the chunk in flight) until release, then raises ``late_outcome``."""
+        (the chunk in flight) until release, then raises ``late_outcome``. With
+        ``finish_despite_cancel``, it delivers the whole file at release instead,
+        as a fallback already past its last chunk does."""
         self._hold_partial = partial
         self._late_outcome = late_outcome
+        self._finish_despite_cancel = finish_despite_cancel
         self._downloads_open.clear()
 
     def release_downloads(self) -> None:
@@ -345,10 +350,11 @@ class FakeTelegram:
             await self._downloads_open.wait()
         except asyncio.CancelledError:
             late = self._late_outcome
-            if late is None:
+            if late is None and not self._finish_despite_cancel:
                 raise
             await self._downloads_open.wait()   # finish the chunk in flight first
-            raise late("transfer stopped late") from None
+            if late is not None:
+                raise late("transfer stopped late") from None
 
     async def download_media(self, message: FakeMessage, file: str | None = None,
                              progress_callback: Callable[[int, int], Any] | None = None) -> str:

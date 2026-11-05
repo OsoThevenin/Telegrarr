@@ -106,7 +106,7 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
   `created_at`.
 - **`downloads`** — one row per media item: `id` (PK), `channel_id`, `message_id`,
   `file_unique_id`, `group_key`, `file_name`, `file_size`, `save_path`, `status`
-  (`queued`/`downloading`/`completed`/`failed`/`cancelled`), `error`, `progress`,
+  (`queued`/`downloading`/`paused`/`completed`/`failed`/`cancelled`), `error`, `progress`,
   `speed_mbs`, `started_at`, `finished_at`, `created_at`. Unique on
   `(channel_id, message_id)`.
 - **`imdb_candidates`** — cached IMDb suggestions per channel: `(channel_id, rank)`

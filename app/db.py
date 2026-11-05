@@ -175,6 +175,8 @@ ACTIVE_STATUSES = ("queued", "downloading")      # waiting for or holding a down
 STOPPED_STATUSES = ("failed", "cancelled")       # re-queuing one of these starts a new attempt
 FINISHED_STATUSES = ("completed", *STOPPED_STATUSES)   # an *arr history delete hides these
 HISTORY_STATUSES = ("completed", "failed")       # what the SABnzbd history reports
+PAUSED_STATUS = "paused"                         # held by the user until resumed, with no task
+HALTED_STATUSES = (*STOPPED_STATUSES, PAUSED_STATUS)   # no download task may run these
 _TEXT_LANG = "en"     # language of the plain-text column kept next to a key
 
 

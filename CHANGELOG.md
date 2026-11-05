@@ -7,6 +7,12 @@
   `sonarr_external_url`) for browser links when Telegrarr reaches them by an internal
   hostname. Each Catalog film carries a `radarr_link`, built from the external URL or,
   when unset, the connection URL.
+- Per-transfer pause and resume: `POST /api/downloads/{id}/pause` and `/resume`, and
+  the `pause` and `resume` actions of `POST /api/downloads/bulk`. A paused transfer
+  (new `paused` status, counted in the stats) is held while the rest of the queue
+  runs, stays paused across a restart and a global resume, and shows as `Paused` in
+  the SABnzbd queue. Pausing an in-flight transfer discards its partial file; resuming
+  restarts the file from the beginning as a new attempt.
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
