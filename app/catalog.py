@@ -13,10 +13,12 @@
 #
 # Radarr status (served apart, so the list shows before Radarr answers):
 #   {channel_id, radarr: {available, error ({key, params} | null)}, counts,
-#    rows: [{tmdb_id, status, radarr_quality?, best_quality?, poster?}]}
+#    rows: [{tmdb_id, status, radarr_quality?, file?, best_quality?, poster?}]}
 # `status` is missing | requested | downloaded | upgrade. `radarr_quality` (the file Radarr
-# has) comes with every status where Radarr holds a file, `best_quality` (the channel's best)
-# when that file is below it. `poster` is Radarr's poster URL, when it has one.
+# has) comes with every status where Radarr holds a file, as does `file`, that file's details:
+# {quality (Radarr's name), resolution (WxH), video_codec, container, audio_languages,
+# subtitle_languages, size (bytes)}. `best_quality` (the channel's best) comes when that
+# file is below it. `poster` is Radarr's poster URL, when it has one.
 #
 # A page of the Catalog (search, status filter, paging — see `page`):
 #   {channel_id, count, offset, limit, next_offset, counts, rows}
@@ -195,6 +197,34 @@ def _file_resolution(movie: dict) -> str:
     return next((label for need, label in reversed(_LADDER_LINES) if lines >= need), SD_LABEL)
 
 
+def _languages(joined: object) -> list[str]:
+    """Radarr's "/"-joined language string as a list ([] when it gives none)."""
+    if not isinstance(joined, str):
+        return []
+    return [word for part in joined.split("/") if (word := part.strip())]
+
+
+def _file_details(movie: dict) -> dict:
+    """The file Radarr holds for ``movie``, for the UI. A value Radarr doesn't give (say, a
+    file it hasn't scanned yet) is null, or [] for languages. Radarr has no container
+    field, so the container is the file's extension."""
+    found = _movie_file(movie)
+    media = found.get("mediaInfo")
+    media = media if isinstance(media, dict) else {}
+    stem, dot, extension = str(found.get("relativePath") or "").rpartition(".")
+    try:
+        quality = found["quality"]["quality"]["name"]
+    except (KeyError, TypeError):
+        quality = None
+    return {"quality": quality,
+            "resolution": media.get("resolution") or None,
+            "video_codec": media.get("videoCodec") or None,
+            "container": extension.lower() if stem and dot and extension else None,
+            "audio_languages": _languages(media.get("audioLanguages")),
+            "subtitle_languages": _languages(media.get("subtitles")),
+            "size": found.get("size")}
+
+
 def _file_added_after(movie: dict, requested_at: int) -> bool:
     """Whether Radarr's file arrived after the request (an unknown date counts as before)."""
     try:
@@ -215,11 +245,12 @@ def film_status(best: str, movie: dict | None, requested_at: int | None = None) 
         asked = movie is not None or requested_at is not None
         return {"status": STATUS_REQUESTED if asked else STATUS_MISSING}
     have = _file_resolution(movie)
+    held = {"radarr_quality": have, "file": _file_details(movie)}
     if resolution_rank(have) >= resolution_rank(best):
-        return {"status": STATUS_DOWNLOADED, "radarr_quality": have}
+        return {"status": STATUS_DOWNLOADED, **held}
     pending = requested_at is not None and not _file_added_after(movie, requested_at)
     status = STATUS_REQUESTED if pending else STATUS_UPGRADE
-    return {"status": status, "radarr_quality": have, "best_quality": best}
+    return {"status": status, **held, "best_quality": best}
 
 
 def _by_tmdb(movies: list[dict]) -> dict[int, dict]:

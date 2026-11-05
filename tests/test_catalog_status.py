@@ -45,7 +45,9 @@ PA_NEGRE_720 = ("Pa negre (2010)", "Pa_negre_2010_720p.mkv")
 async def _status(arr_app, cid) -> dict:
     r = await arr_app.http.get(f"/api/channels/{cid}/catalog/status")
     assert r.status_code == 200, r.text
-    return r.json()
+    body = r.json()
+    # The `file` details have their own tests (test_catalog_file_details).
+    return {**body, "rows": [{k: v for k, v in row.items() if k != "file"} for row in body["rows"]]}
 
 
 def _by_tmdb(status: dict) -> dict:

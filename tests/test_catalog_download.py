@@ -67,7 +67,8 @@ async def test_a_film_radarr_lacks_is_added_once_monitored_with_the_selected_def
 async def _status_of_theory(arr_app, cid) -> dict:
     r = await arr_app.http.get(f"/api/channels/{cid}/catalog/status")
     assert r.status_code == 200, r.text
-    return next(row for row in r.json()["rows"] if row["tmdb_id"] == THEORY_TMDB)
+    row = next(row for row in r.json()["rows"] if row["tmdb_id"] == THEORY_TMDB)
+    return {k: v for k, v in row.items() if k != "file"}    # tested in test_catalog_file_details
 
 
 @pytest.mark.asyncio

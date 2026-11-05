@@ -194,9 +194,11 @@ class FakeArr:
 
 
 def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, title: str = "",
-                 year: int | None = None, file_added: str | None = None, poster: str | None = None) -> dict:
+                 year: int | None = None, file_added: str | None = None, poster: str | None = None,
+                 file_details: dict | None = None) -> dict:
     """A Radarr movie as GET /movie returns it; ``resolution`` (e.g. 1080) gives it a file,
-    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl."""
+    ``file_added`` that file's ISO ``dateAdded``, ``poster`` a poster image's remoteUrl,
+    ``file_details`` extra movieFile fields (see ``radarr_file_details``)."""
     images = [{"coverType": "poster", "url": f"/MediaCover/{movie_id}/poster.jpg", "remoteUrl": poster}] \
         if poster else []
     movie = {"id": movie_id, "tmdbId": tmdb_id, "title": title, "year": year,
@@ -204,7 +206,7 @@ def radarr_movie(movie_id: int, tmdb_id: int, *, resolution: int | None = None, 
     if resolution is not None:
         quality = {"quality": {"id": 0, "name": f"{resolution}p", "resolution": resolution}}
         movie["movieFile"] = {"id": movie_id, "quality": quality,
-                              **({"dateAdded": file_added} if file_added else {})}
+                              **({"dateAdded": file_added} if file_added else {}), **(file_details or {})}
     return movie
 
 
@@ -214,6 +216,15 @@ def radarr_release(title: str, *, indexer: str = "Telegrarr", guid: str = "telea
     return {"guid": guid, "title": title, "indexer": indexer, "indexerId": 3, "protocol": "usenet",
             "approved": not rejections, "rejected": bool(rejections), "temporarilyRejected": False,
             "rejections": list(rejections), "size": 1024, "customFormatScore": 0}
+
+
+def radarr_file_details(*, size: int, relative_path: str, resolution: str, video_codec: str,
+                        audio_languages: str, subtitles: str) -> dict:
+    """The movieFile fields Radarr adds once it has scanned a file. It has no container
+    field, and it joins the languages of each kind with "/" into one string."""
+    return {"size": size, "relativePath": relative_path,
+            "mediaInfo": {"resolution": resolution, "videoCodec": video_codec,
+                          "audioLanguages": audio_languages, "subtitles": subtitles}}
 
 
 PROWLARR_KEY = "prowlarr-secret-key"
