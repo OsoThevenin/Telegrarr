@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 
 ### Fixed
 - The series search of a TV Channel accepts a themoviedb.org/tv/… link or an IMDb
