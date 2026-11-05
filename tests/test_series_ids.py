@@ -58,6 +58,71 @@ async def test_tmdb_search_falls_back_to_english_when_catalan_finds_nothing(arr_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("params", [
+    {"q": "1399", "digits_as_id": "true"},
+    {"q": "https://www.themoviedb.org/tv/1399-game-of-thrones"},
+    {"q": "themoviedb.org/tv/1399?language=ca"},
+    {"q": "tt0944947"},
+])
+async def test_tmdb_search_resolves_a_typed_id_straight_to_the_series(arr_app, fake_tmdb, params):
+    # A link or tt… id needs no flag, so the live search maps it as it's pasted.
+    fake_tmdb.add_series(1399, titles={"ca-ES": "Joc de trons", "en-US": "Game of Thrones"},
+                         first_air_date="2011-04-17", tvdb_id=121361, imdb_id="tt0944947")
+    await _save_tmdb_key(arr_app)
+
+    r = await arr_app.http.get("/api/tmdb/search", params=params)
+
+    assert r.status_code == 200
+    assert [(h["tmdb_id"], h["year"], h["exact"]) for h in r.json()] == [(1399, "2011", True)]
+    assert fake_tmdb.searches() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("q", ["1883", "tt09449"])
+async def test_a_search_reads_digits_and_short_tt_words_as_a_title(arr_app, fake_tmdb, q):
+    # The live search (typing, prefill) must not map "1883" to TMDB show 1883,
+    # nor a half-typed tt… id to whatever IMDb id it spells so far.
+    fake_tmdb.add_series(1883, titles={"ca-ES": "Some other show"})
+    await _save_tmdb_key(arr_app)
+
+    r = await arr_app.http.get("/api/tmdb/search", params={"q": q})
+
+    assert r.status_code == 200
+    assert not any(h.get("exact") for h in r.json())
+    assert fake_tmdb.searches()[0] == (q, "ca-ES")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed, key", [
+    ("424242", "err.tmdb.no_series_id"),
+    ("https://www.themoviedb.org/tv/424242", "err.tmdb.no_series_id"),
+    ("tt9999999", "err.tmdb.no_series_imdb"),
+    ("https://www.themoviedb.org/movie/603-the-matrix", "err.tmdb.link_not_series"),
+])
+async def test_tmdb_search_for_an_unknown_typed_id_says_so(arr_app, fake_tmdb, typed, key):
+    await _save_tmdb_key(arr_app)
+
+    r = await arr_app.http.get("/api/tmdb/search", params={"q": typed, "digits_as_id": "true"})
+
+    assert r.status_code == 400
+    assert r.json()["detail"]["key"] == key
+
+
+@pytest.mark.asyncio
+async def test_a_series_found_by_typed_id_maps_with_its_tvdb_and_imdb_ids(arr_app, fake_tmdb):
+    fake_tmdb.add_series(1399, titles={"en-US": "Game of Thrones"}, tvdb_id=121361, imdb_id="tt0944947")
+    await _save_tmdb_key(arr_app)
+    channel = await _series_channel(arr_app, title="Joc de trons 1080p CAT")
+    [hit] = (await arr_app.http.get("/api/tmdb/search", params={"q": "tt0944947"})).json()
+
+    r = await arr_app.http.put(f"/api/channels/{channel['id']}/series",
+                               json={"tmdb_id": hit["tmdb_id"], "title": hit["title"]})
+
+    assert r.status_code == 200
+    assert (r.json()["tvdb_id"], r.json()["tmdb_id"], r.json()["imdb_id"]) == (121361, 1399, "tt0944947")
+
+
+@pytest.mark.asyncio
 async def test_tmdb_search_without_key_says_a_key_is_required(arr_app, fake_tmdb):
     r = await arr_app.http.get("/api/tmdb/search", params={"q": "merlí"})
 

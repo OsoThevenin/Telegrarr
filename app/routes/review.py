@@ -9,8 +9,11 @@ router = keyed_router()
 
 
 class FilmChoice(BaseModel):
-    tmdb_id: LooseId = None
-    imdb_id: str | None = None
+    tmdb_id: LooseId = None       # a search pick
+    typed_id: str | None = None   # TMDB id, TMDB link or IMDb id, as the user typed it
+
+    def film_id(self):
+        return self.typed_id if self.typed_id not in (None, "") else self.tmdb_id
 
 
 @router.get("/api/review")
@@ -21,7 +24,7 @@ async def api_review(user=Depends(auth.require_user)):
 @router.post("/api/review/{cid}/{mid}/assign")
 async def api_review_assign(cid: int, mid: int, payload: FilmChoice, user=Depends(auth.require_user)):
     try:
-        return await movies.assign(cid, mid, payload.tmdb_id, payload.imdb_id)
+        return await movies.assign(cid, mid, payload.film_id())
     except movies.NotPending as e:
         raise keyed(NOT_FOUND, e)
     except movies.ReviewError as e:

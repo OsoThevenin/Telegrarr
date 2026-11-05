@@ -142,7 +142,7 @@ async def _backfill(arr_app, channel_id):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("assignment", [{"tmdb_id": THEORY_TMDB}, {"imdb_id": THEORY_IMDB}])
+@pytest.mark.parametrize("assignment", [{"tmdb_id": THEORY_TMDB}, {"typed_id": THEORY_IMDB}])
 async def test_assigning_a_film_offers_the_release_to_radarr(arr_app, films, assignment):
     channel, msg = await _one_pending(arr_app)
 
@@ -174,10 +174,42 @@ async def test_an_assigned_film_can_be_grabbed_into_the_movies_folder(arr_app, f
 async def test_assigning_an_unknown_film_is_rejected_and_stays_pending(arr_app, films):
     channel, msg = await _one_pending(arr_app)
 
-    r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign", json={"imdb_id": "tt0000001"})
+    r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign", json={"typed_id": "tt0000001"})
 
     assert r.status_code == 400
     assert r.json()["detail"] == {"key": "err.tmdb.no_film_imdb", "params": {"imdb": "tt0000001"}}
+    assert len(await _review(arr_app)) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed", [
+    str(THEORY_TMDB),
+    f"https://www.themoviedb.org/movie/{THEORY_TMDB}-the-theory-of-everything",
+    f" {THEORY_IMDB.upper()} ",
+])
+async def test_assigning_a_typed_id_offers_that_film(arr_app, films, typed):
+    channel, msg = await _one_pending(arr_app)
+
+    r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign", json={"typed_id": typed})
+
+    assert r.status_code == 200
+    assert r.json()["tmdb_id"] == THEORY_TMDB
+    assert await _review(arr_app) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("typed, key", [
+    ("424242", "err.tmdb.no_film_id"),
+    ("https://www.themoviedb.org/tv/1399-game-of-thrones", "err.tmdb.link_not_film"),
+    ("la teoria", "err.tmdb.bad_id"),
+])
+async def test_assigning_an_unusable_typed_id_says_why_and_stays_pending(arr_app, films, typed, key):
+    channel, msg = await _one_pending(arr_app)
+
+    r = await arr_app.http.post(f"/api/review/{channel['id']}/{msg.id}/assign", json={"typed_id": typed})
+
+    assert r.status_code == 400
+    assert r.json()["detail"]["key"] == key
     assert len(await _review(arr_app)) == 1
 
 

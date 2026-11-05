@@ -183,11 +183,79 @@ def _series_hit(item: dict) -> dict:
     }
 
 
-async def search_series(query: str) -> list[dict]:
-    """Search TMDB TV by title in Catalan; fall back to English when nothing matches."""
+HTTP_NOT_FOUND = 404
+TV, MOVIE = "tv", "movie"
+_TMDB_URL_RE = re.compile(r"^(?:https?://)?(?:www\.)?themoviedb\.org/(tv|movie)/(\d+)(?:[-/?#].*)?$", re.I)
+_IMDB_ID_RE = re.compile(r"^tt\d{7,}$", re.I)      # IMDb ids have at least 7 digits
+
+
+@dataclass(frozen=True)
+class TypedId:
+    """An id the user typed instead of a title: a TMDB id or an IMDb id."""
+    tmdb_id: int | None = None
+    imdb_id: str | None = None
+    media: str | None = None      # TV / MOVIE when it came from a TMDB link
+
+    @property
+    def bare_digits(self) -> bool:
+        """Plain digits: a TMDB id, or a title such as "1883"."""
+        return self.imdb_id is None and self.media is None
+
+
+def typed_id(text) -> TypedId | None:
+    """A TMDB id (digits), a themoviedb.org/tv|movie/… link or an IMDb tt… id; else None."""
+    raw = str(text or "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return TypedId(tmdb_id=int(raw))
+    if _IMDB_ID_RE.match(raw):
+        return TypedId(imdb_id=raw.lower())
+    link = _TMDB_URL_RE.match(raw)
+    if link:
+        return TypedId(tmdb_id=int(link.group(2)), media=link.group(1).lower())
+    return None
+
+
+async def _get_found(not_found: TMDBError, path: str, **params) -> dict:
+    """Like _get, but TMDB's 404 becomes ``not_found``."""
+    try:
+        return await _get(path, **params)
+    except TMDBUnavailable as e:
+        if e.params.get("status") == HTTP_NOT_FOUND:
+            raise not_found from None
+        raise
+
+
+async def _find_first(not_found: TMDBError, external_id, source: str, results: str) -> dict:
+    """The first ``results`` item TMDB's /find gives for an external id; none raises ``not_found``."""
+    hits = (await _get(f"/find/{external_id}", external_source=source)).get(results) or []
+    if not hits:
+        raise not_found
+    return hits[0]
+
+
+async def _series_by_id(typed: TypedId) -> dict:
+    if typed.media == MOVIE:
+        raise TMDBError("err.tmdb.link_not_series")
+    if typed.imdb_id:
+        item = await _find_first(TMDBError("err.tmdb.no_series_imdb", imdb=typed.imdb_id),
+                                 typed.imdb_id, "imdb_id", "tv_results")
+    else:
+        item = await _get_found(TMDBError("err.tmdb.no_series_id", tmdb_id=typed.tmdb_id),
+                                f"/tv/{typed.tmdb_id}", language=SEARCH_LANGUAGES[0])
+    return {**_series_hit(item), "exact": True}
+
+
+async def search_series(query: str, digits_as_id: bool = False) -> list[dict]:
+    """Search TMDB TV by title in Catalan; fall back to English when nothing matches.
+
+    A TMDB link or IMDb id answers that one series (``exact``). Plain digits do
+    too only with ``digits_as_id``: otherwise "1883" is a title."""
     query = (query or "").strip()
     if not query:
         return []
+    typed = typed_id(query)
+    if typed and (digits_as_id or not typed.bare_digits):
+        return [await _series_by_id(typed)]
     for language in SEARCH_LANGUAGES:
         j = await _get("/search/tv", query=query, language=language)
         hits = [_series_hit(it) for it in j.get("results") or [] if it.get("id")]
@@ -218,11 +286,8 @@ def _as_id(value, name: str) -> int | None:
 
 
 async def _tmdb_id_for_tvdb(tvdb_id: int) -> tuple[int, str]:
-    j = await _get(f"/find/{tvdb_id}", external_source="tvdb_id")
-    hits = j.get("tv_results") or []
-    if not hits:
-        raise TMDBError("err.tmdb.no_series_tvdb", tvdb_id=tvdb_id)
-    return hits[0]["id"], hits[0].get("name") or ""
+    hit = await _find_first(TMDBError("err.tmdb.no_series_tvdb", tvdb_id=tvdb_id), tvdb_id, "tvdb_id", "tv_results")
+    return hit["id"], hit.get("name") or ""
 
 
 async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
@@ -313,20 +378,25 @@ async def film(tmdb_id) -> Film:
     tmdb_n = _as_id(tmdb_id, "TMDB")
     if tmdb_n is None:
         raise TMDBError("err.tmdb.id_required")
-    j = await _get(f"/movie/{tmdb_n}", language=RELEASE_TITLE_LANGUAGE)
+    j = await _get_found(TMDBError("err.tmdb.no_film_id", tmdb_id=tmdb_n),
+                         f"/movie/{tmdb_n}", language=RELEASE_TITLE_LANGUAGE)
     return Film(tmdb_id=tmdb_n, imdb_id=j.get("imdb_id") or None,
                 title=j.get("title") or j.get("original_title") or "", year=_year_of(j.get("release_date")))
 
 
-async def film_for_imdb(imdb_id) -> Film:
-    imdb = "tt" + str(imdb_id).strip().lower().lstrip("t")
-    if not imdb[2:].isdigit():
-        raise TMDBError("err.tmdb.imdb_format")
-    j = await _get(f"/find/{imdb}", external_source="imdb_id")
-    hits = j.get("movie_results") or []
-    if not hits:
-        raise TMDBError("err.tmdb.no_film_imdb", imdb=imdb)
-    return await film(hits[0]["id"])
+async def _film_for_imdb(imdb: str) -> Film:
+    hit = await _find_first(TMDBError("err.tmdb.no_film_imdb", imdb=imdb), imdb, "imdb_id", "movie_results")
+    return await film(hit["id"])
+
+
+async def film_for_typed(text) -> Film:
+    """The film a TMDB id, TMDB link or IMDb id names (see typed_id)."""
+    typed = typed_id(text)
+    if typed is None:
+        raise TMDBError("err.tmdb.bad_id")
+    if typed.media == TV:
+        raise TMDBError("err.tmdb.link_not_film")
+    return await (_film_for_imdb(typed.imdb_id) if typed.imdb_id else film(typed.tmdb_id))
 
 
 async def match_film(title: str, year: int | None) -> Film | None:

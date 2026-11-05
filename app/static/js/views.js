@@ -4,6 +4,7 @@ import { icon } from "./icons.js";
 import { openTelegramConnect } from "./telegram-connect.js";
 import { sourceTitle, isWholeForum } from "./topics.js";
 import { channelTopics } from "./channel-topics.js";
+import { seriesMapper } from "./series-mapper.js";
 import { isRetryable, retryableIds } from "./retry.js";
 import { cancelToast, retryToast, bulkRetryToast } from "./download-toasts.js";
 import { catalogSection, catalogBack, catalogClosed } from "./catalog.js";
@@ -638,54 +639,6 @@ export function viewSettings(ctx) {
 const POLL_FLOOR_MIN = 15;   // account safety: mirrors config.POLL_FLOOR_MINUTES (server enforces it)
 
 const CHANNEL_KINDS = [["tv", t("chm.kind.tv")], ["movie", t("chm.kind.movie")]];
-const SEARCH_DEBOUNCE_MS = 350;
-
-const idsLine = (c) => [c.tvdb_id && `TVDB ${c.tvdb_id}`, c.tmdb_id && `TMDB ${c.tmdb_id}`, c.imdb_id && `IMDb ${c.imdb_id}`].filter(Boolean).join(" · ");
-
-/** Series identity block of the channel dialog: TMDB search (Catalan titles,
- * English fallback server-side) + editable TVDB id. Mapping is saved via
- * PUT /api/channels/{id}/series, which derives the TMDB/IMDb ids. */
-function seriesMapper(channel) {
-  let pick = null, timer = null, tvdbEdited = false;
-  const keyNote = h("div", { class: "muted small", style: "color:var(--err)" });
-  const query = h("input", { placeholder: t("chm.tmdb_search_placeholder"), autocomplete: "off", value: channel && channel.imdb_title ? channel.imdb_title : "" });
-  const results = h("div", { class: "imdb-results" });
-  const tvdb = h("input", { inputmode: "numeric", placeholder: t("chm.tvdb_placeholder"), value: channel && channel.tvdb_id ? channel.tvdb_id : "" });
-  tvdb.addEventListener("input", () => { tvdbEdited = true; });
-  const picked = h("div", { class: "imdb-picked" }, channel && idsLine(channel) ? t("chm.current", { title: channel.imdb_title || "", ids: idsLine(channel) }) : "");
-  const choose = (r) => {
-    const yr = r.year ? ` (${r.year})` : "";
-    pick = { tmdb_id: r.tmdb_id, title: `${r.title}${yr}` };
-    query.value = r.title; results.replaceChildren();
-    if (!tvdbEdited) tvdb.value = "";
-    picked.replaceChildren(h("span", {}, "✓ "), h("b", {}, pick.title), h("span", { class: "muted small" }, ` (TMDB ${r.tmdb_id})`));
-  };
-  const search = async (q) => {
-    if (!q || q.length < 2) return results.replaceChildren();
-    const res = await api(`/api/tmdb/search?q=${encodeURIComponent(q)}`); if (!res) return;
-    if (!res.length) return mount(results, h("div", { class: "muted small pad" }, t("chm.no_series")));
-    results.replaceChildren(...res.map((r) => h("button", { type: "button", class: "hit", onClick: () => choose(r) },
-      r.title, h("small", {}, ` ${r.year ? `(${r.year})` : ""}${r.original_title && r.original_title !== r.title ? ` · ${r.original_title}` : ""}`))));
-  };
-  query.addEventListener("input", () => { clearTimeout(timer); const q = query.value; timer = setTimeout(() => search(q), SEARCH_DEBOUNCE_MS); });
-  api("/api/settings").then((s) => {
-    if (s && !s.settings.tmdb_key_set) keyNote.textContent = t("chm.tmdb_key_required");
-  });
-  const node = h("div", { class: "series-map" },
-    keyNote,
-    h("label", {}, t("chm.series"), query), results,
-    h("label", {}, t("chm.tvdb_id"), tvdb), picked);
-  return {
-    node,
-    searchFor: (title) => { if (!query.value && title) { query.value = title; search(title); } },
-    // Payload for PUT /api/channels/{id}/series, or null when nothing changed.
-    payload: () => {
-      const typed = tvdb.value.trim();
-      if (!pick && !(tvdbEdited && typed)) return null;
-      return { tmdb_id: pick ? pick.tmdb_id : null, tvdb_id: tvdbEdited ? typed : null, title: pick ? pick.title : "" };
-    },
-  };
-}
 
 export function openChannelModal(ctx, channel) {
   const host = document.querySelector("#modal-root");
