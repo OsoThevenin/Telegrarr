@@ -117,7 +117,8 @@ backward-compatible with telearr v1, so an existing database imports cleanly.
   `last_message_id`, `created_at`, and the history fetch's `history_oldest_id` (the
   cursor), `history_floor` (the walk stops here), `history_read`, `history_total`
   (Telegram's count, an estimate), `history_complete`, `history_next_at` and
-  `history_requested`.
+  `history_requested`. These columns stay internal: the channels API shows a `history`
+  object instead (`read`, `total_estimate`, `complete`, `next_batch_at`).
 - **`downloads`** — one row per media item: `id` (PK), `channel_id`, `message_id`,
   `file_unique_id`, `group_key`, `file_name`, `file_size`, `save_path`, `status`
   (`queued`/`downloading`/`paused`/`completed`/`failed`/`cancelled`), `error`, `progress`,

@@ -286,7 +286,7 @@ async def api_system_updates(user=Depends(auth.require_user)):
 # ── channels ──────────────────────────────────────────────────────────
 @app.get("/api/channels")
 async def api_channels(user=Depends(auth.require_user)):
-    return channels.listed()
+    return [history.public(ch) for ch in channels.listed()]
 
 
 _CHANNEL_CHOICES = {"language": tuple(LANGUAGE_TOKENS), "fallback_quality": CHANNEL_QUALITIES}
@@ -340,8 +340,8 @@ async def api_add_channel(payload: dict, user=Depends(auth.require_user)):
         forum = bool(getattr(ent, "forum", False))
     except Exception as e:
         db.log("WARN", i18n.message("event.channel_lookup_failed", chat_id=chat_id, error=str(e)))
-    return channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
-                           release=release, forum=forum, **topic)
+    return history.public(channels.upsert(chat_id, title, kind=kind, weekdays=weekdays, poll_minutes=poll,
+                                          release=release, forum=forum, **topic))
 
 
 @app.patch("/api/channels/{cid}")
@@ -357,7 +357,7 @@ async def api_patch_channel(cid: int, payload: dict, user=Depends(auth.require_u
     ch = channels.update(cid, payload)
     if not ch:
         raise HTTPException(404)
-    return ch
+    return history.public(ch)
 
 
 @app.delete("/api/channels/{cid}")

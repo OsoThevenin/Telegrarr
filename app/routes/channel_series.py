@@ -2,7 +2,7 @@
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-from .. import auth, channels, tmdb
+from .. import auth, channels, history, tmdb
 from .common import NOT_FOUND, LooseId, keyed_router, tmdb_failed
 
 router = keyed_router()
@@ -20,7 +20,10 @@ async def api_map_series(cid: int, payload: SeriesMapping, user=Depends(auth.req
     if not channels.get(cid):
         raise HTTPException(NOT_FOUND)
     try:
-        return await channels.map_series(cid, tmdb_id=payload.tmdb_id, tvdb_id=payload.tvdb_id,
-                                         title=payload.title or "")
+        row = await channels.map_series(cid, tmdb_id=payload.tmdb_id, tvdb_id=payload.tvdb_id,
+                                        title=payload.title or "")
     except tmdb.TMDBError as e:
         raise tmdb_failed(e)
+    if row is None:                 # deleted while it was being mapped
+        raise HTTPException(NOT_FOUND)
+    return history.public(row)

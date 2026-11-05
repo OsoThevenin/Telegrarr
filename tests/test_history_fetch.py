@@ -14,6 +14,7 @@ import pytest
 from app import db, downloader, scanner, transfers
 from app.main import app, lifespan
 from app.safety import FloodGate
+from fake_tmdb import API_KEY
 from http_harness import GENERAL_TOPIC_ID, GENERAL_TOPIC_TITLE, eventually
 
 CHAT = -1007600000001
@@ -34,6 +35,8 @@ AFTER_BATCH = AFTER_SCAN - BATCH            # where the second batch starts
 ONE_FILE_BUDGET_GB = 0.0000005              # ~537 bytes: one grab uses it up
 FLOOD_S = 600
 SOME_TICKS_S = 0.1
+TMDB_SERIES = 1399
+TVDB_SERIES = 121361
 
 
 def _batches(tg, chat_id=CHAT):
@@ -92,6 +95,10 @@ def _topic_source(arr_app, forum, title):
 async def _channel_row(arr_app, source):
     rows = (await arr_app.http.get("/api/channels")).raise_for_status().json()
     return next(c for c in rows if c["id"] == source["id"])
+
+
+async def _progress(arr_app, source):
+    return (await _channel_row(arr_app, source))["history"]
 
 
 async def _rescan(arr_app, source, newest):
@@ -550,27 +557,129 @@ async def test_a_source_scanned_before_the_history_fetch_existed_starts_at_its_n
 
 
 @pytest.mark.asyncio
-async def test_a_sources_progress_is_stored_while_its_history_is_read(arr_app, polling):
+async def test_a_source_nothing_was_read_from_reports_no_progress(arr_app):
     source = await _long_source(arr_app)
 
-    async def one_batch_counted():
-        row = await _channel_row(arr_app, source)
-        return row if row["history_read"] == FIRST_SCAN + BATCH else None
-
-    async with polling():
-        row = await eventually(one_batch_counted)
-
-    assert row["history_total"] == LONG
-    assert row["history_complete"] == 0
-    assert row["history_next_at"] > time.time()
+    assert await _progress(arr_app, source) == {
+        "read": 0, "total_estimate": None, "complete": False, "next_batch_at": None}
 
 
 @pytest.mark.asyncio
-async def test_a_finished_history_is_stored_as_complete(arr_app, batches_only):
+async def test_progress_advances_as_batches_complete(arr_app, polling):
+    source = await _long_source(arr_app)
+
+    async def one_batch_counted():
+        progress = await _progress(arr_app, source)
+        return progress if progress["read"] == FIRST_SCAN + BATCH else None
+
+    async with polling():
+        progress = await eventually(one_batch_counted)
+
+    assert progress["total_estimate"] == LONG
+    assert progress["complete"] is False
+    assert progress["next_batch_at"] > time.time()
+
+
+@pytest.mark.asyncio
+async def test_a_finished_history_shows_complete_with_no_next_batch(arr_app, batches_only):
     source = await _scanned_source(arr_app)
 
     async with batches_only():
         await _history_finished(arr_app, source)
 
-    row = await _channel_row(arr_app, source)
-    assert (row["history_read"], row["history_total"], row["history_complete"]) == (LONG, LONG, 1)
+    assert await _progress(arr_app, source) == {
+        "read": LONG, "total_estimate": LONG, "complete": True, "next_batch_at": None}
+
+
+@pytest.mark.asyncio
+async def test_progress_is_the_same_after_a_restart(arr_app, polling, monkeypatch):
+    source = await _long_source(arr_app)
+
+    async def one_batch_counted():
+        progress = await _progress(arr_app, source)
+        return progress if progress["read"] == FIRST_SCAN + BATCH else None
+
+    async with polling():
+        before = await eventually(one_batch_counted)
+    monkeypatch.setattr(transfers, "_shutting_down", False)
+
+    async with lifespan(app):
+        after = await _progress(arr_app, source)
+        scanner._active.cancel()
+
+    assert after == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reported", [None, 0])
+async def test_the_estimate_is_absent_when_telegram_gives_no_count(arr_app, batches_only, reported):
+    arr_app.telegram.count_reported = lambda _count: reported
+    source = await _scanned_source(arr_app)
+
+    async with batches_only():
+        await _history_finished(arr_app, source)
+
+    assert await _progress(arr_app, source) == {
+        "read": LONG, "total_estimate": None, "complete": True, "next_batch_at": None}
+
+
+@pytest.mark.asyncio
+async def test_an_empty_last_read_keeps_the_estimate_telegram_gave_before(arr_app, batches_only):
+    tg = arr_app.telegram
+    source = await _scanned_source(arr_app, episodes=FIRST_SCAN + BATCH)
+    tg.count_reported = lambda _count: 0        # what an empty chunk says
+
+    async with batches_only():
+        await _history_finished(arr_app, source)
+
+    assert (await _progress(arr_app, source))["total_estimate"] == FIRST_SCAN + BATCH
+
+
+@pytest.mark.asyncio
+async def test_messages_read_twice_after_a_gap_never_pass_the_estimate(arr_app, batches_only):
+    source = await _scanned_source(arr_app)
+    arr_app.post_episodes(CHAT, SHOW, range(LONG + 1, LONG + MISSED + 1))
+    await _rescan(arr_app, source, LONG + MISSED)
+
+    async with batches_only():
+        await _history_finished(arr_app, source)
+
+    assert await _progress(arr_app, source) == {
+        "read": LONG + MISSED, "total_estimate": LONG + MISSED,
+        "complete": True, "next_batch_at": None}
+
+
+@pytest.mark.asyncio
+async def test_a_source_with_scanning_off_has_no_next_batch(arr_app):
+    source = await _scanned_source(arr_app)
+
+    await _set_scanning(arr_app, source, False)
+
+    assert (await _progress(arr_app, source))["next_batch_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_source_has_no_next_batch_until_its_history_is_recovered(arr_app):
+    source = await _scanned_source(arr_app)
+    r = await arr_app.http.patch(f"/api/channels/{source['id']}", json={"enabled": False})
+    r.raise_for_status()
+    while_disabled = (await _progress(arr_app, source))["next_batch_at"]
+
+    await _recover_history(arr_app, source)
+
+    assert while_disabled is None
+    assert (await _progress(arr_app, source))["next_batch_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_the_channels_api_keeps_the_history_cursor_to_itself(arr_app, fake_tmdb):
+    fake_tmdb.add_series(TMDB_SERIES, titles={"en-US": SHOW}, tvdb_id=TVDB_SERIES)
+    (await arr_app.http.patch("/api/settings", json={"tmdb_key": API_KEY})).raise_for_status()
+    added = await _scanned_source(arr_app)
+    patched = await arr_app.http.patch(f"/api/channels/{added['id']}", json={"poll_minutes": 30})
+    mapped = await arr_app.http.put(f"/api/channels/{added['id']}/series", json={"tmdb_id": TMDB_SERIES})
+
+    for row in (added, patched.raise_for_status().json(), mapped.raise_for_status().json(),
+                await _channel_row(arr_app, added)):
+        assert "history" in row
+        assert [key for key in row if key.startswith("history_")] == []
