@@ -212,13 +212,14 @@ messages and notifications.
 ## Configuration reference
 
 Deploy-time settings live in `.env` (see [`.env.example`](.env.example)); many can be
-changed live in *Settings*, which override `.env`. The TMDB and *arr variables work
-the other way round: while one is set and not empty it wins over the saved value, and
-the API refuses to change that setting.
+changed live in *Settings*, which override `.env`. The Telegram API, proxy, Plex, TMDB
+and *arr variables work the other way round: while one is set and not empty it wins
+over the saved value, and the UI and API refuse to change that setting. `TG_API_ID=0`,
+the value `.env.example` ships, counts as not set.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials | required |
+| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials; win over the setup wizard | required here or in the wizard |
 | `TELEARR_SECRET_KEY` | Session-cookie signing key | set a strong random value |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Seed admin login (first run) | — |
 | `PATH_TO_DOWNLOADS` | Host folder mounted at `/downloads` | `./downloads` |
@@ -228,8 +229,9 @@ the API refuses to change that setting.
 | `PUID` / `PGID` | Only if you enable `user:` in compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Senders per file / concurrent files | `4` / `2` |
 | `TELEARR_MIN_FREE_GB` | Refuse downloads below this free space | `50` |
-| `TELEARR_PROXY` | Route Telegram through a proxy | — |
-| `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Optional upstream integrations | — |
+| `TELEARR_PROXY` | Route Telegram through a proxy; wins over *Settings* | — |
+| `PLEX_URL` / `PLEX_TOKEN` | Optional Plex refresh; win over *Settings* | — |
+| `TELEARR_NOTIFY_WEBHOOK` | Optional notification webhook | — |
 | `TELEARR_TMDB_KEY` | TMDB API key; wins over *Settings* | — |
 | `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Prowlarr connection; wins over *Connect* | — |
 | `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Sonarr connection; wins over *Connect* | — |
@@ -238,7 +240,8 @@ the API refuses to change that setting.
 ## Proxy / VPN
 
 If downloads stall on one Telegram data center, your ISP may be throttling Telegram.
-Set a proxy in *Settings → Integrations → Proxy / VPN* (or `TELEARR_PROXY`):
+Set a proxy in *Settings → Integrations → Proxy / VPN*, or with `TELEARR_PROXY`, which
+wins over the saved one and can't be changed from the UI while it is set:
 `socks5://[user:pass@]host:port`, `socks4://host:port`, `http://[user:pass@]host:port`
 or `mtproxy://<secret>@host:port`. Only Telegram traffic uses it; a bad proxy falls
 back to a direct connection.

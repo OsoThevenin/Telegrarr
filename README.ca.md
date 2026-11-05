@@ -223,13 +223,14 @@ s'aplica a la interfície, als missatges d'error i a les notificacions.
 
 La configuració de desplegament és al `.env` (vegeu [`.env.example`](.env.example));
 moltes opcions es poden canviar en calent a *Configuració*, que té prioritat sobre el
-`.env`. Les variables de TMDB i dels *arr funcionen al revés: mentre una estigui
-definida i no sigui buida, té prioritat sobre el valor desat i l’API no deixa canviar
-aquella opció.
+`.env`. Les variables de l’API de Telegram, del servidor intermediari, de Plex, de TMDB
+i dels *arr funcionen al revés: mentre una estigui definida i no sigui buida, té
+prioritat sobre el valor desat i la interfície i l’API no deixen canviar aquella opció.
+`TG_API_ID=0`, el valor que porta `.env.example`, compta com a no definit.
 
 | Variable | Funció | Per defecte |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram | obligatòries |
+| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram; tenen prioritat sobre l’assistent de configuració | obligatòries aquí o a l’assistent |
 | `TELEARR_SECRET_KEY` | Clau de signatura de la galeta de sessió | posa-hi un valor aleatori llarg |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Usuari administrador inicial (primera execució) | — |
 | `PATH_TO_DOWNLOADS` | Carpeta de l'amfitrió muntada a `/downloads` | `./downloads` |
@@ -239,8 +240,9 @@ aquella opció.
 | `PUID` / `PGID` | Només si actives `user:` al compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Connexions per fitxer / fitxers simultanis | `4` / `2` |
 | `TELEARR_MIN_FREE_GB` | No baixa res per sota d'aquest espai lliure | `50` |
-| `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari | — |
-| `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Integracions opcionals heretades | — |
+| `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari; té prioritat sobre *Configuració* | — |
+| `PLEX_URL` / `PLEX_TOKEN` | Actualització opcional de Plex; tenen prioritat sobre *Configuració* | — |
+| `TELEARR_NOTIFY_WEBHOOK` | Webhook opcional de notificacions | — |
 | `TELEARR_TMDB_KEY` | Clau de l’API de TMDB; té prioritat sobre *Configuració* | — |
 | `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Connexió amb Prowlarr; té prioritat sobre *Connexió* | — |
 | `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Connexió amb Sonarr; té prioritat sobre *Connexió* | — |
@@ -250,7 +252,8 @@ aquella opció.
 
 Si les baixades s'encallen en un centre de dades concret de Telegram, és possible que
 el teu proveïdor estigui limitant Telegram. Configura un servidor intermediari a
-*Configuració → Integracions → Servidor intermediari / VPN* (o `TELEARR_PROXY`):
+*Configuració → Integracions → Servidor intermediari / VPN*, o amb `TELEARR_PROXY`, que
+té prioritat sobre el desat i no es pot canviar des de la interfície mentre estigui definit:
 `socks5://[usuari:contrasenya@]amfitrió:port`, `socks4://amfitrió:port`,
 `http://[usuari:contrasenya@]amfitrió:port` o `mtproxy://<secret>@amfitrió:port`.
 Només el trànsit de Telegram hi passa; si no funciona, es torna a la connexió directa.

@@ -35,8 +35,8 @@ DEFAULTS = {
     "max_concurrent": config.MAX_CONCURRENT_DOWNLOADS,
     "min_free_gb": config.MIN_FREE_SPACE_GB,
     "progress_interval": config.PROGRESS_MIN_INTERVAL,
-    "plex_url": config.PLEX_URL,
-    "plex_token": config.PLEX_TOKEN,
+    "plex_url": "",
+    "plex_token": "",
     "notify_webhook": config.NOTIFY_WEBHOOK,
     "notify_telegram": "0",        # DM completed downloads to the account's Saved Messages
     "default_poll_minutes": config.POLL_FLOOR_MINUTES,
@@ -78,7 +78,15 @@ ENV_VARS = {
     "sonarr_key": "TELEARR_SONARR_KEY",
     "radarr_url": "TELEARR_RADARR_URL",
     "radarr_key": "TELEARR_RADARR_KEY",
+    "tg_api_id": "TG_API_ID",
+    "tg_api_hash": "TG_API_HASH",
+    "plex_url": "PLEX_URL",
+    "plex_token": "PLEX_TOKEN",
+    "tg_proxy": "TELEARR_PROXY",
 }
+# Env values that mean "not provisioned". .env.example ships TG_API_ID=0, and locking
+# on it would refuse the setup wizard on every fresh install.
+ENV_PLACEHOLDERS = {"tg_api_id": "0"}
 
 
 def _env_value(key: str) -> str:
@@ -87,6 +95,8 @@ def _env_value(key: str) -> str:
     A value its coercer rejects stays as written: the operator's env still wins,
     and using it fails visibly as a connection error."""
     raw = os.environ.get(ENV_VARS[key], "").strip() if key in ENV_VARS else ""
+    if raw == ENV_PLACEHOLDERS.get(key):
+        return ""
     if not raw or key not in WRITABLE:
         return raw
     try:
@@ -272,14 +282,17 @@ def apply(payload: dict) -> dict:
     for an env-locked setting, whatever it is."""
     coerced = {}
     for k, v in payload.items():
-        if k in WRITABLE and v is not None:
-            refuse_if_env_locked(k)
-            try:
-                coerced[k] = WRITABLE[k](v)
-            except SettingRejected:
-                raise
-            except (TypeError, ValueError):
-                pass
+        if v is None:
+            continue
+        refuse_if_env_locked(k)      # also keys only their own endpoint can write
+        if k not in WRITABLE:
+            continue
+        try:
+            coerced[k] = WRITABLE[k](v)
+        except SettingRejected:
+            raise
+        except (TypeError, ValueError):
+            pass
     for k, v in coerced.items():
         set(k, v)
     return public()

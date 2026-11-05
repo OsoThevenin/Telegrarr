@@ -104,8 +104,8 @@ async def test_invite_link_for_non_member_asks_user_to_join(monkeypatch):
 
 def test_cli_login_registers_the_same_device_as_the_service(recorder, monkeypatch):
     import authorize
-    monkeypatch.setattr(tg, "API_ID", 12345)
-    monkeypatch.setattr(tg, "API_HASH", "test-hash")
+    monkeypatch.setenv("TG_API_ID", "12345")
+    monkeypatch.setenv("TG_API_HASH", "test-hash")
 
     client = authorize.build_client()
 
@@ -118,8 +118,8 @@ def test_cli_login_registers_the_same_device_as_the_service(recorder, monkeypatc
 
 def test_cli_login_without_api_credentials_exits_with_guidance(recorder, monkeypatch):
     import authorize
-    monkeypatch.setattr(tg, "API_ID", 0)
-    monkeypatch.setattr(tg, "API_HASH", "")
+    monkeypatch.delenv("TG_API_ID", raising=False)
+    monkeypatch.delenv("TG_API_HASH", raising=False)
 
     with pytest.raises(SystemExit) as exited:
         authorize.build_client()
