@@ -1,4 +1,4 @@
-# app/settings.py — DB-backed runtime settings with env-based defaults.
+# app/settings.py — DB-backed runtime settings, overridden by the env vars in ENV_VARS.
 # Anything here can be changed from the UI and takes effect live (no rebuild),
 # except the env-backed settings in ENV_VARS while their env var is set.
 import functools

@@ -140,7 +140,10 @@ Keep commits focused and the history readable; squash noise before opening the P
 1. Fork the repo and create a branch from `main`.
 2. Make your change, add/adjust tests, and update docs (`README.md`, `docs/`,
    `CHANGELOG.md`) when behavior or setup changes.
-3. Run `python -m pytest -q` and `ruff check app` locally — CI runs the same.
+3. Run `python -m pytest -q` and `ruff check .` locally — CI runs the same. CI's
+   `container` job also builds the image and runs `tests/container/puid_pgid.sh`. If
+   you touch the `Dockerfile` or `docker/entrypoint.sh`, run that script too; it only
+   needs Docker.
 4. Open a PR against `main`, fill in the
    [pull-request template](.github/pull_request_template.md), and link the issue it
    closes (`Closes #123`).
