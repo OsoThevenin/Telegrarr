@@ -72,10 +72,12 @@ image, remove `build: .` and set `image: ghcr.io/osothevenin/telegrarr:1.0.0`.
   - `/data` is re-owned on every start, so changing the ids doesn't break the
     database. With `TELEARR_DATA_DIR` or `TELEARR_LOG_DIR` set, those folders are
     the ones re-owned.
-  - The downloads folder (`TELEARR_DOWNLOADS_DIR`) is re-owned only when the folder
-    itself has another owner. That change is recursive, so it can take a while on a
-    large folder and it also covers what Sonarr and Radarr keep there. If it fails,
-    the container logs a warning and starts anyway.
+  - In the downloads folder (`TELEARR_DOWNLOADS_DIR`), two things are re-owned, each
+    only when its owner isn't `PUID`: the folder itself, without what's in it, and
+    Telegrarr's own `telegram/` subfolder, recursively. A folder owned by `PUID` with
+    a shared group, such as `1000:media`, stays as it is, and what Sonarr and Radarr
+    keep beside `telegram/` is never touched. If a change fails, the container logs
+    a warning and starts anyway.
   - `/media` and a downloads folder set in *Settings → Downloads* are never touched:
     they must already be writable by `PUID:PGID`.
   - `0` and anything that isn't a plain number are refused: the container exits

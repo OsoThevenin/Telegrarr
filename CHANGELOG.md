@@ -51,8 +51,10 @@
   are never returned. Nothing changes for deployments that don't set them.
 - `PUID` and `PGID` env vars, LinuxServer-style. The container starts as root, aligns
   its app user with them (default 1000:1000), re-owns the data and log directories on
-  every start and the downloads root when its owner differs, then runs the app as that
-  user. `0` and non-numeric values stop the container with an error. Compose `user:`
+  every start, then runs the app as that user. In the downloads root it re-owns only
+  the root itself and its `telegram/` subfolder, each when its owner isn't `PUID`, so
+  a shared group and what Sonarr and Radarr keep there stay as they are.
+  `0` and non-numeric values stop the container with an error. Compose `user:`
   works as before and skips all of this. A new CI job checks it on a running container.
 
 ### Changed

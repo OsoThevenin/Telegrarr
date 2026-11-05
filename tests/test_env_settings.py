@@ -4,7 +4,7 @@ The outside view: the settings API, and what actually reaches TMDB and the *arr
 apps on the wire (tests/fake_tmdb.py, tests/fake_arr.py)."""
 import pytest
 
-from app import i18n
+from app import i18n, settings
 from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY
 from fake_tmdb import API_KEY as TMDB_KEY
 
@@ -21,10 +21,6 @@ def _set_arr_env(monkeypatch, app: str) -> None:
     url_var, url, key_var, key = ENV_FOR_APP[app]
     monkeypatch.setenv(url_var, url)
     monkeypatch.setenv(key_var, key)
-
-
-async def _settings(arr_app) -> dict:
-    return (await arr_app.http.get("/api/settings")).raise_for_status().json()["settings"]
 
 
 # ── the env value is the effective value ──────────────────────────────
@@ -74,7 +70,7 @@ async def test_settings_api_reports_the_env_url_over_the_database(arr_app, monke
     await arr_app.http.patch("/api/settings", json={"sonarr_url": "http://stale.test:1"})
     monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
 
-    assert (await _settings(arr_app))["sonarr_url"] == "http://sonarr.test:8989"
+    assert (await arr_app.settings())["sonarr_url"] == "http://sonarr.test:8989"
 
 
 @pytest.mark.asyncio
@@ -82,7 +78,7 @@ async def test_key_set_flags_follow_the_env_on_a_fresh_database(arr_app, monkeyp
     monkeypatch.setenv("TELEARR_TMDB_KEY", "env-tmdb-key")
     monkeypatch.setenv("TELEARR_RADARR_KEY", "env-radarr-key")
 
-    view = await _settings(arr_app)
+    view = await arr_app.settings()
 
     assert view["tmdb_key_set"] is True
     assert view["radarr_key_set"] is True
@@ -97,7 +93,7 @@ async def test_env_url_is_normalised_like_a_saved_one(arr_app, arrs, monkeypatch
     r = await arr_app.http.post("/api/connect/test", json={"app": "sonarr"})
 
     assert r.json()["ok"] is True
-    assert (await _settings(arr_app))["sonarr_url"] == "http://sonarr.test:8989"
+    assert (await arr_app.settings())["sonarr_url"] == "http://sonarr.test:8989"
 
 
 @pytest.mark.asyncio
@@ -126,7 +122,21 @@ async def test_env_url_of_another_scheme_still_wins_and_fails_as_a_connection(ar
 
     assert r.json()["ok"] is False
     assert r.json()["error"]["key"] == "err.arr.unreachable"
-    assert (await _settings(arr_app))["sonarr_url"] == "sonarr.test:8989"
+    assert (await arr_app.settings())["sonarr_url"] == "sonarr.test:8989"
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_env_value_is_warned_about_once_without_showing_it(arr_app, monkeypatch, caplog):
+    settings._warn_env_value_rejected.cache_clear()
+    monkeypatch.setenv("TELEARR_SONARR_URL", "ftp://operator:env-secret@sonarr.test")
+
+    await arr_app.settings()
+    view = await arr_app.settings()
+
+    assert view["sonarr_url"] == "ftp://operator:env-secret@sonarr.test"
+    warnings = [r.getMessage() for r in caplog.records if "TELEARR_SONARR_URL" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "env-secret" not in caplog.text
 
 
 # ── without an env value the database decides, as before ──────────────
@@ -136,27 +146,27 @@ async def test_blank_env_var_falls_back_to_the_database(arr_app, monkeypatch, bl
     await arr_app.http.patch("/api/settings", json={"sonarr_url": "http://saved.test:8989"})
     monkeypatch.setenv("TELEARR_SONARR_URL", blank)
 
-    assert (await _settings(arr_app))["sonarr_url"] == "http://saved.test:8989"
+    assert (await arr_app.settings())["sonarr_url"] == "http://saved.test:8989"
 
 
 @pytest.mark.asyncio
 async def test_unset_env_var_falls_back_to_the_database_then_the_default(arr_app):
-    assert (await _settings(arr_app))["radarr_url"] == ""
+    assert (await arr_app.settings())["radarr_url"] == ""
 
     await arr_app.http.patch("/api/settings", json={"radarr_url": "http://saved.test:7878"})
 
-    assert (await _settings(arr_app))["radarr_url"] == "http://saved.test:7878"
+    assert (await arr_app.settings())["radarr_url"] == "http://saved.test:7878"
 
 
 @pytest.mark.asyncio
 async def test_database_value_returns_when_the_env_var_is_removed(arr_app, monkeypatch):
     await arr_app.http.patch("/api/settings", json={"radarr_url": "http://saved.test:7878"})
     monkeypatch.setenv("TELEARR_RADARR_URL", "http://radarr.env:7878")
-    assert (await _settings(arr_app))["radarr_url"] == "http://radarr.env:7878"
+    assert (await arr_app.settings())["radarr_url"] == "http://radarr.env:7878"
 
     monkeypatch.delenv("TELEARR_RADARR_URL")
 
-    assert (await _settings(arr_app))["radarr_url"] == "http://saved.test:7878"
+    assert (await arr_app.settings())["radarr_url"] == "http://saved.test:7878"
 
 
 # ── the settings payload reports what env locks ───────────────────────
@@ -167,7 +177,7 @@ ENV_LOCK_FLAGS = {"tmdb_key_env_locked", "prowlarr_url_env_locked", "prowlarr_ke
 
 @pytest.mark.asyncio
 async def test_nothing_is_env_locked_with_the_env_vars_unset(arr_app):
-    view = await _settings(arr_app)
+    view = await arr_app.settings()
 
     assert {flag: view[flag] for flag in ENV_LOCK_FLAGS} == dict.fromkeys(ENV_LOCK_FLAGS, False)
 
@@ -177,7 +187,7 @@ async def test_payload_marks_exactly_the_settings_env_provides(arr_app, monkeypa
     monkeypatch.setenv("TELEARR_TMDB_KEY", "env-tmdb-key")
     monkeypatch.setenv("TELEARR_SONARR_URL", "http://sonarr.test:8989")
 
-    view = await _settings(arr_app)
+    view = await arr_app.settings()
 
     assert {flag for flag in ENV_LOCK_FLAGS if view[flag]} == {"tmdb_key_env_locked", "sonarr_url_env_locked"}
 
@@ -186,7 +196,7 @@ async def test_payload_marks_exactly_the_settings_env_provides(arr_app, monkeypa
 async def test_a_blank_env_var_does_not_lock(arr_app, monkeypatch):
     monkeypatch.setenv("TELEARR_TMDB_KEY", "  ")
 
-    assert (await _settings(arr_app))["tmdb_key_env_locked"] is False
+    assert (await arr_app.settings())["tmdb_key_env_locked"] is False
 
 
 # ── writes to a locked setting are refused ────────────────────────────
@@ -246,7 +256,7 @@ async def test_refused_write_leaves_the_saved_value_for_when_the_env_var_goes(ar
 
     monkeypatch.delenv("TELEARR_SONARR_URL")
 
-    assert (await _settings(arr_app))["sonarr_url"] == "http://saved.test:8989"
+    assert (await arr_app.settings())["sonarr_url"] == "http://saved.test:8989"
 
 
 @pytest.mark.asyncio
@@ -256,7 +266,7 @@ async def test_patch_touching_a_locked_setting_persists_nothing(arr_app, monkeyp
     r = await arr_app.http.patch("/api/settings", json={"daily_budget_gb": 5, "sonarr_key": "new-key"})
 
     assert r.status_code == 400
-    assert (await _settings(arr_app))["daily_budget_gb"] == 0
+    assert (await arr_app.settings())["daily_budget_gb"] == 0
 
 
 @pytest.mark.asyncio

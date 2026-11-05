@@ -7,6 +7,7 @@ import { channelTopics } from "./channel-topics.js";
 import { seriesMapper } from "./series-mapper.js";
 import { isRetryable, retryableIds } from "./retry.js";
 import { cancelToast, retryToast, bulkRetryToast } from "./download-toasts.js";
+import { savedToast, proxyClearToast } from "./settings-toasts.js";
 import { catalogSection, catalogBack, catalogClosed } from "./catalog.js";
 import { t, tn, tOr, msg, lang, locale, fmtDateTime } from "./i18n.js";
 
@@ -542,7 +543,7 @@ export function viewSettings(ctx) {
       row(t("set.plex_url"), inp("set-plex_url", s.plex_url), t("common.example", { value: "http://plex_local:32400" })),
       row(t("set.plex_token") + (s.plex_token_set ? ` ${t("common.saved_suffix")}` : ""), inp("set-plex_token", "", "password")),
       h("div", { class: "set-actions" },
-        h("button", { class: "btn primary sm", onClick: async () => { const f = { plex_url: root.querySelector("#set-plex_url").value }; const tk = root.querySelector("#set-plex_token").value; if (tk) f.plex_token = tk; await jpatch("/api/settings", f); toast(t("set.plex_saved"), "ok"); } }, t("common.save")),
+        h("button", { class: "btn primary sm", onClick: async () => { const f = { plex_url: root.querySelector("#set-plex_url").value }; const tk = root.querySelector("#set-plex_token").value; if (tk) f.plex_token = tk; showToast(savedToast(await jpatch("/api/settings", f), "set.plex_saved")); } }, t("common.save")),
         h("button", { class: "btn ghost sm", onClick: async () => { const r = await api("/api/integrations/plex/test", { method: "POST" }); if (r) { plexOut.textContent = msg(r.detail); plexOut.style.color = `var(--${r.ok ? "ok" : "err"})`; } } }, t("common.test")), plexOut));
 
     const notifyOut = h("span", { class: "test-out" });
@@ -561,7 +562,7 @@ export function viewSettings(ctx) {
       h("div", { class: "muted small", style: "margin-bottom:10px" }, t("set.tmdb_intro")),
       row(t("common.api_key") + (s.tmdb_key_set ? ` ${t("common.saved_suffix")}` : ""), inp("set-tmdb_key", "", "password")),
       h("div", { class: "set-actions" },
-        h("button", { class: "btn primary sm", onClick: async () => { const tk = root.querySelector("#set-tmdb_key").value; if (tk) await jpatch("/api/settings", { tmdb_key: tk }); toast(t("set.tmdb_saved"), "ok"); } }, t("common.save")),
+        h("button", { class: "btn primary sm", onClick: async () => { const tk = root.querySelector("#set-tmdb_key").value; if (tk) showToast(savedToast(await jpatch("/api/settings", { tmdb_key: tk }), "set.tmdb_saved")); } }, t("common.save")),
         h("button", { class: "btn ghost sm", onClick: async () => { tmdbOut.textContent = t("common.testing"); tmdbOut.style.color = "var(--muted)"; const r = await jpost("/api/integrations/tmdb/test", { key: root.querySelector("#set-tmdb_key").value }); if (r) { tmdbOut.textContent = msg(r.detail); tmdbOut.style.color = `var(--${r.ok ? "ok" : "err"})`; } } }, t("common.test")), tmdbOut),
       h("div", { class: "muted small", style: "margin-top:10px" }, t("set.tmdb_attribution")));
 
@@ -610,7 +611,7 @@ export function viewSettings(ctx) {
           const r = await jpost("/api/telegram/proxy", { proxy: proxyInp.value });
           if (r) { const ok = !r.error; proxyOut.textContent = ok ? t("set.proxy_connected", { via: r.proxy || t("set.proxy_direct") }) : msg(r.error); proxyOut.style.color = `var(--${ok ? "ok" : "err"})`; if (ok) proxyInp.value = ""; }
         } }, t("common.save_test")),
-        s.proxy_set ? h("button", { class: "btn ghost sm", onClick: async () => { const r = await jpost("/api/telegram/proxy", { proxy: "" }); if (r && !r.error) { toast(t("set.proxy_cleared"), "ok"); ctx.rerender(); } } }, t("common.clear")) : null,
+        s.proxy_set ? h("button", { class: "btn ghost sm", onClick: async () => { const r = await jpost("/api/telegram/proxy", { proxy: "" }); showToast(proxyClearToast(r)); if (r && !r.error) ctx.rerender(); } }, t("common.clear")) : null,
         proxyOut));
 
     // Grouped into tabs (was one long column). Cards are built once; switching

@@ -60,9 +60,7 @@ DEFAULT_USER = os.getenv("TELEARR_ADMIN_USER", "admin")
 DEFAULT_PASS = os.getenv("TELEARR_ADMIN_PASS", "")
 
 # ── Integrations (all optional) ───────────────────────────────────────
-# Only for summary(): the Plex client resolves these through app/settings.py (ENV_VARS).
-PLEX_URL = os.getenv("PLEX_URL", "").rstrip("/")        # e.g. http://plex_local:32400
-PLEX_TOKEN = os.getenv("PLEX_TOKEN", "")
+# PLEX_URL / PLEX_TOKEN are read by app/settings.py (ENV_VARS).
 NOTIFY_WEBHOOK = os.getenv("TELEARR_NOTIFY_WEBHOOK", "") # Discord/Slack/generic JSON
 
 # ── Proxy / VPN for the Telegram client (optional) ─────────────────────
@@ -83,6 +81,5 @@ def summary() -> dict:
         "movies_dir": MOVIES_DIR, "other_dir": OTHER_DIR,
         "dl_workers": DL_WORKERS, "max_concurrent": MAX_CONCURRENT_DOWNLOADS,
         "min_free_gb": MIN_FREE_SPACE_GB,
-        "plex": bool(PLEX_URL and PLEX_TOKEN),
         "notify": bool(NOTIFY_WEBHOOK),
     }

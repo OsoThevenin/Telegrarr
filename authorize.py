@@ -13,7 +13,8 @@ MISSING_CREDS = ("Telegram API credentials are missing. Set TG_API_ID and TG_API
                  "in .env (from https://my.telegram.org -> API development tools) and "
                  "recreate the container, or sign in from the web UI setup wizard instead.")
 RUNNING_AS_ROOT = ("Refusing to run as root: the session file would be owned by root and the "
-                   "app couldn't use it. Run `docker compose run --rm telegrarr python authorize.py`, "
+                   "app couldn't use it. Run "
+                   "`docker compose run --rm telegrarr python authorize.py`, "
                    "or add `-u telegrarr` to your `docker exec`.")
 
 

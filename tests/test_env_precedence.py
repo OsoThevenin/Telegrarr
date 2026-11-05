@@ -52,10 +52,6 @@ async def _save_api_creds(arr_app, api_id=SAVED_API_ID, api_hash=SAVED_API_HASH)
     assert r.json() == {"ok": True}
 
 
-async def _settings(arr_app) -> dict:
-    return (await arr_app.http.get("/api/settings")).raise_for_status().json()["settings"]
-
-
 async def _auth(arr_app) -> dict:
     return (await arr_app.http.get("/api/telegram/auth")).raise_for_status().json()
 
@@ -78,7 +74,7 @@ async def test_the_shipped_zero_api_id_leaves_the_setup_wizard_working(arr_app, 
     monkeypatch.setenv("TG_API_ID", shipped)     # .env.example ships TG_API_ID=0
     monkeypatch.setenv("TG_API_HASH", "")
 
-    assert (await _settings(arr_app))["tg_api_id_env_locked"] is False
+    assert (await arr_app.settings())["tg_api_id_env_locked"] is False
     await _save_api_creds(arr_app)
     await _auth(arr_app)
 
@@ -91,7 +87,7 @@ async def test_api_id_that_is_not_a_number_still_wins_and_shows_setup_as_not_rea
     monkeypatch.setenv("TG_API_ID", "not-a-number")
 
     assert (await _auth(arr_app))["api_ready"] is False
-    assert (await _settings(arr_app))["tg_api_id_env_locked"] is True
+    assert (await arr_app.settings())["tg_api_id_env_locked"] is True
 
 
 @pytest.mark.asyncio
@@ -111,7 +107,7 @@ async def test_telegram_setup_refuses_credentials_env_provides(arr_app, built_cl
     r = await arr_app.http.post("/api/telegram/auth/api", json={"api_id": SAVED_API_ID, "api_hash": SAVED_API_HASH})
 
     assert r.json() == {"error": {"key": "err.settings.env_locked", "params": {"env": locked_env}}}
-    assert (await _settings(arr_app))[f"{setting}_env_locked"] is True
+    assert (await arr_app.settings())[f"{setting}_env_locked"] is True
 
 
 @pytest.mark.asyncio
@@ -212,7 +208,7 @@ async def test_settings_report_the_normalised_env_plex_url_and_lock_it(arr_app, 
     await _save_plex(arr_app)
     monkeypatch.setenv("PLEX_URL", f" {PLEX_ENV_URL}/ ")
 
-    view = await _settings(arr_app)
+    view = await arr_app.settings()
 
     assert view["plex_url"] == PLEX_ENV_URL
     assert view["plex_url_env_locked"] is True
@@ -288,7 +284,7 @@ async def test_saved_proxy_applies_with_the_env_var_unset(arr_app, built_clients
     assert (await _save_proxy(arr_app))["proxy"] == "http://proxy.saved:8080"
 
     assert built_clients[-1].kwargs["proxy"]["addr"] == "proxy.saved"
-    assert (await _settings(arr_app))["tg_proxy_env_locked"] is False
+    assert (await arr_app.settings())["tg_proxy_env_locked"] is False
 
 
 @pytest.mark.asyncio
@@ -299,7 +295,7 @@ async def test_proxy_endpoint_refuses_to_change_or_clear_the_env_proxy(arr_app, 
     r = await arr_app.http.post("/api/telegram/proxy", json={"proxy": attempt})
 
     assert r.json() == {"error": {"key": "err.settings.env_locked", "params": {"env": "TELEARR_PROXY"}}}
-    assert (await _settings(arr_app))["tg_proxy_env_locked"] is True
+    assert (await arr_app.settings())["tg_proxy_env_locked"] is True
 
 
 @pytest.mark.asyncio

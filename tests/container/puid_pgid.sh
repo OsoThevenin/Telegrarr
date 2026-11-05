@@ -109,6 +109,10 @@ assert_tree_owned_by() { # <container> <path> <uid> <gid>
     "$(docker exec "$1" find "$2" \( ! -uid "$3" -o ! -gid "$4" \) -print | head -n 5)"
 }
 
+owner_of() { # <container> <path>
+  docker exec "$1" stat -c %u:%g "$2"
+}
+
 assert_contains() { # <what> <text> <actual>
   case "$3" in
     *"$2"*) pass "$1" ;;
@@ -223,12 +227,68 @@ check_ids_already_taken_in_the_image() {
 }
 
 check_downloads_root_with_another_owner() {
-  scenario "a downloads root with another owner is re-owned"
+  scenario "a downloads root with another owner is re-owned, not what Sonarr keeps beside telegram/"
   local v c
   v=$(volume)
-  in_volume "$v" 'chown 0:0 /v && mkdir -p /v/telegram/tv && touch /v/telegram/tv/old'
+  in_volume "$v" 'chown 0:0 /v && mkdir -p /v/telegram/tv /v/tv/show && touch /v/telegram/tv/old /v/tv/show/episode &&
+    chown -R 4242:4343 /v/tv'
   c=$(start -e PUID=1100 -e PGID=1200 -v "$(volume):/data" -v "$v:/downloads")
-  wait_ready "$c" && assert_tree_owned_by "$c" /downloads 1100 1200
+  wait_ready "$c" && {
+    assert_eq "the root is re-owned" "1100:1200" "$(owner_of "$c" /downloads)"
+    assert_tree_owned_by "$c" /downloads/telegram 1100 1200
+    assert_eq "a sibling folder keeps its owner" "4242:4343" "$(owner_of "$c" /downloads/tv)"
+    assert_eq "files in it keep theirs" "4242:4343" "$(owner_of "$c" /downloads/tv/show/episode)"
+  }
+}
+
+check_downloads_root_with_a_shared_group() {
+  scenario "a root owned by PUID with a shared group is left alone, a stale telegram/ is not"
+  local v c
+  v=$(volume)
+  in_volume "$v" 'chown 1100:4343 /v && mkdir -p /v/telegram/tv && touch /v/telegram/tv/old && chown -R 4242:4242 /v/telegram'
+  c=$(start -e PUID=1100 -e PGID=1200 -v "$(volume):/data" -v "$v:/downloads")
+  wait_ready "$c" && {
+    assert_eq "the root keeps its group" "1100:4343" "$(owner_of "$c" /downloads)"
+    assert_tree_owned_by "$c" /downloads/telegram 1100 1200
+  }
+}
+
+check_id_change_leaves_telegram_writable() {
+  scenario "an id change leaves telegram/ writable"
+  local v c
+  v=$(volume)
+  in_volume "$v" 'mkdir -p /v/telegram/tv /v/tv && touch /v/telegram/tv/old && chown 4242:4242 /v/tv'
+  c=$(start -e PUID=1100 -e PGID=1200 -v "$(volume):/data" -v "$v:/downloads")
+  wait_ready "$c" && docker rm -f "$c" >/dev/null
+  c=$(start -e PUID=1300 -e PGID=1400 -v "$(volume):/data" -v "$v:/downloads")
+  wait_ready "$c" && {
+    assert_tree_owned_by "$c" /downloads/telegram 1300 1400
+    if docker exec -u telegrarr "$c" sh -c 'touch /downloads/telegram/tv/new && mkdir /downloads/telegram/movies'; then
+      pass "the app user writes in telegram/"
+    else
+      fail "the app user can't write in telegram/"
+    fi
+    assert_eq "a sibling folder keeps its owner" "4242:4242" "$(owner_of "$c" /downloads/tv)"
+  }
+}
+
+check_symlink_as_telegram_is_not_followed() {
+  scenario "a telegram/ that is a symlink doesn't re-own its target"
+  local v c
+  v=$(volume)
+  in_volume "$v" 'ln -s /etc /v/telegram'
+  c=$(start -e PUID=1100 -e PGID=1200 -v "$(volume):/data" -v "$v:/downloads")
+  wait_ready "$c" && assert_eq "/etc/passwd stays root's" "0:0" "$(owner_of "$c" /etc/passwd)"
+}
+
+check_downloads_root_set_to_slash() {
+  scenario "a downloads folder set to / is refused with a warning"
+  local c
+  c=$(start -e PUID=1100 -e PGID=1200 -e TELEARR_DOWNLOADS_DIR=/ -v "$(volume):/data")
+  wait_ready "$c" && {
+    assert_eq "/ stays root's" "0:0" "$(owner_of "$c" /)"
+    assert_logged "$c" "could not take ownership of /"
+  }
 }
 
 check_downloads_root_already_owned() {
@@ -239,7 +299,7 @@ check_downloads_root_already_owned() {
   c=$(start -e PUID=1100 -e PGID=1200 -v "$(volume):/data" -v "$v:/downloads")
   wait_ready "$c" && {
     assert_eq "files below it keep their owner" "4242:4242" \
-      "$(docker exec "$c" stat -c %u:%g /downloads/sonarr-file)"
+      "$(owner_of "$c" /downloads/sonarr-file)"
   }
 }
 
@@ -337,6 +397,10 @@ check_symlink_in_data_is_not_followed
 check_restart_keeps_working
 check_ids_already_taken_in_the_image
 check_downloads_root_with_another_owner
+check_downloads_root_with_a_shared_group
+check_id_change_leaves_telegram_writable
+check_symlink_as_telegram_is_not_followed
+check_downloads_root_set_to_slash
 check_downloads_root_already_owned
 check_downloads_root_that_refuses_chown
 check_overridden_directories
