@@ -1,15 +1,16 @@
 import { useRef, useState, type RefObject } from "react";
 
+import { toast } from "sonner";
+
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n/use-i18n";
 import { ChannelCard } from "@/screens/channels/ChannelCard";
 import { ChannelEditDialog } from "@/screens/channels/ChannelEditDialog";
 import { ChannelSheet } from "@/screens/channels/ChannelSheet";
-import { NoticeLine } from "@/screens/channels/NoticeLine";
 import { RemoveDialog, type Removal } from "@/screens/channels/RemoveDialog";
 import { groupIntoShows, tabOf, type Channel, type ChannelTab, type Show } from "@/screens/channels/channel";
-import { useChannelActions, useNotice, type Notify } from "@/screens/channels/channel-actions";
+import { useChannelActions } from "@/screens/channels/channel-actions";
 import type { ChannelControls } from "@/screens/channels/channel-controls";
 import { useChannels } from "@/screens/channels/queries";
 import { useOverlay } from "@/screens/channels/use-overlay";
@@ -29,12 +30,12 @@ export function ChannelsScreen() {
 }
 
 /** What can be open over the grid, and the controls that open it. */
-function useChannelOverlays(page: RefObject<HTMLElement | null>, notify: Notify) {
+function useChannelOverlays(page: RefObject<HTMLElement | null>) {
   const { t } = useI18n();
   const sheet = useOverlay<Show["key"]>(page);
   const removal = useOverlay<Removal>(page);
   const editing = useOverlay<Channel>(page);
-  const actions = useChannelActions(notify);
+  const actions = useChannelActions();
 
   const controls: ChannelControls = {
     actions,
@@ -49,7 +50,7 @@ function useChannelOverlays(page: RefObject<HTMLElement | null>, notify: Notify)
   };
 
   const confirmSaved = () => {
-    notify({ tone: "ok", text: t("chm.updated") });
+    toast.success(t("chm.updated"));
     editing.close();
   };
 
@@ -58,24 +59,22 @@ function useChannelOverlays(page: RefObject<HTMLElement | null>, notify: Notify)
 
 function ChannelBrowser({ channels }: { channels: Channel[] }) {
   const [tab, setTab] = useState<ChannelTab>("series");
-  const [notice, notify] = useNotice();
   const page = useRef<HTMLDivElement>(null);
-  const { sheet, removal, editing, controls, confirmRemoval, confirmSaved } = useChannelOverlays(page, notify);
+  const { sheet, removal, editing, controls, confirmRemoval, confirmSaved } = useChannelOverlays(page);
 
   const shows = { series: showsOn("series", channels), movies: showsOn("movies", channels) };
   // Looked up on every render, so the Sheet follows the list as its sources change.
-  const sheetShow = shows[tab].find(({ key }) => key === sheet.target);
+  // On both tabs: an edit can move an open show to the other one.
+  const sheetShow = [...shows.series, ...shows.movies].find(({ key }) => key === sheet.target);
   const removing = removal.target;
 
   return (
     <div ref={page} tabIndex={-1} className="outline-none">
-      <NoticeLine notice={sheetShow && sheet.isOpen ? null : notice} />
       <ChannelTabs tab={tab} onTabChange={setTab} series={shows.series} movies={shows.movies} controls={controls} />
       {sheetShow && (
         <ChannelSheet
           show={sheetShow}
           isOpen={sheet.isOpen}
-          notice={notice}
           controls={controls}
           onClose={sheet.close}
           onCloseAutoFocus={sheet.onCloseAutoFocus}

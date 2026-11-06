@@ -164,7 +164,7 @@ describe("card actions", () => {
     const { user } = await openChannels();
     await user.click(screen.getByRole("button", { name: "Escaneja Dark" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’estan escanejant 2 fonts");
+    expect(await screen.findByText("S’estan escanejant 2 fonts")).toBeVisible();
     expect(scanned).toEqual(["1", "2"]);
   });
 
@@ -182,7 +182,7 @@ describe("card actions", () => {
     const { user } = await openChannels();
     await user.click(screen.getByRole("button", { name: "Escaneja Dark" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Font A: L’escaneig d’aquest canal està desactivat.");
+    expect(await screen.findByText(/^Font A: L’escaneig d’aquest canal està desactivat/)).toBeVisible();
     expect(secondScan).toHaveBeenCalled();
   });
 
@@ -222,7 +222,7 @@ describe("card actions", () => {
     await user.click(screen.getByRole("button", { name: "Accions de Cinema Club" }));
     await user.click(await screen.findByRole("menuitem", { name: "Recupera l’historial" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha començat a recuperar l’historial");
+    expect(await screen.findByText("S’ha començat a recuperar l’historial")).toBeVisible();
     expect(backfill).toHaveBeenCalled();
   });
 
@@ -272,7 +272,7 @@ describe("card actions", () => {
     expect(dialog).toHaveTextContent("Vols eliminar aquest canal?");
     await user.click(within(dialog).getByRole("button", { name: "Elimina" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha eliminat el canal");
+    expect(await screen.findByText("S’ha eliminat el canal")).toBeVisible();
     await waitFor(() => expect(queryCardButton("Cinema Club")).not.toBeInTheDocument());
     expect(removed).toHaveBeenCalledOnce();
   });
@@ -438,7 +438,7 @@ describe("Sheet", () => {
     const { user, sheet } = await openSheet("Cinema Club");
     await user.click(within(sheet).getByRole("button", { name: "Escaneja" }));
 
-    expect(await within(sheet).findByRole("status")).toHaveTextContent("S’està escanejant 1 font");
+    expect(await screen.findByText("S’està escanejant 1 font")).toBeVisible();
   });
 
   it("turns one source off without touching the others", async () => {
@@ -573,7 +573,7 @@ describe("edit dialog", () => {
     expect(bodies).toEqual([
       { kind: "movie", language: "en", fallback_quality: "1080p", weekdays: "0,4", poll_minutes: 60 },
     ]);
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha actualitzat el canal");
+    expect(await screen.findByText("S’ha actualitzat el canal")).toBeVisible();
     await waitFor(() => expect(screen.getByRole("button", { name: ACTIONS })).toHaveFocus());
   });
 
@@ -623,6 +623,30 @@ describe("edit dialog", () => {
     expect(bodies).toEqual([]);
   });
 
+  it("keeps the Sheet with the channel when an edit moves it to the other tab", async () => {
+    const rows = (kind: string) => [channel({ id: 1, title: "Cinema Club", kind })];
+    let kind = "tv";
+    server.use(
+      http.get("/api/channels", () => HttpResponse.json(rows(kind))),
+      http.get("/api/downloads", () => HttpResponse.json([])),
+      http.get("/api/channels/1/catalog", () => HttpResponse.json({ rows: [] })),
+      http.patch("/api/channels/1", () => {
+        kind = "movie";
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    const { user } = await openChannels();
+    await user.click(cardButton("Cinema Club"));
+    const sheet = await screen.findByRole("dialog");
+    await user.click(within(sheet).getByRole("button", { name: "Edita" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edita el canal" });
+    await user.selectOptions(within(dialog).getByLabelText("Tipus"), "movie");
+    await user.click(saveButton(dialog));
+
+    expect(await within(sheet).findByRole("heading", { name: "Catàleg" })).toBeVisible();
+  });
+
   it("edits one source from the Sheet and goes back to it", async () => {
     const DARK = { imdb_id: "tt1", imdb_title: "Dark" };
     serveChannels([channel({ id: 1, title: "Font A", ...DARK }), channel({ id: 2, title: "Font B", ...DARK })]);
@@ -644,7 +668,7 @@ describe("edit dialog", () => {
     await waitFor(() => expect(bodies).toHaveLength(1));
     await waitFor(() => expect(secondEdit).toHaveFocus());
     expect(screen.getByRole("dialog", { name: /Dark/ })).toBeVisible();
-    expect(await within(sheet).findByRole("status")).toHaveTextContent("S’ha actualitzat el canal");
+    expect(await screen.findByText("S’ha actualitzat el canal")).toBeVisible();
   });
 });
 
@@ -663,6 +687,6 @@ describe("channel list", () => {
 
     await renderApp({ route: "/ui/channels" });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("boom");
+    expect(await screen.findByText(/boom/)).toBeVisible();
   });
 });

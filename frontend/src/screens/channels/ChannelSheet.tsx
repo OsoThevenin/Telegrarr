@@ -14,7 +14,6 @@ import { useI18n } from "@/i18n/use-i18n";
 import { CatalogSection } from "@/screens/channels/CatalogSection";
 import { ChannelPoster } from "@/screens/channels/ChannelPoster";
 import { EpisodesList } from "@/screens/channels/EpisodesList";
-import { NoticeLine } from "@/screens/channels/NoticeLine";
 import { SourceRow } from "@/screens/channels/SourceRow";
 import {
   isMovieChannel,
@@ -25,21 +24,19 @@ import {
   sourceLabel,
   type Show,
 } from "@/screens/channels/channel";
-import type { Notice } from "@/screens/channels/channel-actions";
 import type { ChannelControls } from "@/screens/channels/channel-controls";
 import { useArt, useShowPoster, type Art } from "@/screens/channels/queries";
 
 type Props = {
   show: Show;
   isOpen: boolean;
-  notice: Notice | null;
   controls: ChannelControls;
   onClose: () => void;
   onCloseAutoFocus: (event: Event) => void;
 };
 
 /** A show's details and everything that can be done to it, for both kinds of channel. */
-export function ChannelSheet({ show, isOpen, notice, controls, onClose, onCloseAutoFocus }: Props) {
+export function ChannelSheet({ show, isOpen, controls, onClose, onCloseAutoFocus }: Props) {
   const { t } = useI18n();
   const art = useArt(show.lead.imdb_id).data ?? {};
   const poster = useShowPoster(show);
@@ -57,17 +54,14 @@ export function ChannelSheet({ show, isOpen, notice, controls, onClose, onCloseA
         <Hero url={art.backdrop || poster} />
         <div className="flex flex-col gap-4 px-4 pb-6">
           <Summary show={show} art={art} poster={poster} />
-          <div>
-            <NoticeLine notice={notice} />
-            <div className="flex flex-wrap gap-2">
-              <Button size="lg" onClick={() => controls.actions.scan(sources)}>
-                <ScanLineIcon />
-                {t("common.scan")}
-              </Button>
-              <Button size="lg" variant="outline" onClick={() => controls.actions.backfill(sources)}>
-                {t("ch.backfill")}
-              </Button>
-            </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="lg" onClick={() => controls.actions.scan(sources)}>
+              <ScanLineIcon />
+              {t("common.scan")}
+            </Button>
+            <Button size="lg" variant="outline" onClick={() => controls.actions.backfill(sources)}>
+              {t("ch.backfill")}
+            </Button>
           </div>
           <SourceList show={show} controls={controls} />
           {isMovieChannel(lead) ? <CatalogSection channel={lead} /> : <EpisodesList show={show} />}

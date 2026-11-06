@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { DOWNLOADS_KEY, type Download } from "@/lib/downloads";
 import { isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
 
@@ -24,12 +25,8 @@ type CatalogSample = { rows: { tmdb_id?: number | null }[] };
 type CatalogPosters = { posters: Record<string, string | null> };
 
 /** A finished row of GET /api/downloads, as far as the Sheet reads it. */
-export type CompletedDownload = {
-  id: number;
-  channel_id: number;
+export type CompletedDownload = Pick<Download, "id" | "channel_id" | "file_name" | "file_size"> & {
   save_path: string | null;
-  file_name: string | null;
-  file_size: number | null;
   finished_at: number | null;
 };
 
@@ -49,7 +46,7 @@ export function useUpdateChannel() {
 /** The endpoint has no channel filter and caps at 1000, newest first, across every channel. */
 export const useCompletedDownloads = () =>
   useQuery({
-    queryKey: ["downloads", "completed"],
+    queryKey: [...DOWNLOADS_KEY, "completed"],
     queryFn: () => api.get<CompletedDownload[]>("/api/downloads?status=completed&limit=1000"),
   });
 

@@ -1,29 +1,10 @@
-import { useEffect, useState } from "react";
-
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
 import { sourceLabel, type Channel } from "@/screens/channels/channel";
 import { CHANNELS_KEY } from "@/screens/channels/queries";
-
-const NOTICE_MS = 5000;
-
-export type Notice = { tone: "ok" | "error"; text: string };
-export type Notify = (notice: Notice | null) => void;
-
-/** The outcome of the last action. A success fades; a failure stays until the next action. */
-export function useNotice(): [Notice | null, Notify] {
-  const [notice, setNotice] = useState<Notice | null>(null);
-
-  useEffect(() => {
-    if (notice?.tone !== "ok") return;
-    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
-  return [notice, setNotice];
-}
 
 type Failure = { source: Channel; error: unknown };
 
@@ -42,19 +23,18 @@ async function forEachSource(sources: Channel[], act: (source: Channel) => Promi
 
 export type ChannelActions = ReturnType<typeof useChannelActions>;
 
-export function useChannelActions(notify: Notify) {
+export function useChannelActions() {
   const { t, tn, errorText } = useI18n();
   const queryClient = useQueryClient();
 
   /** Whether every source went through. Says so only if `doneText` is given. */
   const run = async (sources: Channel[], act: (source: Channel) => Promise<unknown>, doneText?: string) => {
-    notify(null);
     const failure = await forEachSource(sources, act);
     if (failure) {
       const reason = errorText(failure.error);
-      notify({ tone: "error", text: t("ch.source_failed", { source: sourceLabel(failure.source), reason }) });
+      toast.error(t("ch.source_failed", { source: sourceLabel(failure.source), reason }));
     } else if (doneText) {
-      notify({ tone: "ok", text: doneText });
+      toast.success(doneText);
     }
     return !failure;
   };

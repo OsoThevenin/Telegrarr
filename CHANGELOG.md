@@ -9,6 +9,8 @@
   details, sources and downloaded episodes, where it can be scanned, edited or removed.
   The other screens are still placeholders, and the current interface at `/` is
   unchanged.
+- The new interface follows the queue live, can pause and resume it, has a command
+  palette on ⌘K / Ctrl+K, and installs as an app.
 
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 

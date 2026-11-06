@@ -72,7 +72,7 @@ test.describe("channels", () => {
 
       await expect(dialog).toBeHidden();
       await expect(menuButton(page, "Cinema Club")).toBeFocused();
-      await expect(page.getByRole("status").getByText("S’ha actualitzat el canal")).toBeVisible();
+      await expect(page.getByText("S’ha actualitzat el canal")).toBeVisible();
       await expect(page.getByRole("article").filter({ hasText: "60 min" })).toBeVisible();
     });
 
