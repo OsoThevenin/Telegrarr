@@ -1,7 +1,7 @@
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 const BYTES_PER_UNIT = 1024;
 
-/** A size for reading, as the old UI wrote it: "1.5 GB". */
+/** A size for reading: "1.5 GB". */
 export function formatBytes(bytes: number | null | undefined): string {
   if (!bytes) return "0 B";
   const unit = Math.min(
