@@ -21,7 +21,9 @@ export function useQueuePause(): QueuePause {
 
   const change = useMutation({
     mutationFn: () => api.post<{ paused: boolean }>(isPaused ? "/api/queue/resume" : "/api/queue/pause"),
-    onSuccess: ({ paused }) => {
+    onSuccess: async ({ paused }) => {
+      // A status request still in flight may have been answered before this change.
+      await queryClient.cancelQueries({ queryKey: STATUS_KEY });
       queryClient.setQueryData<Status>(STATUS_KEY, (current) => current && { ...current, paused });
     },
     onError: (error) => toast.error(errorText(error)),
