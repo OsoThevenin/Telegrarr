@@ -1,10 +1,15 @@
-# app/settings.py — DB-backed runtime settings with env-based defaults.
-# Anything here can be changed from the UI and takes effect live (no rebuild).
+# app/settings.py — DB-backed runtime settings, overridden by the env vars in ENV_VARS.
+# Anything here can be changed from the UI and takes effect live (no rebuild),
+# except the env-backed settings in ENV_VARS while their env var is set.
+import functools
+import logging
 import os
 
 from . import db
 from . import config
 from .i18n import DEFAULT_LANG, LANGS, KeyedError
+
+log = logging.getLogger("settings")
 
 
 class SettingRejected(KeyedError, ValueError):
@@ -34,8 +39,8 @@ DEFAULTS = {
     "max_concurrent": config.MAX_CONCURRENT_DOWNLOADS,
     "min_free_gb": config.MIN_FREE_SPACE_GB,
     "progress_interval": config.PROGRESS_MIN_INTERVAL,
-    "plex_url": config.PLEX_URL,
-    "plex_token": config.PLEX_TOKEN,
+    "plex_url": "",
+    "plex_token": "",
     "notify_webhook": config.NOTIFY_WEBHOOK,
     "notify_telegram": "0",        # DM completed downloads to the account's Saved Messages
     "default_poll_minutes": config.POLL_FLOOR_MINUTES,
@@ -67,8 +72,68 @@ DEFAULTS = {
 OPERATING_MODES = ("arr", "standalone")
 ARR_APPS = ("prowlarr", "sonarr", "radarr")
 
+# Env-backed settings: setting -> the env var that provisions it. A non-empty env
+# value wins over the database and locks the setting. Read on every lookup.
+ENV_VARS = {
+    "tmdb_key": "TELEARR_TMDB_KEY",
+    "prowlarr_url": "TELEARR_PROWLARR_URL",
+    "prowlarr_key": "TELEARR_PROWLARR_KEY",
+    "sonarr_url": "TELEARR_SONARR_URL",
+    "sonarr_key": "TELEARR_SONARR_KEY",
+    "radarr_url": "TELEARR_RADARR_URL",
+    "radarr_key": "TELEARR_RADARR_KEY",
+    "tg_api_id": "TG_API_ID",
+    "tg_api_hash": "TG_API_HASH",
+    "plex_url": "PLEX_URL",
+    "plex_token": "PLEX_TOKEN",
+    "tg_proxy": "TELEARR_PROXY",
+}
+# Env values that mean "not provisioned". .env.example ships TG_API_ID=0, and locking
+# on it would refuse the setup wizard on every fresh install.
+ENV_PLACEHOLDERS = {"tg_api_id": "0"}
+
+
+@functools.cache
+def _warn_env_value_rejected(env_var: str) -> None:
+    """Warn once per env var: env is read on every lookup. The value may be a secret."""
+    log.warning("%s is not a valid value for its setting; using it as written", env_var)
+
+
+def _env_value(key: str) -> str:
+    """The value env provides for ``key``, normalised as a saved one is; "" if none.
+
+    A value its coercer rejects stays as written, with a warning in the log: the
+    operator's env still wins, and a bad *arr URL then fails as a connection error.
+    Settings with no coercer aren't checked here: TG_API_ID=not-a-number locks the
+    setting and reads as an id of 0, so Telegram just looks unconfigured."""
+    raw = os.environ.get(ENV_VARS[key], "").strip() if key in ENV_VARS else ""
+    if raw == ENV_PLACEHOLDERS.get(key):
+        return ""
+    if not raw or key not in WRITABLE:
+        return raw
+    try:
+        return WRITABLE[key](raw)
+    except ValueError:
+        _warn_env_value_rejected(ENV_VARS[key])
+        return raw
+
+
+def env_locked(key: str) -> bool:
+    """Whether env provides ``key``, so it cannot be changed from the UI or API."""
+    return bool(_env_value(key))
+
+
+def refuse_if_env_locked(key: str) -> None:
+    """Call before persisting ``key``: a locked setting is refused, not ignored."""
+    if env_locked(key):
+        raise SettingRejected("err.settings.env_locked", env=ENV_VARS[key])
+
 
 def get(key, default=None):
+    """The effective value: the env value, else the database's, else the default."""
+    env_value = _env_value(key)
+    if env_value:
+        return env_value
     with db.conn() as c:
         r = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     if r is not None:
@@ -126,6 +191,7 @@ def public() -> dict:
         "operating_mode": operating_mode(),
         "downloads_dir": get("downloads_dir"),
         **_arr_public(),
+        **{f"{key}_env_locked": env_locked(key) for key in ENV_VARS},
     }
 
 
@@ -225,16 +291,21 @@ def apply(payload: dict) -> dict:
     """Validate + persist a settings patch; returns the new public view.
 
     Malformed values are skipped, but a SettingRejected aborts the whole patch
-    (nothing is persisted) so the UI can show the reason."""
+    (nothing is persisted) so the UI can show the reason. That includes a value
+    for an env-locked setting, whatever it is."""
     coerced = {}
     for k, v in payload.items():
-        if k in WRITABLE and v is not None:
-            try:
-                coerced[k] = WRITABLE[k](v)
-            except SettingRejected:
-                raise
-            except (TypeError, ValueError):
-                pass
+        if v is None:
+            continue
+        refuse_if_env_locked(k)      # also keys only their own endpoint can write
+        if k not in WRITABLE:
+            continue
+        try:
+            coerced[k] = WRITABLE[k](v)
+        except SettingRejected:
+            raise
+        except (TypeError, ValueError):
+            pass
     for k, v in coerced.items():
         set(k, v)
     return public()

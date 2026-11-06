@@ -1,6 +1,7 @@
 # Multi-stage: compile wheels (cryptg/bcrypt need a C toolchain) in the builder,
-# ship a slim runtime with no compiler. Runs as an unprivileged user (UID/GID 1000)
-# by itself; compose may still override it with `user:` to match a media owner.
+# ship a slim runtime with no compiler. Starts as root only so the entrypoint can
+# apply PUID/PGID, then drops to the unprivileged app user; APP_UID/APP_GID are the
+# ids used when PUID/PGID are unset. Compose `user:` skips all of that.
 FROM python:3.14-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc build-essential && rm -rf /var/lib/apt/lists/*
@@ -10,7 +11,7 @@ RUN pip wheel --wheel-dir /wheels -r requirements.txt
 
 FROM python:3.14-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl gosu \
         && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /wheels /wheels
 COPY requirements.txt /app/requirements.txt
@@ -26,8 +27,9 @@ RUN groupadd --gid "${APP_GID}" telegrarr \
 WORKDIR /app
 COPY app /app/app
 COPY authorize.py /app/authorize.py
-USER ${APP_UID}:${APP_GID}
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/telegrarr-entrypoint
 EXPOSE 8790
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://localhost:8790/healthz || exit 1
+ENTRYPOINT ["/usr/local/bin/telegrarr-entrypoint"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8790", "--workers", "1"]

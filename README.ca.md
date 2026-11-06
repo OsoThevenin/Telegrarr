@@ -71,10 +71,29 @@ servir la imatge publicada, treu `build: .` i posa
 
 ### Carpeta de baixades
 
-- El contenidor s'executa **sense root, amb UID/GID 1000**. Les carpetes de
-  l'amfitrió muntades a `/data` i `/downloads` han de ser escrivibles per l'UID 1000
-  (`chown -R 1000:1000 …`), o bé descomenta `user:` al `docker-compose.yml` i posa a
-  `PUID`/`PGID` el propietari del teu disc.
+- Posa a `PUID` i `PGID` del `.env` el teu usuari de l'amfitrió (`id -u`, `id -g`;
+  per defecte `1000`). El contenidor arrenca com a root només per aplicar-los i
+  després executa l'aplicació amb aquest usuari:
+  - `/data` canvia de propietari a cada arrencada, així canviar els identificadors
+    no trenca la base de dades. Si defineixes `TELEARR_DATA_DIR` o `TELEARR_LOG_DIR`,
+    són aquestes carpetes les que canvien de propietari.
+  - A la carpeta de baixades (`TELEARR_DOWNLOADS_DIR`) canvien de propietari dues
+    coses, cadascuna només quan el seu propietari no és `PUID`: la carpeta mateixa,
+    sense el que conté, i la subcarpeta `telegram/` de Telegrarr, de manera recursiva.
+    Una carpeta de `PUID` amb un grup compartit, com ara `1000:media`, es queda tal
+    com està, i el que Sonarr i Radarr tinguin al costat de `telegram/` no es toca
+    mai. Si un canvi falla, el contenidor registra un avís i arrenca igualment.
+  - `/media` i una carpeta de baixades definida a *Configuració → Baixades* no es
+    toquen mai: `PUID:PGID` ja hi ha de poder escriure.
+  - Es rebutgen el `0` i qualsevol valor que no sigui un número: el contenidor surt
+    amb un error en lloc d'executar l'aplicació com a root.
+- El `user:` del compose continua funcionant: descomenta'l al `docker-compose.yml` i
+  el contenidor se salta tot l'anterior, de manera que aquest usuari ja ha de poder
+  escriure a les carpetes muntades.
+- `docker exec` s'executa com a root encara que l'aplicació no ho faci. Afegeix-hi
+  `-u telegrarr` per executar una ordre amb l'usuari de l'aplicació. `authorize.py`
+  es nega a executar-se com a root; per iniciar sessió a Telegram fes servir
+  `docker compose run --rm telegrarr python authorize.py`.
 - `PATH_TO_DOWNLOADS` (al `.env`) és la carpeta **de l'amfitrió** muntada a
   `/downloads`. Munta la mateixa carpeta a `/downloads` també a Sonarr i Radarr: les
   captures van a `/downloads/telegram/<tv|movies>/<nom del llançament>/<fitxer>`,
@@ -223,28 +242,37 @@ s'aplica a la interfície, als missatges d'error i a les notificacions.
 
 La configuració de desplegament és al `.env` (vegeu [`.env.example`](.env.example));
 moltes opcions es poden canviar en calent a *Configuració*, que té prioritat sobre el
-`.env`.
+`.env`. Les variables de l’API de Telegram, del servidor intermediari, de Plex, de TMDB
+i dels *arr funcionen al revés: mentre una estigui definida i no sigui buida, té
+prioritat sobre el valor desat i la interfície i l’API no deixen canviar aquella opció.
+`TG_API_ID=0`, el valor que porta `.env.example`, compta com a no definit.
 
 | Variable | Funció | Per defecte |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram | obligatòries |
+| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram; tenen prioritat sobre els valors desats | obligatòries |
 | `TELEARR_SECRET_KEY` | Clau de signatura de la galeta de sessió | posa-hi un valor aleatori llarg |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Usuari administrador inicial (primera execució) | — |
 | `PATH_TO_DOWNLOADS` | Carpeta de l'amfitrió muntada a `/downloads` | `./downloads` |
 | `TELEARR_DOWNLOADS_DIR` | Base de baixades dins del contenidor | `/downloads` |
 | `TELEARR_MEDIA_ROOT` | Camí de l'amfitrió muntat a `/media` (biblioteques del mode autònom; no s'usa en mode *arr) | `./media` |
 | `TELEARR_BIND_ADDR` | Adreça de l'amfitrió on escolta la interfície | `0.0.0.0` |
-| `PUID` / `PGID` | Només si actives `user:` al compose | `1000` |
+| `PUID` / `PGID` | Usuari i grup amb què s'executa l'aplicació; s'ignoren amb el `user:` del compose | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Connexions per fitxer / fitxers simultanis | `4` / `2` |
 | `TELEARR_MIN_FREE_GB` | No baixa res per sota d'aquest espai lliure | `50` |
-| `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari | — |
-| `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Integracions opcionals heretades | — |
+| `TELEARR_PROXY` | Fa passar Telegram per un servidor intermediari; té prioritat sobre *Configuració* | — |
+| `PLEX_URL` / `PLEX_TOKEN` | Actualització opcional de Plex; tenen prioritat sobre *Configuració* | — |
+| `TELEARR_NOTIFY_WEBHOOK` | Webhook opcional de notificacions | — |
+| `TELEARR_TMDB_KEY` | Clau de l’API de TMDB; té prioritat sobre *Configuració* | — |
+| `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Connexió amb Prowlarr; té prioritat sobre *Connexió* | — |
+| `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Connexió amb Sonarr; té prioritat sobre *Connexió* | — |
+| `TELEARR_RADARR_URL` / `TELEARR_RADARR_KEY` | Connexió amb Radarr; té prioritat sobre *Connexió* | — |
 
 ## Servidor intermediari / VPN
 
 Si les baixades s'encallen en un centre de dades concret de Telegram, és possible que
 el teu proveïdor estigui limitant Telegram. Configura un servidor intermediari a
-*Configuració → Integracions → Servidor intermediari / VPN* (o `TELEARR_PROXY`):
+*Configuració → Integracions → Servidor intermediari / VPN*, o amb `TELEARR_PROXY`, que
+té prioritat sobre el desat i no es pot canviar des de la interfície mentre estigui definit:
 `socks5://[usuari:contrasenya@]amfitrió:port`, `socks4://amfitrió:port`,
 `http://[usuari:contrasenya@]amfitrió:port` o `mtproxy://<secret>@amfitrió:port`.
 Només el trànsit de Telegram hi passa; si no funciona, es torna a la connexió directa.
@@ -268,7 +296,9 @@ L'aplicació llegeix `X-Forwarded-Proto` i marca la galeta de sessió com a `Sec
 
 ## Seguretat
 
-- Imatge sense root (UID/GID 1000) i `no-new-privileges` al compose.
+- L'aplicació s'executa sense privilegis com a `PUID:PGID` (mai com a root), amb
+  `no-new-privileges` al compose. Només la preparació de l'entrypoint s'executa com
+  a root.
 - Desa els secrets al `.env` (permisos `0600`, mai al repositori).
 - La interfície està protegida amb un inici de sessió bcrypt, i les API
   Newznab/SABnzbd amb una clau d'API (tracta-la com una contrasenya). **No exposis

@@ -11,7 +11,7 @@ from telethon.errors import ChannelForumMissingError, SessionPasswordNeededError
 from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
 from . import settings
 from .i18n import message
-from .config import (API_ID, API_HASH, SESSION_PATH, PROXY, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
+from .config import (SESSION_PATH, TG_DEVICE_MODEL, TG_SYSTEM_VERSION,
                      TG_APP_VERSION, TG_LANG_CODE, TG_SYSTEM_LANG_CODE)
 
 log = logging.getLogger("tg")
@@ -19,29 +19,54 @@ _client: TelegramClient | None = None
 _dialogs_cache = {"ts": 0, "data": []}
 _login = {}   # transient state during the interactive sign-in flow
 GENERAL_TOPIC_ID = 1   # Telegram's fixed id for a forum group's General topic
+PROXY_UNREADABLE = "(set)"   # shown for a proxy URL we can't summarise safely
 
 
 def _api_creds():
-    # user-provided creds (via the setup wizard) take precedence over .env defaults
-    return (settings.get_int("tg_api_id", 0) or API_ID,
-            settings.get("tg_api_hash", "") or API_HASH)
+    # TG_API_ID / TG_API_HASH win; otherwise the creds saved by the setup wizard
+    return settings.get_int("tg_api_id", 0), settings.get("tg_api_hash", "")
+
+
+def _env_refusal(*keys: str) -> dict | None:
+    """The {"error": ...} reply when env locks any of ``keys``; None if all are free.
+    These endpoints report in the body, where the UI shows the reason in place."""
+    try:
+        for key in keys:
+            settings.refuse_if_env_locked(key)
+    except settings.SettingRejected as e:
+        return {"error": e.message()}
+    return None
 
 
 def _proxy_url() -> str:
-    # DB setting (from the UI) wins over the TELEARR_PROXY env default.
-    return (settings.get("tg_proxy", "") or PROXY or "").strip()
+    # TELEARR_PROXY wins; otherwise the proxy saved from the UI.
+    return settings.get("tg_proxy", "").strip()
 
 
 def proxy_display() -> str:
-    """Human-readable proxy summary with any credentials stripped (for the UI)."""
+    """Human-readable proxy summary with any credentials stripped (for the UI).
+    Anything that doesn't parse into a host and port may be credentials in the
+    wrong place, so it is never shown."""
     url = _proxy_url()
     if not url:
         return ""
     try:
         u = urlparse(url)
-        return f"{u.scheme}://{u.hostname}:{u.port}" if u.hostname else url
-    except Exception:
-        return "(set)"
+        return f"{u.scheme}://{u.hostname}:{u.port}" if u.hostname and u.port else PROXY_UNREADABLE
+    except ValueError:
+        return PROXY_UNREADABLE
+
+
+def _without_proxy_secrets(text: str, url: str) -> str:
+    """``text`` with the proxy URL and its credentials masked."""
+    try:
+        u = urlparse(url)
+        secrets = (url, u.password, u.username)
+    except ValueError:
+        secrets = (url,)
+    for secret in filter(None, secrets):
+        text = text.replace(secret, "***")
+    return text
 
 
 def _build_proxy_kwargs() -> dict:
@@ -74,7 +99,7 @@ def _build_proxy_kwargs() -> dict:
                     "connection": _conn.ConnectionTcpMTProxyRandomizedIntermediate}
         log.warning("unsupported proxy scheme %r — ignoring", scheme)
     except Exception as e:
-        log.warning("bad proxy URL: %s", e)
+        log.warning("bad proxy URL (%s)", type(e).__name__)   # urllib's text quotes the URL
     return {}
 
 
@@ -104,6 +129,9 @@ def get_client() -> TelegramClient:
 
 async def set_proxy(url):
     """Persist a proxy URL, rebuild the client through it, and test-connect."""
+    refused = _env_refusal("tg_proxy")
+    if refused:
+        return refused
     settings.set("tg_proxy", (url or "").strip())
     await reset_client()
     if not (url or "").strip():
@@ -114,7 +142,8 @@ async def set_proxy(url):
         authed = await c.is_user_authorized()
         return {"ok": True, "proxy": proxy_display(), "authorized": authed}
     except Exception as e:
-        return {"error": message("err.tg.proxy", error=str(e))}
+        reason = _without_proxy_secrets(str(e), _proxy_url())
+        return {"error": message("err.tg.proxy", error=reason)}
 
 
 async def reset_client():
@@ -152,6 +181,9 @@ async def auth_status():
 
 
 async def set_api(api_id, api_hash):
+    refused = _env_refusal("tg_api_id", "tg_api_hash")
+    if refused:
+        return refused
     try:
         settings.set("tg_api_id", str(int(str(api_id).strip())))
     except (TypeError, ValueError):

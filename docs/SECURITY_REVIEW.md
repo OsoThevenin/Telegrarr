@@ -1,10 +1,26 @@
 # Telearr Security Review
 
 > **Telegrarr note (v1.0.0).** This review was written against upstream Telearr and is
-> kept for history. Since then the `Dockerfile` sets `USER` (UID/GID 1000), so the image
-> runs as non-root even with a bare `docker run`; compose adds `no-new-privileges`; and the
-> channel-supplied filename is basename-sanitized before it becomes a save path. The
-> "Container hardening" row and the matching checklist items below are resolved.
+> kept for history. Since then compose adds `no-new-privileges`, and the channel-supplied
+> filename is basename-sanitized before it becomes a save path. The "Container hardening"
+> row and the matching checklist items below are resolved.
+>
+> **Container user (v1.2.0).** The `Dockerfile` no longer sets `USER`. The container starts
+> as root so `docker/entrypoint.sh` can apply `PUID`/`PGID`, then replaces itself with the
+> app as that user through `gosu`, so the app is unprivileged even with a bare `docker run`.
+> What stays true, checked by `tests/container/puid_pgid.sh`:
+>
+> - The app never runs as root. `0` and non-numeric ids stop the container before anything
+>   changes, and a failed privilege drop ends it rather than falling back to root.
+> - `no-new-privileges` stays compatible: privileges are dropped, never gained.
+> - Re-owning doesn't follow symlinks, so a link the app leaves under `/data` can't hand it
+>   a file outside at the next start.
+> - With compose `user:` nothing runs as root at all.
+>
+> What root still does: the entrypoint's setup; the `HEALTHCHECK` (only `curl` to
+> localhost); and `docker exec` without `-u telegrarr`, which is an operator choice.
+> `authorize.py` refuses to run as root so it can't leave a session file the app can't read,
+> and the next start re-owns anything else a root exec leaves in `/data`.
 
 Scope: `app/main.py`, `app/arr.py`, `app/auth.py`, `app/scanner.py`, `app/downloader.py`,
 `app/settings.py`, `app/db.py`, `app/namer.py`, `app/config.py`, `app/plex.py`,
@@ -40,7 +56,7 @@ on the LAN, monitoring third-party Telegram channels whose *contents* are not tr
 - **XML escaping:** `feed_xml` `html.escape`s the user/channel-derived `title` and the download URL (`arr.py:99,103`); other interpolated values (`channel_id`, `message_id`, `size`, `cat`) are integers from the DB. `nzb_xml` interpolates only ints. `caps_xml` is fully static.
 - **ID coercion / path traversal on refs:** `newznab_nzb` splits `id` on `_` and forces `int(cid), int(mid)` (`main.py:402-405`); `arr.parse_ref` extracts via `telearr:(\d+):(\d+)` and returns ints (`arr.py:129-131`); `scanner.grab_message` uses `channel_id` only for a parameterized DB lookup and passes an int `message_id` to Telethon. No traversal via these refs.
 - **SAB `addfile` handling:** the uploaded body is only regex-scanned by `parse_ref`; it is never written to disk or executed (`main.py:459-464`).
-- **Secret exposure:** `settings.public()` exposes `plex_token_set` (bool) rather than `plex_token`; `config.summary()` exposes `plex`/`notify` as bools. `SECRET_KEY`, `TG_API_HASH`, and the bcrypt hash are not returned by any endpoint. (The *arr API key is returned by `/api/settings`, but that is session-auth'd and intentional — the UI displays it.) `db.log` calls do not pass secret values (e.g. key regeneration logs a message, not the key).
+- **Secret exposure:** `settings.public()` exposes `plex_token_set` (bool) rather than `plex_token`; `config.summary()` exposes `notify` as a bool. `SECRET_KEY`, `TG_API_HASH`, and the bcrypt hash are not returned by any endpoint. (The *arr API key is returned by `/api/settings`, but that is session-auth'd and intentional — the UI displays it.) `db.log` calls do not pass secret values (e.g. key regeneration logs a message, not the key).
 - **Passwords:** bcrypt with per-hash salt; change-password verifies the current password before updating (`main.py:342`). No default password is seeded unless `TELEARR_ADMIN_PASS` is explicitly set (`auth.py:25`).
 - **Concurrency note:** the scanner relies on single-worker asyncio state; `Dockerfile` correctly pins `--workers 1`.
 

@@ -43,13 +43,47 @@
   container, audio and subtitle languages and size.
 - The channels API reports each Channel's history fetch as a `history` object (`read`,
   `total_estimate`, `complete`, `next_batch_at`).
+- Env vars for TMDB and the *arr connections: `TELEARR_TMDB_KEY`, and
+  `TELEARR_PROWLARR_URL`/`_KEY`, `TELEARR_SONARR_URL`/`_KEY` and
+  `TELEARR_RADARR_URL`/`_KEY`. A value that is set and not empty wins over the saved
+  one. `GET /api/settings` reports each such setting as `<setting>_env_locked`, and
+  `PATCH /api/settings` refuses to change it (`err.settings.env_locked`). Keys from env
+  are never returned. Nothing changes for deployments that don't set them.
+- `PUID` and `PGID` env vars, LinuxServer-style. The container starts as root, aligns
+  its app user with them (default 1000:1000), re-owns the data and log directories on
+  every start, then runs the app as that user. In the downloads root it re-owns only
+  the root itself and its `telegram/` subfolder, each when its owner isn't `PUID`, so
+  a shared group and what Sonarr and Radarr keep there stay as they are.
+  `0` and non-numeric values stop the container with an error. Compose `user:`
+  works as before and skips all of this. A new CI job checks it on a running container.
 
 ### Changed
+- **Breaking: `TG_API_ID`/`TG_API_HASH`, `PLEX_URL`/`PLEX_TOKEN` and `TELEARR_PROXY` now
+  win over the database.** They used to be defaults that a value saved from the UI
+  overrode. If you set one of these and later changed the value in the UI, Telegrarr
+  now uses the env value: remove the env var, or leave it empty, to keep the saved one.
+  A set variable is reported as `<setting>_env_locked` (`tg_api_id`, `tg_api_hash`,
+  `plex_url`, `plex_token`, `tg_proxy`), and writes to it are refused with
+  `err.settings.env_locked`: `PATCH /api/settings` with a 400, and `POST
+  /api/telegram/auth/api` and `POST /api/telegram/proxy` in the `error` field of their
+  reply. `TG_API_ID=0`, the value `.env.example` ships, counts as not set.
+- `PUID`/`PGID` in `.env` now take effect without `user:` in compose. If yours differ
+  from 1000, the next start runs the app as those ids and re-owns `/data` to match.
+- `authorize.py` refuses to run as root, as a `docker exec` without `-u telegrarr` now
+  would. `docker compose run --rm telegrarr python authorize.py` works as before.
+- `deploy.sh` reports a container that never becomes healthy, with its last log lines,
+  instead of saying Telegrarr is up.
 - Recovering a Channel's history (`POST /api/channels/{id}/backfill`) goes through the
   history fetch's batches instead of a single pass over the whole history.
 - Scans respect the flood gate: while it is closed polls read nothing and catch up once
   it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
   scan closes the gate for every other Telegram read.
+
+### Fixed
+- `PLEX_URL` and `PLEX_TOKEN` reach Plex. Only values saved in the UI used to.
+- Proxy credentials can't come back from the API or reach the log: a proxy URL that
+  doesn't parse into a host and port shows as `(set)` instead of as written, and a
+  failed proxy connection masks them in its error.
 
 ## 1.1.1 — Sonarr auto-import, SAB history, and series ids (2026-11-05)
 

@@ -66,10 +66,28 @@ image, remove `build: .` and set `image: ghcr.io/osothevenin/telegrarr:1.0.0`.
 
 ### Downloads folder
 
-- The container runs as **non-root UID/GID 1000**. The host folders mounted at
-  `/data` and `/downloads` must be writable by UID 1000 (`chown -R 1000:1000 …`), or
-  uncomment `user:` in `docker-compose.yml` and set `PUID`/`PGID` to the owner of
-  your disk.
+- Set `PUID` and `PGID` in `.env` to your host user (`id -u`, `id -g`; default
+  `1000`). The container starts as root only to apply them, then runs the app as
+  that user:
+  - `/data` is re-owned on every start, so changing the ids doesn't break the
+    database. With `TELEARR_DATA_DIR` or `TELEARR_LOG_DIR` set, those folders are
+    the ones re-owned.
+  - In the downloads folder (`TELEARR_DOWNLOADS_DIR`), two things are re-owned, each
+    only when its owner isn't `PUID`: the folder itself, without what's in it, and
+    Telegrarr's own `telegram/` subfolder, recursively. A folder owned by `PUID` with
+    a shared group, such as `1000:media`, stays as it is, and what Sonarr and Radarr
+    keep beside `telegram/` is never touched. If a change fails, the container logs
+    a warning and starts anyway.
+  - `/media` and a downloads folder set in *Settings → Downloads* are never touched:
+    they must already be writable by `PUID:PGID`.
+  - `0` and anything that isn't a plain number are refused: the container exits
+    with an error rather than run the app as root.
+- Compose `user:` still works: uncomment it in `docker-compose.yml` and the container
+  skips all of the above, so the mounted folders must already be writable by that
+  user.
+- `docker exec` runs as root even though the app doesn't. Add `-u telegrarr` to run a
+  command as the app user. `authorize.py` refuses to run as root; for the Telegram
+  login use `docker compose run --rm telegrarr python authorize.py`.
 - `PATH_TO_DOWNLOADS` (in `.env`) is the **host** folder mounted at `/downloads`.
   Mount the same host folder at `/downloads` in Sonarr and Radarr as well: grabs land
   in `/downloads/telegram/<tv|movies>/<release name>/<file>`, which is then the same
@@ -212,27 +230,36 @@ messages and notifications.
 ## Configuration reference
 
 Deploy-time settings live in `.env` (see [`.env.example`](.env.example)); many can be
-changed live in *Settings*, which override `.env`.
+changed live in *Settings*, which override `.env`. The Telegram API, proxy, Plex, TMDB
+and *arr variables work the other way round: while one is set and not empty it wins
+over the saved value, and the UI and API refuse to change that setting. `TG_API_ID=0`,
+the value `.env.example` ships, counts as not set.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials | required |
+| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials; win over saved values | required |
 | `TELEARR_SECRET_KEY` | Session-cookie signing key | set a strong random value |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Seed admin login (first run) | — |
 | `PATH_TO_DOWNLOADS` | Host folder mounted at `/downloads` | `./downloads` |
 | `TELEARR_DOWNLOADS_DIR` | Downloads base inside the container | `/downloads` |
 | `TELEARR_MEDIA_ROOT` | Host path mounted at `/media` (standalone libraries; unused in *arr mode) | `./media` |
 | `TELEARR_BIND_ADDR` | Host address the UI binds to | `0.0.0.0` |
-| `PUID` / `PGID` | Only if you enable `user:` in compose | `1000` |
+| `PUID` / `PGID` | User and group the app runs as; ignored with compose `user:` | `1000` |
 | `TELEARR_DL_WORKERS` / `TELEARR_MAX_CONCURRENT` | Senders per file / concurrent files | `4` / `2` |
 | `TELEARR_MIN_FREE_GB` | Refuse downloads below this free space | `50` |
-| `TELEARR_PROXY` | Route Telegram through a proxy | — |
-| `PLEX_URL` / `PLEX_TOKEN`, `TELEARR_NOTIFY_WEBHOOK` | Optional upstream integrations | — |
+| `TELEARR_PROXY` | Route Telegram through a proxy; wins over *Settings* | — |
+| `PLEX_URL` / `PLEX_TOKEN` | Optional Plex refresh; win over *Settings* | — |
+| `TELEARR_NOTIFY_WEBHOOK` | Optional notification webhook | — |
+| `TELEARR_TMDB_KEY` | TMDB API key; wins over *Settings* | — |
+| `TELEARR_PROWLARR_URL` / `TELEARR_PROWLARR_KEY` | Prowlarr connection; wins over *Connect* | — |
+| `TELEARR_SONARR_URL` / `TELEARR_SONARR_KEY` | Sonarr connection; wins over *Connect* | — |
+| `TELEARR_RADARR_URL` / `TELEARR_RADARR_KEY` | Radarr connection; wins over *Connect* | — |
 
 ## Proxy / VPN
 
 If downloads stall on one Telegram data center, your ISP may be throttling Telegram.
-Set a proxy in *Settings → Integrations → Proxy / VPN* (or `TELEARR_PROXY`):
+Set a proxy in *Settings → Integrations → Proxy / VPN*, or with `TELEARR_PROXY`, which
+wins over the saved one and can't be changed from the UI while it is set:
 `socks5://[user:pass@]host:port`, `socks4://host:port`, `http://[user:pass@]host:port`
 or `mtproxy://<secret>@host:port`. Only Telegram traffic uses it; a bad proxy falls
 back to a direct connection.
@@ -255,7 +282,8 @@ Serve…). The app reads `X-Forwarded-Proto` and marks the session cookie `Secur
 
 ## Security
 
-- Non-root image (UID/GID 1000) with `no-new-privileges` in compose.
+- The app runs unprivileged as `PUID:PGID` (never root), with `no-new-privileges` in
+  compose. Only the entrypoint's setup runs as root.
 - Keep secrets in `.env` (mode `0600`, never committed).
 - The UI is protected by a bcrypt login; the Newznab/SABnzbd APIs by an API key
   (treat it like a password). **Do not expose port 8790 to the internet**; use a

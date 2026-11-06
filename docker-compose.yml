@@ -5,8 +5,21 @@ services:
     container_name: telegrarr
     restart: unless-stopped
     env_file: .env
-    # The image already runs as non-root UID/GID 1000. Uncomment to own new
-    # media files as a different host user (set PUID/PGID in .env):
+    # Or provision TMDB and the *arr connections here; each one set wins over the
+    # saved value and can't be changed from the UI (see .env.example):
+    # environment:
+    #   TELEARR_TMDB_KEY: ${TMDB_KEY}
+    #   TELEARR_PROWLARR_URL: http://prowlarr:9696
+    #   TELEARR_PROWLARR_KEY: ${PROWLARR_KEY}
+    #   TELEARR_SONARR_URL: http://sonarr:8989
+    #   TELEARR_SONARR_KEY: ${SONARR_KEY}
+    #   TELEARR_RADARR_URL: http://radarr:7878
+    #   TELEARR_RADARR_KEY: ${RADARR_KEY}
+    # The container starts as root only to apply PUID/PGID from .env (default
+    # 1000): it re-owns /data and, if their owner differs, /downloads itself and
+    # /downloads/telegram, then runs the app as that user. Sonarr's and Radarr's
+    # files stay as they are. Uncomment to skip all of that and run as a fixed user;
+    # the mounted folders must then already be writable by it:
     # user: "${PUID:-1000}:${PGID:-1000}"
     security_opt: ["no-new-privileges:true"]
     ports:
