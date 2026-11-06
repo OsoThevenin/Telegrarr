@@ -53,14 +53,14 @@ function ChannelList({ tab, onTabChange, page }: ChannelListProps) {
 /** What can be open over the grid, and the controls that open it. */
 function useChannelOverlays(page: RefObject<HTMLElement | null>) {
   const { t } = useI18n();
-  const sheet = useOverlay<Show["key"]>(page);
+  const sheet = useOverlay<Channel["id"][]>(page);
   const removal = useOverlay<Removal>(page);
   const editing = useOverlay<Channel>(page);
   const actions = useChannelActions();
 
   const controls: ChannelControls = {
     actions,
-    openShow: (show, opener) => sheet.open(show.key, opener),
+    openShow: ({ sources }, opener) => sheet.open(sources.map(({ id }) => id), opener),
     editSource: editing.open,
     askToRemove: removal.open,
   };
@@ -84,9 +84,11 @@ function ChannelBrowser({ channels, tab, onTabChange, page }: ChannelBrowserProp
   const { sheet, removal, editing, controls, confirmRemoval, confirmSaved } = useChannelOverlays(page);
 
   const shows = { series: showsOn("series", channels), movies: showsOn("movies", channels) };
-  // Looked up on every render, so the Sheet follows the list as its sources change.
-  // On both tabs: an edit can move an open show to the other one.
-  const sheetShow = [...shows.series, ...shows.movies].find(({ key }) => key === sheet.target);
+  // Looked up on every render, so the Sheet follows the list as its sources change. By source:
+  // a mapping changes a show's key. On both tabs: an edit can move an open show to the other one.
+  const sheetShow = [...shows.series, ...shows.movies].find(({ sources }) =>
+    sources.some(({ id }) => sheet.target?.includes(id)),
+  );
   const removing = removal.target;
 
   return (

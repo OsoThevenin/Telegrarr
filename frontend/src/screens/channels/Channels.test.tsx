@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { channel } from "@/screens/channels/test-data";
 import { renderApp } from "@/test/render";
@@ -511,7 +511,11 @@ describe("Sheet", () => {
 describe("edit dialog", () => {
   const ACTIONS = "Accions de Cinema Club";
 
-  const servePatch = (reply: () => Response = () => HttpResponse.json({ ok: true })) => {
+  beforeEach(() => {
+    server.use(http.get("/api/settings", () => HttpResponse.json({ settings: { tmdb_key_set: true } })));
+  });
+
+  const servePatch =(reply: () => Response = () => HttpResponse.json({ ok: true })) => {
     const bodies: unknown[] = [];
     server.use(
       http.patch("/api/channels/:id", async ({ request }) => {
@@ -522,9 +526,9 @@ describe("edit dialog", () => {
     return bodies;
   };
 
-  const openEdit = async () => {
+  const openEdit = async (actions = ACTIONS) => {
     const app = await openChannels();
-    await app.user.click(screen.getByRole("button", { name: ACTIONS }));
+    await app.user.click(screen.getByRole("button", { name: actions }));
     await app.user.click(await screen.findByRole("menuitem", { name: "Edita" }));
     return { ...app, dialog: await screen.findByRole("dialog", { name: "Edita el canal" }) };
   };
@@ -669,6 +673,142 @@ describe("edit dialog", () => {
     await waitFor(() => expect(secondEdit).toHaveFocus());
     expect(screen.getByRole("dialog", { name: /Dark/ })).toBeVisible();
     expect(await screen.findByText("S’ha actualitzat el canal")).toBeVisible();
+  });
+
+  describe("series mapping", () => {
+    const SERIES_LABEL = "Sèrie (cerca a TMDB)";
+    const HIT = { tmdb_id: 1001, title: "Merlí", year: "2015" };
+
+    const serveMapping = (reply: () => Response = () => HttpResponse.json(channel({ id: 1 }))) => {
+      const mapped: unknown[] = [];
+      server.use(
+        http.get("/api/tmdb/search", () => HttpResponse.json([HIT])),
+        http.put("/api/channels/1/series", async ({ request }) => {
+          mapped.push(await request.json());
+          return reply();
+        }),
+      );
+      return mapped;
+    };
+
+    const chooseMerli = async ({ user, dialog }: Awaited<ReturnType<typeof openEdit>>) => {
+      await user.type(within(dialog).getByLabelText(SERIES_LABEL), "Merlí");
+      await user.click(await within(dialog).findByRole("button", { name: /^Merlí \(2015\)/ }));
+    };
+
+    it("shows what the source is mapped to", async () => {
+      serveChannels([
+        channel({ id: 1, title: "Cinema Club", imdb_id: "tt1", imdb_title: "Dark", tmdb_id: 70523, tvdb_id: 334824 }),
+      ]);
+
+      const { dialog } = await openEdit("Accions de Dark");
+
+      expect(within(dialog).getByLabelText(SERIES_LABEL)).toHaveValue("Dark");
+      expect(within(dialog).getByLabelText("Identificador de TVDB")).toHaveValue("334824");
+      expect(within(dialog).getByText("Actual: Dark (TVDB 334824 · TMDB 70523 · IMDb tt1)")).toBeVisible();
+    });
+
+    it("maps the source to the chosen series as it saves", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+      const bodies = servePatch();
+      const mapped = serveMapping();
+      const opened = await openEdit();
+
+      await chooseMerli(opened);
+      await opened.user.click(saveButton(opened.dialog));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(bodies).toHaveLength(1);
+      expect(mapped).toEqual([{ tmdb_id: 1001, tvdb_id: null, title: "Merlí (2015)" }]);
+    });
+
+    it("leaves the mapping alone when the series was not touched", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club", imdb_title: "Dark", tvdb_id: 334824 })]);
+      servePatch();
+      const mapped = serveMapping();
+      const { user, dialog } = await openEdit("Accions de Dark");
+
+      await user.click(saveButton(dialog));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(mapped).toEqual([]);
+    });
+
+    it("corrects the TVDB id alone", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club", imdb_title: "Dark", tvdb_id: 334824 })]);
+      servePatch();
+      const mapped = serveMapping();
+      const { user, dialog } = await openEdit("Accions de Dark");
+      const tvdb = within(dialog).getByLabelText("Identificador de TVDB");
+
+      await user.clear(tvdb);
+      await user.type(tvdb, "999");
+      await user.click(saveButton(dialog));
+
+      await waitFor(() => expect(mapped).toEqual([{ tmdb_id: null, tvdb_id: "999", title: "" }]));
+    });
+
+    it("stays open with the reason when the mapping fails, the settings saved", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+      const bodies = servePatch();
+      serveMapping(() => HttpResponse.json({ detail: "Sèrie desconeguda" }, { status: 400 }));
+      const opened = await openEdit();
+
+      await chooseMerli(opened);
+      await opened.user.click(saveButton(opened.dialog));
+
+      expect(await within(opened.dialog).findByRole("alert")).toHaveTextContent("Sèrie desconeguda");
+      expect(bodies).toHaveLength(1);
+      expect(screen.queryByText("S’ha actualitzat el canal")).not.toBeInTheDocument();
+    });
+
+    it("explains movies instead, and sends them no mapping", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+      servePatch();
+      const mapped = serveMapping();
+      const opened = await openEdit();
+      await chooseMerli(opened);
+
+      await opened.user.selectOptions(within(opened.dialog).getByLabelText("Tipus"), "movie");
+
+      expect(within(opened.dialog).getByText(/Els canals de pel·lícules/)).toBeVisible();
+      await opened.user.click(saveButton(opened.dialog));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(mapped).toEqual([]);
+    });
+
+    it("offers neither to a kind this release does not know", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club", kind: "other" })]);
+
+      const { dialog } = await openEdit();
+
+      expect(within(dialog).queryByLabelText(SERIES_LABEL)).not.toBeInTheDocument();
+      expect(within(dialog).queryByText(/Els canals de pel·lícules/)).not.toBeInTheDocument();
+    });
+
+    it("keeps the Sheet open when the mapping regroups the source under a new show", async () => {
+      let row = channel({ id: 1, title: "Cinema Club" });
+      server.use(
+        http.get("/api/channels", () => HttpResponse.json([row])),
+        http.get("/api/downloads", () => HttpResponse.json([])),
+        http.get("/api/art", () => HttpResponse.json({})),
+      );
+      servePatch();
+      serveMapping(() => {
+        row = channel({ id: 1, title: "Cinema Club", imdb_id: "tt4419684", imdb_title: "Merlí (2015)" });
+        return HttpResponse.json(row);
+      });
+
+      const app = await openChannels();
+      await app.user.click(cardButton("Cinema Club"));
+      const sheet = await screen.findByRole("dialog");
+      await app.user.click(within(sheet).getByRole("button", { name: "Edita" }));
+      const dialog = await screen.findByRole("dialog", { name: "Edita el canal" });
+      await chooseMerli({ ...app, dialog });
+      await app.user.click(saveButton(dialog));
+
+      expect(await screen.findByRole("dialog", { name: /Merlí \(2015\)/ })).toBeVisible();
+    });
   });
 });
 

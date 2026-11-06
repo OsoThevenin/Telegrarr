@@ -36,7 +36,9 @@ export type Show = {
 
 export type ChannelTab = "series" | "movies";
 
-export const isMovieChannel = (channel: Channel) => channel.kind === "movie";
+export const MOVIE_KIND = "movie";
+
+export const isMovieChannel = (channel: Channel) => channel.kind === MOVIE_KIND;
 
 /** The one kind a series mapping applies to. */
 export const isSeriesKind = (kind: string) => kind === "tv";
