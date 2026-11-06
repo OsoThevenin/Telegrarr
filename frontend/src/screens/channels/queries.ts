@@ -22,8 +22,25 @@ export type Art = {
 type CatalogSample = { rows: { tmdb_id?: number | null }[] };
 type CatalogPosters = { posters: Record<string, string | null> };
 
+/** A finished row of GET /api/downloads, as far as the Sheet reads it. */
+export type CompletedDownload = {
+  id: number;
+  channel_id: number;
+  save_path: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  finished_at: number | null;
+};
+
 export const useChannels = () =>
   useQuery({ queryKey: CHANNELS_KEY, queryFn: () => api.get<Channel[]>("/api/channels") });
+
+/** The endpoint has no channel filter and caps at 1000, newest first, across every channel. */
+export const useCompletedDownloads = () =>
+  useQuery({
+    queryKey: ["downloads", "completed"],
+    queryFn: () => api.get<CompletedDownload[]>("/api/downloads?status=completed&limit=1000"),
+  });
 
 export const useArt = (imdbId: string | null) =>
   useQuery({

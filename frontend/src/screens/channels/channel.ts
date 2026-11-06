@@ -62,6 +62,31 @@ export const showTitle = ({ lead }: Show) => lead.imdb_title || sourceLabel(lead
 
 export const isWholeForum = (channel: Channel) => Boolean(channel.forum) && channel.topic_id == null;
 
+/** The ids a series mapping holds, as the mapping line spells them; empty when unmapped. */
+export const mappingIds = ({ tvdb_id, tmdb_id, imdb_id }: Channel) =>
+  [tvdb_id && `TVDB ${tvdb_id}`, tmdb_id && `TMDB ${tmdb_id}`, imdb_id && `IMDb ${imdb_id}`]
+    .filter(Boolean)
+    .join(" · ");
+
+type Translate = (key: string, params?: Record<string, unknown>) => string;
+
+/** A kind this release does not know is shown as it stands. */
+export function kindLabel(kind: string, t: Translate): string {
+  if (kind === "tv") return t("kind.tv");
+  return kind === "movie" ? t("kind.movie") : kind;
+}
+
+function weekdaysLabel(weekdays: string, t: Translate): string {
+  const names = t("common.weekdays_short").split(" ");
+  const days = weekdays.split(",").filter(Boolean).map(Number);
+  if (days.length === names.length) return t("common.every_day");
+  return days.map((day) => names[day]).join(" ") || "—";
+}
+
+/** When a source is read: its days and its polling interval. */
+export const scheduleLabel = ({ weekdays, poll_minutes }: Channel, t: Translate) =>
+  `${weekdaysLabel(weekdays, t)} · ${t("common.minutes_short", { n: poll_minutes })}`;
+
 const MAX_INITIALS = 2;
 
 /** Up to two initials from the words that start with a letter or a digit. */
