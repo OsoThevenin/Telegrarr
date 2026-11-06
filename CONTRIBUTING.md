@@ -78,6 +78,43 @@ tests, especially the pure logic in `app/namer.py` (episode/quality parsing, pat
 building) and `app/settings.py` (validation/coercion), which are the easiest to
 cover without I/O.
 
+### Work on the web UI
+
+The new UI lives in `frontend/` (pnpm, Vite, React, TypeScript, Tailwind, shadcn/ui,
+TanStack Router and Query, react-i18next). FastAPI serves its build at `/ui/`. The old
+UI at `/` is not part of this project.
+
+```bash
+cd frontend
+pnpm install
+pnpm dev          # Vite with the API proxied to the backend on 127.0.0.1:8790
+pnpm typecheck
+pnpm test         # Vitest, Testing Library and MSW
+pnpm build        # to frontend/dist, which /ui/ serves
+pnpm exec playwright install chromium   # once
+E2E_PYTHON=python pnpm e2e              # builds, then Playwright against the real backend
+```
+
+`E2E_PYTHON` names a Python with the requirements installed; `E2E_PORT` changes the
+port from 8791.
+
+To add a screen, or replace a placeholder:
+
+1. Put it in `frontend/src/screens/<name>/`. `route.tsx` exports a route with
+   `getParentRoute: () => shellRoute`, a `path` and `staticData: { titleKey }`, and
+   `src/app/router.ts` lists it. A screen in the sidebar also needs an entry in
+   `src/app/navigation.ts`.
+2. Call the backend through `api` in `src/lib/api.ts`, which sends an expired session
+   to the login page, with TanStack Query around it.
+3. Add strings to both `app/static/i18n/ca.json` and `en.json`, and read them with
+   `useI18n()`. `tests/test_i18n.py` checks the keys you use, so write them as literals.
+4. Test the screen in `src/screens/<name>/<Name>.test.tsx`: `renderApp({ route })` from
+   `src/test/render.tsx` renders the whole app at a URL, and `server.use(...)` from
+   `src/test/server.ts` declares the API it needs.
+5. Test critical flows in `frontend/e2e/<name>.spec.ts`, importing `test` from
+   `./fixtures`. Each test starts from a reset backend; `signedInPage` is signed in.
+   Put the data a screen needs in `seed()` in `tests/e2e_server.py`.
+
 ## Coding style
 
 - **Python style:** follow [PEP 8](https://peps.python.org/pep-0008/). Keep lines
