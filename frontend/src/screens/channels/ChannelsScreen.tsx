@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n/use-i18n";
+import { AddChannelButton } from "@/screens/channels/AddChannelButton";
+import { AddChannelDialog } from "@/screens/channels/AddChannelDialog";
 import { ChannelCard } from "@/screens/channels/ChannelCard";
 import { ChannelEditDialog } from "@/screens/channels/ChannelEditDialog";
 import { ChannelSheet } from "@/screens/channels/ChannelSheet";
@@ -18,7 +20,26 @@ import { useOverlay } from "@/screens/channels/use-overlay";
 const showsOn = (tab: ChannelTab, channels: Channel[]) =>
   groupIntoShows(channels.filter((channel) => tabOf(channel) === tab));
 
+/** Add channel sits above the list's states: adding the first channel changes which one shows. */
 export function ChannelsScreen() {
+  const [tab, setTab] = useState<ChannelTab>("series");
+  const page = useRef<HTMLDivElement>(null);
+
+  return (
+    <div ref={page} tabIndex={-1} className="outline-none">
+      <ChannelList tab={tab} onTabChange={setTab} page={page} />
+      <AddChannelDialog focusFallback={page} onAdded={([first]) => first && setTab(tabOf(first))} />
+    </div>
+  );
+}
+
+type ChannelListProps = {
+  tab: ChannelTab;
+  onTabChange: (tab: ChannelTab) => void;
+  page: RefObject<HTMLElement | null>;
+};
+
+function ChannelList({ tab, onTabChange, page }: ChannelListProps) {
   const { t, errorText } = useI18n();
   const channels = useChannels();
 
@@ -26,20 +47,20 @@ export function ChannelsScreen() {
   if (channels.isError) return <p role="alert">{errorText(channels.error)}</p>;
   if (channels.data.length === 0) return <EmptyList />;
 
-  return <ChannelBrowser channels={channels.data} />;
+  return <ChannelBrowser channels={channels.data} tab={tab} onTabChange={onTabChange} page={page} />;
 }
 
 /** What can be open over the grid, and the controls that open it. */
 function useChannelOverlays(page: RefObject<HTMLElement | null>) {
   const { t } = useI18n();
-  const sheet = useOverlay<Show["key"]>(page);
+  const sheet = useOverlay<Channel["id"][]>(page);
   const removal = useOverlay<Removal>(page);
   const editing = useOverlay<Channel>(page);
   const actions = useChannelActions();
 
   const controls: ChannelControls = {
     actions,
-    openShow: (show, opener) => sheet.open(show.key, opener),
+    openShow: ({ sources }, opener) => sheet.open(sources.map(({ id }) => id), opener),
     editSource: editing.open,
     askToRemove: removal.open,
   };
@@ -57,20 +78,22 @@ function useChannelOverlays(page: RefObject<HTMLElement | null>) {
   return { sheet, removal, editing, controls, confirmRemoval, confirmSaved };
 }
 
-function ChannelBrowser({ channels }: { channels: Channel[] }) {
-  const [tab, setTab] = useState<ChannelTab>("series");
-  const page = useRef<HTMLDivElement>(null);
+type ChannelBrowserProps = ChannelListProps & { channels: Channel[] };
+
+function ChannelBrowser({ channels, tab, onTabChange, page }: ChannelBrowserProps) {
   const { sheet, removal, editing, controls, confirmRemoval, confirmSaved } = useChannelOverlays(page);
 
   const shows = { series: showsOn("series", channels), movies: showsOn("movies", channels) };
-  // Looked up on every render, so the Sheet follows the list as its sources change.
-  // On both tabs: an edit can move an open show to the other one.
-  const sheetShow = [...shows.series, ...shows.movies].find(({ key }) => key === sheet.target);
+  // Looked up on every render, so the Sheet follows the list as its sources change. By source:
+  // a mapping changes a show's key. On both tabs: an edit can move an open show to the other one.
+  const sheetShow = [...shows.series, ...shows.movies].find(({ sources }) =>
+    sources.some(({ id }) => sheet.target?.includes(id)),
+  );
   const removing = removal.target;
 
   return (
-    <div ref={page} tabIndex={-1} className="outline-none">
-      <ChannelTabs tab={tab} onTabChange={setTab} series={shows.series} movies={shows.movies} controls={controls} />
+    <>
+      <ChannelTabs tab={tab} onTabChange={onTabChange} series={shows.series} movies={shows.movies} controls={controls} />
       {sheetShow && (
         <ChannelSheet
           show={sheetShow}
@@ -98,7 +121,7 @@ function ChannelBrowser({ channels }: { channels: Channel[] }) {
           onCloseAutoFocus={removal.onCloseAutoFocus}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -159,7 +182,8 @@ function EmptyList() {
   return (
     <div className="py-12 text-center">
       <h2 className="font-medium">{t("ch.empty_title")}</h2>
-      <p className="text-muted-foreground">{t("ch.empty_body")}</p>
+      <p className="mb-4 text-muted-foreground">{t("ch.empty_body")}</p>
+      <AddChannelButton />
     </div>
   );
 }

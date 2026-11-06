@@ -4,6 +4,7 @@ import { api } from "@/lib/api";
 import { DOWNLOADS_KEY, type Download } from "@/lib/downloads";
 import { isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
+import type { SeriesPayload } from "@/screens/channels/use-series-mapping";
 
 export const CHANNELS_KEY = ["channels"] as const;
 
@@ -33,13 +34,20 @@ export type CompletedDownload = Pick<Download, "id" | "channel_id" | "file_name"
 export const useChannels = () =>
   useQuery({ queryKey: CHANNELS_KEY, queryFn: () => api.get<Channel[]>("/api/channels") });
 
+type ChannelUpdate = { id: number; fields: ChannelSettings; mapping: SeriesPayload | null };
+
+async function updateChannel({ id, fields, mapping }: ChannelUpdate): Promise<void> {
+  await api.patch(`/api/channels/${id}`, fields);
+  if (mapping) await api.put(`/api/channels/${id}/series`, mapping);
+}
+
 export function useUpdateChannel() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, fields }: { id: number; fields: ChannelSettings }) =>
-      api.patch(`/api/channels/${id}`, fields),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: CHANNELS_KEY }),
+    mutationFn: updateChannel,
+    // On failure too: the settings may have saved before the mapping failed.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: CHANNELS_KEY }),
   });
 }
 

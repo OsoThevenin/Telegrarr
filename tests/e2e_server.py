@@ -67,6 +67,11 @@ def seed() -> None:
     tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
     movies = channels.upsert(CHAT_ID, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
+    # Chats the account is in but Telegrarr does not read yet, for Add channel.
+    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat")
+    tg._client.add_group(-1001234567893, "Amics del cinema")
+    tg._client.add_forum(-1001234567894, "Anime en català", topics=("Sèries HD", "Pel·lícules HD"))
+    tg._client.add_channel(-1001234567895, "Canal Secret", username="canalsecret")
     seed_review(movies["id"])
     seed_catalog(movies["id"])
 
@@ -83,12 +88,20 @@ def seed_review(channel_id: int) -> None:
             )
 
 
+def fake_tmdb() -> FakeTMDB:
+    """What TMDB knows, for the key seed_review stores."""
+    fake = FakeTMDB()
+    fake.add_movie(19995, titles={"en-US": "Avatar", "ca-ES": "Avatar"}, release_date="2009-12-18",
+                   imdb_id="tt0499549")
+    fake.add_series(1001, titles={"ca-ES": "Merlí", "en-US": "Merlí"}, first_air_date="2015-09-14",
+                    tvdb_id=2001, imdb_id="tt4419684")
+    return fake
+
+
 def install_fakes() -> None:
     tg._client = FakeTelegram()
-    fake_tmdb = FakeTMDB()
-    fake_tmdb.add_movie(19995, titles={"en-US": "Avatar", "ca-ES": "Avatar"}, release_date="2009-12-18",
-                        imdb_id="tt0499549")
-    tmdb.transport = fake_tmdb.transport
+    tg._dialogs_cache.update(ts=0, data=[])
+    tmdb.transport = fake_tmdb().transport
     arrs = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
     arrs.radarr.quality_profiles = [{"id": 4, "name": "HD-1080p"}]
     arrs.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]

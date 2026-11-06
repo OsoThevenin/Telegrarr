@@ -46,7 +46,11 @@ export function usePaletteCommands(): readonly PaletteCommand[] {
 
   return [
     ...screens,
-    { label: t("shell.add_channel"), icon: Plus, run: () => void navigate({ to: "/channels" }) },
+    {
+      label: t("shell.add_channel"),
+      icon: Plus,
+      run: () => void navigate({ to: "/channels", search: { add: true } }),
+    },
     ...pause,
     {
       label: t("cmd.scan_all"),

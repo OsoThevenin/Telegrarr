@@ -38,7 +38,12 @@ export type Show = {
 
 export type ChannelTab = "series" | "movies";
 
-export const isMovieChannel = (channel: Channel) => channel.kind === "movie";
+export const MOVIE_KIND = "movie";
+
+export const isMovieChannel = (channel: Channel) => channel.kind === MOVIE_KIND;
+
+/** The one kind a series mapping applies to. */
+export const isSeriesKind = (kind: string) => kind === "tv";
 
 /** Every kind but movie lands on the series tab, so no channel falls out of the grid. */
 export const tabOf = (channel: Channel): ChannelTab => (isMovieChannel(channel) ? "movies" : "series");
@@ -76,6 +81,12 @@ type Translate = (key: string, params?: Record<string, unknown>) => string;
 export function kindLabel(kind: string, t: Translate): string {
   if (kind === "tv") return t("kind.tv");
   return kind === "movie" ? t("kind.movie") : kind;
+}
+
+/** A kind as a choice on a form. */
+export function kindChoiceLabel(kind: string, t: Translate): string {
+  if (kind === "tv") return t("chm.kind.tv");
+  return kind === "movie" ? t("chm.kind.movie") : kind;
 }
 
 function weekdaysLabel(weekdays: string, t: Translate): string {
