@@ -69,6 +69,21 @@ test.describe("command palette", () => {
     await expect(page).toHaveURL("/system");
   });
 
+  test("marks only the highlighted command", async ({ signedInPage: page }) => {
+    await page.goto("/");
+    await expect(button(page, PAUSE)).toBeEnabled();
+
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(palette(page)).toBeVisible();
+
+    const backgrounds = await page
+      .getByRole("option")
+      .evaluateAll((options) => options.map((option) => getComputedStyle(option).backgroundColor));
+    const unmarked = backgrounds.filter((color) => color === "rgba(0, 0, 0, 0)");
+    expect(backgrounds.length).toBeGreaterThan(1);
+    expect(unmarked).toHaveLength(backgrounds.length - 1);
+  });
+
   test("runs an action against the backend", async ({ signedInPage: page }) => {
     await page.goto("/");
     await expect(button(page, PAUSE)).toBeEnabled();
