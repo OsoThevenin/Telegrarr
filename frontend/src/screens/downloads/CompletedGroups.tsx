@@ -2,11 +2,11 @@ import { useState } from "react";
 
 import { ChevronRight, Trash2 } from "lucide-react";
 
+import { ConfirmTrigger } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
 import { cn } from "@/lib/utils";
-import { ConfirmClear } from "@/screens/downloads/ConfirmClear";
 import { DownloadList } from "@/screens/downloads/DownloadList";
 import { groupByShow, type DownloadGroup } from "@/screens/downloads/download-list";
 import { formatSize } from "@/screens/downloads/format";
@@ -44,15 +44,17 @@ function CompletedGroup({ group: { name, rows }, isDense, selection }: Completed
             </span>
           </span>
         </button>
-        <ConfirmClear
+        <ConfirmTrigger
           trigger={
             <Button variant="ghost" size="icon-sm" title={clearLabel} aria-label={clearLabel} disabled={isPending}>
               <Trash2 aria-hidden="true" />
             </Button>
           }
           title={clearLabel}
-          message={t("dl.clear_group_confirm", { n: rows.length, name })}
-          onConfirm={() => removeMany(rows.map(({ id }) => id))}
+          description={t("dl.clear_group_confirm", { n: rows.length, name })}
+          confirmLabel={t("common.delete")}
+          isDestructive
+          onConfirm={async () => removeMany(rows.map(({ id }) => id))}
         />
       </div>
       {isOpen && <DownloadList rows={rows} isDense={isDense} selection={selection} />}

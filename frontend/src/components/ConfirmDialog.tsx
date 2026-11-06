@@ -9,6 +9,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { StatusLine } from "@/components/StatusLine";
 import { useI18n } from "@/i18n/use-i18n";
@@ -38,6 +39,25 @@ export function ConfirmDialog({ isOpen, onOpenChange, title, ...content }: Props
 }
 
 type ContentProps = Omit<Props, "isOpen" | "onOpenChange"> & { onDone: () => void };
+
+type TriggeredProps = Omit<ContentProps, "onDone"> & {
+  /** The button that asks; it should say what it does, and gets the focus back on closing. */
+  trigger: ReactNode;
+};
+
+/** A ConfirmDialog that opens from its own button. */
+export function ConfirmTrigger({ trigger, ...content }: TriggeredProps) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={setIsOpen}>
+      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      <AlertDialogContent>
+        <ConfirmContent onDone={() => setIsOpen(false)} {...content} />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 /** Mounted only while the dialog is open, so a reopened dialog has no old error. */
 function ConfirmContent({ title, description, confirmLabel, onConfirm, isDestructive, badge, onDone }: ContentProps) {

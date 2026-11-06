@@ -1,11 +1,11 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 
+import { ConfirmTrigger } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
 import { CompletedGroups } from "@/screens/downloads/CompletedGroups";
-import { ConfirmClear } from "@/screens/downloads/ConfirmClear";
 import { DownloadBulkBar } from "@/screens/downloads/DownloadBulkBar";
 import { DownloadList } from "@/screens/downloads/DownloadList";
 import {
@@ -70,15 +70,17 @@ function ClearFailed({ rows }: ClearFailedProps) {
 
   return (
     <div className="flex justify-end">
-      <ConfirmClear
+      <ConfirmTrigger
         trigger={
           <Button variant="outline" size="sm" disabled={isPending}>
             {t("dl.clear_failed", { n })}
           </Button>
         }
         title={t("dl.clear_failed", { n })}
-        message={t("dl.delete_failed_confirm", { n })}
-        onConfirm={() => removeMany(rows.map(({ id }) => id))}
+        description={t("dl.delete_failed_confirm", { n })}
+        confirmLabel={t("common.delete")}
+        isDestructive
+        onConfirm={async () => removeMany(rows.map(({ id }) => id))}
       />
     </div>
   );

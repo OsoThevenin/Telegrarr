@@ -1,10 +1,10 @@
 import { useRef, type ReactNode } from "react";
 
+import { ConfirmTrigger } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
-import { ConfirmClear } from "@/screens/downloads/ConfirmClear";
 import { isInTransfer, isPausable, isPaused, isRetryable } from "@/screens/downloads/download-list";
 import { useDownloadActions } from "@/screens/downloads/use-download-actions";
 import type { DownloadSelection } from "@/screens/downloads/use-download-selection";
@@ -84,15 +84,17 @@ export function DownloadBulkBar({ rows, selection, children }: Props) {
           </Button>
         )}
         {deletable.length > 0 && (
-          <ConfirmClear
+          <ConfirmTrigger
             trigger={
               <Button variant="destructive" size="sm" disabled={isPending}>
                 {t("common.delete")}
               </Button>
             }
             title={t("common.delete")}
-            message={t("dl.delete_selected_confirm", { n: deletable.length })}
-            onConfirm={() => removeMany(deletable, handleDone)}
+            description={t("dl.delete_selected_confirm", { n: deletable.length })}
+            confirmLabel={t("common.delete")}
+            isDestructive
+            onConfirm={async () => removeMany(deletable, handleDone)}
           />
         )}
         {count > 0 && (
