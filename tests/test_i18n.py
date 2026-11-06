@@ -33,7 +33,6 @@ def test_no_translation_is_empty():
         assert [k for k, v in _dictionary(lang).items() if not v.strip()] == []
 
 
-JS_DIR = I18N_DIR.parent / "js"
 # t("key"), tn("key", n) and tOr("key", …) with a literal key; template keys are dynamic and skipped.
 JS_KEY = re.compile(r"\b(t|tn|tOr)\(\s*[\"`]([\w.-]+)[\"`]")
 FRONTEND_SRC = I18N_DIR.parents[2] / "frontend" / "src"
@@ -52,18 +51,24 @@ def _keys_missing_from_dictionary(paths, en):
     return missing
 
 
-def test_every_key_the_spa_uses_exists_in_the_dictionary():
-    assert _keys_missing_from_dictionary(JS_DIR.glob("*.js"), _dictionary("en")) == set()
-
-
-def test_every_key_the_frontend_uses_exists_in_the_dictionary():
-    sources = [
+def _frontend_sources():
+    return [
         path
         for path in FRONTEND_SRC.rglob("*.ts*")
         if ".test." not in path.name and FRONTEND_SRC / "test" not in path.parents
     ]
-    assert sources, "no frontend sources found"
-    assert _keys_missing_from_dictionary(sources, _dictionary("en")) == set()
+
+
+def test_every_key_the_frontend_uses_exists_in_the_dictionary():
+    assert _keys_missing_from_dictionary(_frontend_sources(), _dictionary("en")) == set()
+
+
+def test_the_key_scan_reads_the_frontend():
+    """Against an empty dictionary every key is missing, so a scan that went blind shows up here."""
+    found = _keys_missing_from_dictionary(_frontend_sources(), {})
+
+    assert "route.tsx: nav.dashboard" in found  # a screen title
+    assert "PauseToggle.tsx: shell.pause" in found  # a t() call
 
 
 def test_translate_fills_placeholders_in_the_requested_language():

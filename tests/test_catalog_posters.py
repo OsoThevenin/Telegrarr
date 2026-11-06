@@ -231,12 +231,3 @@ async def test_posters_of_an_unknown_channel_are_a_keyed_error(arr_app):
 
     assert r.status_code == 404
     assert r.json()["detail"] == {"key": "err.catalog.unknown_channel", "params": {"id": 999}}
-
-
-@pytest.mark.asyncio
-async def test_the_catalog_module_fetches_posters_and_labels_them(arr_app):
-    module = await arr_app.http.get("/static/js/catalog.js")
-
-    assert module.status_code == 200
-    assert "/catalog/posters" in module.text
-    assert "cat.poster_of" in module.text

@@ -89,14 +89,6 @@ async def test_radarr_without_profiles_or_folders_offers_no_selection(arr_app, a
 
 
 @pytest.mark.asyncio
-async def test_connect_page_renders_the_radarr_default_selects(arr_app):
-    js = (await arr_app.http.get("/static/js/connect.js")).text
-
-    assert "/api/connect/radarr/defaults" in js
-    assert 'connect.radarr_defaults.profile' in js and 'connect.radarr_defaults.root_folder' in js
-
-
-@pytest.mark.asyncio
 async def test_saving_a_malformed_selection_is_a_keyed_error(arr_app, arrs):
     await _connect_radarr(arr_app, arrs)
 

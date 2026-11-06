@@ -213,20 +213,6 @@ async def test_the_catalog_of_an_unknown_channel_is_a_keyed_error(arr_app):
 
 
 @pytest.mark.asyncio
-async def test_the_catalog_module_is_served_and_used_by_the_channel_drawer(arr_app):
-    module = await arr_app.http.get("/static/js/catalog.js")
-    views = await arr_app.http.get("/static/js/views.js")
-    worker = await arr_app.http.get("/static/sw.js")
-
-    assert module.status_code == 200
-    assert "javascript" in module.headers["content-type"]
-    assert "pageUrl(" in module.text and "/api/channels/" in module.text   # pages via catalog-filters.js
-    assert "/scan`" in module.text          # the empty state's Escaneja ara uses the per-channel scan
-    assert 'from "./catalog.js"' in views.raise_for_status().text
-    assert '"/static/js/catalog.js"' in worker.raise_for_status().text
-
-
-@pytest.mark.asyncio
 async def test_the_catalog_needs_a_signed_in_user(arr_app):
     arr_app.http.cookies.clear()
 
