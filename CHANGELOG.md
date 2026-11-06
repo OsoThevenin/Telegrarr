@@ -8,6 +8,9 @@
   still placeholders, and the current interface at `/` is unchanged.
 - The new interface follows the queue live, can pause and resume it, has a command
   palette on ⌘K / Ctrl+K, and installs as an app.
+- The Downloads screen of the new interface: filters that narrow every list, a
+  Queued / Active tab next to Completed, Failed and Cancelled, Pause all / Resume all,
+  live progress, and Stop, Retry, Delete and Clear on each list.
 
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 
