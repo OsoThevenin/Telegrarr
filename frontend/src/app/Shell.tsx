@@ -17,6 +17,9 @@ export function Shell() {
   const titleKey = useMatches({
     select: (matches) => matches.findLast((match) => match.staticData.titleKey)?.staticData.titleKey,
   });
+  const HeaderAction = useMatches({
+    select: (matches) => matches.findLast((match) => match.staticData.HeaderAction)?.staticData.HeaderAction,
+  });
   const title = titleKey ? t(titleKey) : undefined;
 
   useEffect(() => {
@@ -33,6 +36,7 @@ export function Shell() {
           <MobileDrawer />
           <h1 className="truncate text-lg font-semibold">{title ?? APP_NAME}</h1>
           <CommandPalette />
+          {HeaderAction && <HeaderAction />}
         </header>
         <main className="flex-1 p-4 md:p-8">
           <Outlet />
