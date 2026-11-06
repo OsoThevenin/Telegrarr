@@ -2,14 +2,18 @@ import { useEffect } from "react";
 
 import { Outlet, useMatches } from "@tanstack/react-router";
 
+import { AppToaster } from "@/app/AppToaster";
+import { CommandPalette } from "@/app/CommandPalette";
 import { MobileDrawer } from "@/app/MobileDrawer";
 import { ShellMenu } from "@/app/ShellMenu";
+import { useLiveUpdates } from "@/app/use-live-updates";
 import { useI18n } from "@/i18n/use-i18n";
 
 const APP_NAME = "Telegrarr";
 
 export function Shell() {
   const { t } = useI18n();
+  useLiveUpdates();
   const titleKey = useMatches({
     select: (matches) => matches.findLast((match) => match.staticData.titleKey)?.staticData.titleKey,
   });
@@ -28,11 +32,13 @@ export function Shell() {
         <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background px-2 md:px-8">
           <MobileDrawer />
           <h1 className="truncate text-lg font-semibold">{title ?? APP_NAME}</h1>
+          <CommandPalette />
         </header>
         <main className="flex-1 p-4 md:p-8">
           <Outlet />
         </main>
       </div>
+      <AppToaster />
     </div>
   );
 }

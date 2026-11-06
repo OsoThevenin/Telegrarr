@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { goToLogin } from "@/lib/browser";
+import { chooseTheme, cycleTheme } from "@/lib/theme";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
 import { FRESH_SETTINGS, settingsHandlers, settingsResponse } from "@/test/settings";
@@ -124,6 +125,20 @@ describe("account", () => {
 
     await waitFor(() => expect(goToLogin).toHaveBeenCalled());
     expect(body).toEqual({ current: "old-password", new: "new-password-1" });
+  });
+});
+
+describe("the theme", () => {
+  afterEach(() => chooseTheme("auto"));
+
+  it("follows a change made from the command palette", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Compte");
+    const select = await screen.findByLabelText(/^Tema/);
+
+    act(() => cycleTheme());
+
+    expect(select).toHaveValue("light");
   });
 });
 

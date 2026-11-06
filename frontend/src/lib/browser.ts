@@ -2,3 +2,8 @@
 export function goToLogin(): void {
   window.location.assign("/login");
 }
+
+/** Ends the session; the backend answers with its login page. */
+export function goToLogout(): void {
+  window.location.assign("/logout");
+}

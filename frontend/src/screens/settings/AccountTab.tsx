@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -19,7 +19,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
 import { goToLogin } from "@/lib/browser";
 import { SETTINGS_KEY } from "@/lib/settings";
-import { chooseTheme, currentTheme, THEMES, type Theme } from "@/lib/theme";
+import { chooseTheme, currentTheme, subscribeToTheme, THEMES, type Theme } from "@/lib/theme";
 
 // The backend's auth.MIN_PASSWORD_LEN, for the hint; the server enforces it.
 const MIN_PASSWORD_LENGTH = 12;
@@ -85,12 +85,7 @@ export function AccountTab({ username }: { username: string }) {
 
 function AppearanceCard() {
   const { t } = useI18n();
-  const [theme, setTheme] = useState(currentTheme);
-
-  function handleChange(next: Theme) {
-    chooseTheme(next);
-    setTheme(next);
-  }
+  const theme = useSyncExternalStore(subscribeToTheme, currentTheme);
 
   return (
     <Card>
@@ -101,7 +96,7 @@ function AppearanceCard() {
         <SelectField
           label={t("shell.theme")}
           value={theme}
-          onChange={(event) => handleChange(event.target.value as Theme)}
+          onChange={(event) => chooseTheme(event.target.value as Theme)}
         >
           {THEMES.map((option) => (
             <option key={option} value={option}>
