@@ -25,12 +25,19 @@ export const CANCELLED_TAB: DownloadTab = { id: "cancelled", labelKey: "dl.cance
 export const DOWNLOAD_TABS = [ACTIVE_TAB, COMPLETED_TAB, FAILED_TAB, CANCELLED_TAB] as const;
 
 const RETRYABLE: readonly DownloadStatus[] = ["failed", "cancelled"];
+const PAUSABLE: readonly DownloadStatus[] = ["downloading", "queued"];
 
 /** The rows not finished yet: Stop can act on them, and there is nothing to delete yet. */
 export const isInTransfer = ({ status }: Download): boolean => ACTIVE_TAB.statuses.includes(status);
 
 /** The rows Retry can act on; the server enforces the same rule. */
 export const isRetryable = ({ status }: Download): boolean => RETRYABLE.includes(status);
+
+/** The rows Pause can act on; the server enforces the same rule. */
+export const isPausable = ({ status }: Download): boolean => PAUSABLE.includes(status);
+
+/** A row held on its own, with no partial file: Resume starts it from the beginning. */
+export const isPaused = ({ status }: Download): boolean => status === "paused";
 
 export const rowsOfTab = (rows: readonly Download[], { statuses }: DownloadTab): Download[] =>
   rows.filter(({ status }) => statuses.includes(status));

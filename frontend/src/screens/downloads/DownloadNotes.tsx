@@ -1,5 +1,6 @@
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
+import { isPaused } from "@/screens/downloads/download-list";
 
 const CHANNEL_NUMBERING = "channel";
 const EPISODE_DIGITS = 2;
@@ -30,7 +31,7 @@ type Props = {
 };
 
 export function DownloadNotes({ download }: Props) {
-  const { msg } = useI18n();
+  const { t, msg } = useI18n();
   const episodeNote = useEpisodeNote(download);
   const failure = download.error_msg ? msg(download.error_msg) : download.error;
 
@@ -41,6 +42,7 @@ export function DownloadNotes({ download }: Props) {
           {episodeNote.text}
         </p>
       )}
+      {isPaused(download) && <p className="text-sm text-muted-foreground">{t("dl.paused_note")}</p>}
       {failure && <p className="text-sm text-destructive wrap-anywhere">{failure}</p>}
     </>
   );
