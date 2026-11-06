@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 
 ### Added
 - History fetch: Telegrarr reads a Channel's older messages by itself, in batches of
