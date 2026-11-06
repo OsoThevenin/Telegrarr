@@ -15,11 +15,13 @@ import {
 import { useI18n } from "@/i18n/use-i18n";
 import { ChannelSettingsFields } from "@/screens/channels/ChannelSettingsFields";
 import { EntityPicker } from "@/screens/channels/EntityPicker";
+import { SeriesMapper } from "@/screens/channels/SeriesMapper";
 import { TopicPicker, type TopicTicks } from "@/screens/channels/TopicPicker";
 import { topicTargets, useAddChannel, type AddFailure, type AddResult } from "@/screens/channels/add-channel";
-import type { Channel } from "@/screens/channels/channel";
+import { isSeriesKind, type Channel } from "@/screens/channels/channel";
 import { NEW_CHANNEL_FORM, NEW_CHANNEL_KINDS, settingsOf } from "@/screens/channels/channel-settings";
 import { useTopics, type PickedChat } from "@/screens/channels/telegram-queries";
+import { useSeriesMapping } from "@/screens/channels/use-series-mapping";
 
 type Props = {
   /** Where focus goes when what opened the dialog is gone, as the palette is. */
@@ -78,14 +80,17 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
   const [problems, setProblems] = useState<string[]>([]);
   const add = useAddChannel();
   const topicList = useTopics(chat?.chat_id);
+  const series = useSeriesMapping();
 
   const forumTopics = topicList.data?.forum ? topicList.data.topics : null;
   const targets = forumTopics ? topicTargets(forumTopics, ticks) : [{ kind: form.kind }];
+  const hasOneSeries = targets.filter(({ kind }) => isSeriesKind(kind)).length === 1;
 
   const pickChat = (next: PickedChat) => {
     setChat(next);
     if (next.chat_id !== chat?.chat_id) setTicks({});
     setProblems([]);
+    series.prefill(next.title);
   };
 
   const failureText = ({ target, error }: AddFailure) =>
@@ -107,7 +112,8 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
       setProblems([t("chm.topics.pick_first")]);
     } else {
       setProblems([]);
-      add.mutate({ chat, settings: settingsOf(form), targets }, { onSuccess: report });
+      const mapping = hasOneSeries ? series.payload : null;
+      add.mutate({ chat, settings: settingsOf(form), targets, mapping }, { onSuccess: report });
     }
   };
 
@@ -122,6 +128,9 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
       )}
       {forumTopics && <TopicPicker topics={forumTopics} ticks={ticks} onChange={setTicks} />}
       <ChannelSettingsFields form={form} kinds={forumTopics ? [] : NEW_CHANNEL_KINDS} onChange={setForm} />
+      {forumTopics && hasOneSeries && <p className="text-muted-foreground">{t("chm.topics.series_hint")}</p>}
+      {hasOneSeries && <SeriesMapper mapping={series} />}
+      {!forumTopics && !hasOneSeries && <p className="text-muted-foreground">{t("chm.movie_note")}</p>}
       {problems.map((problem) => (
         <p key={problem} role="alert" className="text-destructive">
           {problem}

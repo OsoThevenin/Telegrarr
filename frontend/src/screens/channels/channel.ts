@@ -38,6 +38,9 @@ export type ChannelTab = "series" | "movies";
 
 export const isMovieChannel = (channel: Channel) => channel.kind === "movie";
 
+/** The one kind a series mapping applies to. */
+export const isSeriesKind = (kind: string) => kind === "tv";
+
 /** Every kind but movie lands on the series tab, so no channel falls out of the grid. */
 export const tabOf = (channel: Channel): ChannelTab => (isMovieChannel(channel) ? "movies" : "series");
 

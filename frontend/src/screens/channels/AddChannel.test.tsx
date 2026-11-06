@@ -33,6 +33,7 @@ function serveAccount({ dialogs = [MERLI, AMICS] as unknown[], existing = [] as 
     http.get("/api/telegram/dialogs", () => HttpResponse.json(dialogs)),
     http.get("/api/telegram/topics", () => HttpResponse.json({ forum: false, topics: [] })),
     http.get("/api/settings", () => HttpResponse.json({ settings: { tmdb_key_set: true } })),
+    http.get("/api/tmdb/search", () => HttpResponse.json([])),
   );
   return { posted };
 }
@@ -342,6 +343,234 @@ describe("forum groups", () => {
     const { dialog } = await pickForum();
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Espera un minut");
+  });
+});
+
+describe("the series", () => {
+  const SERIES_LABEL = "Sèrie (cerca a TMDB)";
+  const HIT = { tmdb_id: 1001, title: "Merlí", year: "2015", original_title: "Merlí" };
+
+  /** TMDB's search and the mapping endpoint, keeping what the form asks of them. */
+  function serveSeries(reply: () => Response = () => HttpResponse.json([HIT])) {
+    const searches: URLSearchParams[] = [];
+    const mapped: { id: number; body: unknown }[] = [];
+    server.use(
+      http.get("/api/tmdb/search", ({ request }) => {
+        searches.push(new URL(request.url).searchParams);
+        return reply();
+      }),
+      http.put("/api/channels/:id/series", async ({ params, request }) => {
+        const id = Number(params.id);
+        mapped.push({ id, body: await request.json() });
+        return HttpResponse.json(channel({ id }));
+      }),
+    );
+    return { searches, mapped };
+  }
+
+  const pickMerli = async () => {
+    const opened = await openDialog();
+    await opened.user.click(await within(opened.dialog).findByRole("option", { name: /Merlí/ }));
+    return opened;
+  };
+
+  const chooseHit = async ({ user, dialog }: Awaited<ReturnType<typeof openDialog>>) => {
+    await user.click(await within(dialog).findByRole("button", { name: /^Merlí \(2015\)/ }));
+    return within(dialog).findByText("(TMDB 1001)");
+  };
+
+  it("searches TMDB for the picked chat, leaving out its release words", async () => {
+    serveAccount();
+    const { searches } = serveSeries();
+
+    const { dialog } = await pickMerli();
+
+    expect(await within(dialog).findByRole("button", { name: /^Merlí \(2015\)/ })).toBeVisible();
+    expect(within(dialog).getByLabelText(SERIES_LABEL)).toHaveValue("Merlí");
+    expect(searches[0].get("q")).toBe("Merlí");
+    expect(searches[0].get("digits_as_id")).toBe("false");
+  });
+
+  it("maps the new channel to the chosen series", async () => {
+    serveAccount();
+    const { mapped } = serveSeries();
+    const opened = await pickMerli();
+
+    await chooseHit(opened);
+    await opened.user.click(save(opened.dialog));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mapped).toEqual([{ id: 101, body: { tmdb_id: 1001, tvdb_id: null, title: "Merlí (2015)" } }]);
+  });
+
+  it("leaves the channel unmapped when no series was chosen", async () => {
+    serveAccount();
+    const { mapped } = serveSeries();
+    const { user, dialog } = await pickMerli();
+    await within(dialog).findByRole("button", { name: /^Merlí \(2015\)/ });
+
+    await user.click(save(dialog));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mapped).toEqual([]);
+  });
+
+  it("maps by a typed TVDB id alone", async () => {
+    serveAccount();
+    const { mapped } = serveSeries();
+    const { user, dialog } = await pickMerli();
+
+    await user.type(within(dialog).getByLabelText("Identificador de TVDB"), "2001");
+    await user.click(save(dialog));
+
+    await waitFor(() => expect(mapped).toEqual([{ id: 101, body: { tmdb_id: null, tvdb_id: "2001", title: "" } }]));
+  });
+
+  it("reads digits as a TMDB id on Enter, without saving the form", async () => {
+    const { posted } = serveAccount();
+    const { searches } = serveSeries(() => HttpResponse.json([{ ...HIT, exact: true }]));
+    const { user, dialog } = await pickMerli();
+    const input = within(dialog).getByLabelText(SERIES_LABEL);
+
+    await user.clear(input);
+    await user.type(input, "1001{Enter}");
+
+    expect(await within(dialog).findByText("(TMDB 1001)")).toBeVisible();
+    expect(searches.at(-1)?.get("q")).toBe("1001");
+    expect(searches.at(-1)?.get("digits_as_id")).toBe("true");
+    expect(posted).toEqual([]);
+  });
+
+  it("offers the id reading when digits are read as a title", async () => {
+    serveAccount();
+    serveSeries();
+    const { user, dialog } = await pickMerli();
+    const input = within(dialog).getByLabelText(SERIES_LABEL);
+
+    await user.clear(input);
+    await user.type(input, "1883");
+
+    expect(await within(dialog).findByText(/Prem Retorn per fer servir 1883/)).toBeVisible();
+  });
+
+  it("says when TMDB finds nothing", async () => {
+    serveAccount();
+    serveSeries(() => HttpResponse.json([]));
+
+    const { dialog } = await pickMerli();
+
+    expect(await within(dialog).findByText(/No s’ha trobat cap sèrie/)).toBeVisible();
+  });
+
+  it("keeps a typed search when another chat is picked", async () => {
+    serveAccount();
+    serveSeries();
+    const { user, dialog } = await pickMerli();
+    const input = within(dialog).getByLabelText(SERIES_LABEL);
+
+    await user.clear(input);
+    await user.type(input, "Plats bruts");
+    await user.click(within(dialog).getByRole("option", { name: /Amics/ }));
+
+    expect(input).toHaveValue("Plats bruts");
+  });
+
+  it("asks for a TMDB key instead of searching without one", async () => {
+    serveAccount();
+    const { searches } = serveSeries();
+    server.use(http.get("/api/settings", () => HttpResponse.json({ settings: { tmdb_key_set: false } })));
+    const { user, dialog } = await openDialog();
+    expect(await within(dialog).findByText(/Cal una clau de l’API de TMDB/)).toBeVisible();
+
+    await user.click(await within(dialog).findByRole("option", { name: /Merlí/ }));
+
+    expect(within(dialog).getByLabelText(SERIES_LABEL)).toHaveValue("Merlí");
+    expect(searches).toEqual([]);
+  });
+
+  it("gives the reason when the search fails", async () => {
+    serveAccount();
+    serveSeries(() => HttpResponse.json({ detail: "TMDB no respon" }, { status: 502 }));
+
+    const { dialog } = await pickMerli();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("TMDB no respon");
+  });
+
+  it("stays open with the reason when the mapping fails", async () => {
+    const { posted } = serveAccount();
+    serveSeries();
+    server.use(
+      http.put("/api/channels/:id/series", () => HttpResponse.json({ detail: "Sèrie desconeguda" }, { status: 400 })),
+    );
+    const opened = await pickMerli();
+
+    await chooseHit(opened);
+    await opened.user.click(save(opened.dialog));
+
+    expect(await within(opened.dialog).findByRole("alert")).toHaveTextContent("Sèrie desconeguda");
+    expect(posted).toHaveLength(1);
+  });
+
+  it("explains movies instead, and sends them no mapping", async () => {
+    serveAccount();
+    const { mapped } = serveSeries();
+    const opened = await pickMerli();
+    await chooseHit(opened);
+
+    await opened.user.selectOptions(within(opened.dialog).getByLabelText("Tipus"), "movie");
+
+    expect(within(opened.dialog).getByText(/Els canals de pel·lícules/)).toBeVisible();
+    expect(within(opened.dialog).queryByLabelText(SERIES_LABEL)).not.toBeInTheDocument();
+
+    await opened.user.click(save(opened.dialog));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mapped).toEqual([]);
+  });
+
+  describe("of a forum group", () => {
+    const TOPICS = [
+      { topic_id: 11, title: "Sèries HD" },
+      { topic_id: 12, title: "Pel·lícules HD" },
+    ];
+
+    const pickForum = async () => {
+      server.use(http.get("/api/telegram/topics", () => HttpResponse.json({ forum: true, topics: TOPICS })));
+      const opened = await openDialog();
+      await opened.user.click(await within(opened.dialog).findByRole("option", { name: /Amics/ }));
+      await within(opened.dialog).findByRole("checkbox", { name: "Sèries HD" });
+      return opened;
+    };
+
+    it("maps the one series topic that is ticked", async () => {
+      const { posted } = serveAccount();
+      const { mapped } = serveSeries();
+      const opened = await pickForum();
+      const { user, dialog } = opened;
+
+      expect(within(dialog).queryByLabelText(SERIES_LABEL)).not.toBeInTheDocument();
+      await user.click(within(dialog).getByRole("checkbox", { name: "Sèries HD" }));
+      await user.click(within(dialog).getByRole("checkbox", { name: "Pel·lícules HD" }));
+      await user.selectOptions(within(dialog).getByLabelText("Tipus per a Pel·lícules HD"), "movie");
+      expect(within(dialog).getByText("Sèrie associada a l’únic tema de sèries marcat:")).toBeVisible();
+      await chooseHit(opened);
+      await user.click(save(dialog));
+
+      await waitFor(() => expect(mapped).toHaveLength(1));
+      expect(posted[0]).toMatchObject({ topic_id: 11 });
+      expect(mapped[0].id).toBe(101);
+    });
+
+    it("hides the series when two series topics are ticked", async () => {
+      serveAccount();
+      serveSeries();
+      const { user, dialog } = await pickForum();
+
+      await user.click(within(dialog).getByRole("checkbox", { name: "Sèries HD" }));
+      await user.click(within(dialog).getByRole("checkbox", { name: "Pel·lícules HD" }));
+
+      expect(within(dialog).queryByLabelText(SERIES_LABEL)).not.toBeInTheDocument();
+    });
   });
 });
 
