@@ -76,6 +76,12 @@ export function kindLabel(kind: string, t: Translate): string {
   return kind === "movie" ? t("kind.movie") : kind;
 }
 
+/** A kind as a choice on a form. */
+export function kindChoiceLabel(kind: string, t: Translate): string {
+  if (kind === "tv") return t("chm.kind.tv");
+  return kind === "movie" ? t("chm.kind.movie") : kind;
+}
+
 function weekdaysLabel(weekdays: string, t: Translate): string {
   const names = t("common.weekdays_short").split(" ");
   const days = weekdays.split(",").filter(Boolean).map(Number);

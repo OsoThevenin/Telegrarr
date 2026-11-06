@@ -229,6 +229,122 @@ describe("picking a chat", () => {
   });
 });
 
+describe("forum groups", () => {
+  const TOPICS = [
+    { topic_id: 11, title: "Sèries HD" },
+    { topic_id: 12, title: "Pel·lícules HD" },
+  ];
+  const serveTopics = (reply: () => Response = () => HttpResponse.json({ forum: true, topics: TOPICS })) =>
+    server.use(http.get("/api/telegram/topics", reply));
+
+  const pickForum = async () => {
+    const opened = await openDialog();
+    await opened.user.click(await within(opened.dialog).findByRole("option", { name: /Amics/ }));
+    return opened;
+  };
+
+  it("replaces the chat-wide kind with one per topic", async () => {
+    serveAccount();
+    serveTopics();
+
+    const { dialog } = await pickForum();
+
+    const topic = await within(dialog).findByRole("checkbox", { name: "Sèries HD" });
+    expect(topic).not.toBeChecked();
+    expect(within(dialog).queryByLabelText("Tipus")).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Tipus per a Sèries HD")).toBeDisabled();
+  });
+
+  it("adds each ticked topic as its own source, with its own kind", async () => {
+    const { posted } = serveAccount();
+    serveTopics();
+    const { user, dialog } = await pickForum();
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "Sèries HD" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Pel·lícules HD" }));
+    await user.selectOptions(within(dialog).getByLabelText("Tipus per a Pel·lícules HD"), "movie");
+    await user.click(save(dialog));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(posted).toEqual([
+      expect.objectContaining({ chat_id: AMICS.chat_id, kind: "tv", topic_id: 11, topic_title: "Sèries HD" }),
+      expect.objectContaining({ chat_id: AMICS.chat_id, kind: "movie", topic_id: 12, topic_title: "Pel·lícules HD" }),
+    ]);
+    expect(await screen.findByText("S’han afegit 2 fonts de tema")).toBeVisible();
+  });
+
+  it("asks for a topic before saving", async () => {
+    const { posted } = serveAccount();
+    serveTopics();
+    const { user, dialog } = await pickForum();
+    await within(dialog).findByRole("checkbox", { name: "Sèries HD" });
+
+    await user.click(save(dialog));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Marca almenys un tema");
+    expect(posted).toEqual([]);
+  });
+
+  it("says when the group has no topics", async () => {
+    serveAccount();
+    serveTopics(() => HttpResponse.json({ forum: true, topics: [] }));
+
+    const { dialog } = await pickForum();
+
+    expect(await within(dialog).findByText("Aquest grup amb fòrum no té cap tema")).toBeVisible();
+  });
+
+  it("keeps going past a failed topic, stays open and names it", async () => {
+    const { posted } = serveAccount();
+    serveTopics();
+    const { user, dialog } = await pickForum();
+    server.use(
+      http.post("/api/channels", async ({ request }) => {
+        const body = (await request.clone().json()) as { topic_id: number };
+        if (body.topic_id !== 11) return undefined;
+        return HttpResponse.json({ detail: "Límit assolit" }, { status: 400 });
+      }),
+    );
+
+    await user.click(await within(dialog).findByRole("checkbox", { name: "Sèries HD" }));
+    await user.click(within(dialog).getByRole("checkbox", { name: "Pel·lícules HD" }));
+    await user.click(save(dialog));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Sèries HD: Límit assolit");
+    expect(posted).toEqual([expect.objectContaining({ topic_id: 12 })]);
+    expect(await screen.findByText("S’ha afegit 1 font de tema")).toBeVisible();
+  });
+
+  it("forgets the ticks when another chat is picked", async () => {
+    const { posted } = serveAccount();
+    server.use(
+      http.get("/api/telegram/topics", ({ request }) => {
+        const isForum = new URL(request.url).searchParams.get("chat_id") === String(AMICS.chat_id);
+        return HttpResponse.json({ forum: isForum, topics: isForum ? TOPICS : [] });
+      }),
+    );
+    const { user, dialog } = await pickForum();
+    await user.click(await within(dialog).findByRole("checkbox", { name: "Sèries HD" }));
+
+    await user.click(within(dialog).getByRole("option", { name: /Merlí/ }));
+    await waitFor(() => expect(within(dialog).queryByRole("checkbox")).not.toBeInTheDocument());
+    await user.click(save(dialog));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toMatchObject({ chat_id: MERLI.chat_id, kind: "tv" });
+    expect(posted[0]).not.toHaveProperty("topic_id");
+  });
+
+  it("gives the reason when the topics cannot be read", async () => {
+    serveAccount();
+    serveTopics(() => HttpResponse.json({ detail: "Espera un minut" }, { status: 429 }));
+
+    const { dialog } = await pickForum();
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Espera un minut");
+  });
+});
+
 describe("pasting a link", () => {
   const SECRET = { chat_id: -1003, title: "Canal Secret", username: "canalsecret" };
 

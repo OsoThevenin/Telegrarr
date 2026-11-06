@@ -4,10 +4,11 @@ import { api } from "@/lib/api";
 import type { Channel } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
 import { CHANNELS_KEY } from "@/screens/channels/queries";
-import type { PickedChat } from "@/screens/channels/telegram-queries";
+import type { TopicTicks } from "@/screens/channels/TopicPicker";
+import type { ForumTopic, PickedChat } from "@/screens/channels/telegram-queries";
 
 /** What is read from the chat: all of it, or one topic of a forum group. */
-export type SourceTarget = { kind: string };
+export type SourceTarget = { kind: string; topic_id?: number; topic_title?: string };
 
 export type AddRequest = {
   chat: PickedChat;
@@ -17,6 +18,11 @@ export type AddRequest = {
 
 export type AddFailure = { target: SourceTarget; error: unknown };
 export type AddResult = { added: Channel[]; failures: AddFailure[] };
+
+export const topicTargets = (topics: ForumTopic[], ticks: TopicTicks): SourceTarget[] =>
+  topics
+    .filter(({ topic_id }) => ticks[topic_id] !== undefined)
+    .map(({ topic_id, title }) => ({ kind: ticks[topic_id], topic_id, topic_title: title }));
 
 /** One at a time, and past failures: saving again updates what already went in. */
 async function addSources({ chat, settings, targets }: AddRequest): Promise<AddResult> {

@@ -28,6 +28,18 @@ export const useDialogs = () =>
     queryFn: () => api.get<TelegramChat[]>("/api/telegram/dialogs"),
   });
 
+export type ForumTopic = { topic_id: number; title: string };
+
+type TopicList = { forum: boolean; topics: ForumTopic[] };
+
+export const useTopics = (chatId: number | undefined) =>
+  useQuery({
+    ...TELEGRAM_READ,
+    queryKey: ["telegram-topics", chatId],
+    queryFn: () => api.get<TopicList>(`/api/telegram/topics?chat_id=${chatId}`),
+    enabled: chatId !== undefined,
+  });
+
 /** The endpoint answers 200 either way: a failure comes back as `{ error }`. */
 type ResolveReply = PickedChat | { error?: ServerMessage };
 
