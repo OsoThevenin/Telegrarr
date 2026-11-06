@@ -28,26 +28,44 @@ sys.path[:0] = [str(REPO_ROOT), str(TESTS_DIR)]
 
 import uvicorn  # noqa: E402
 from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack  # noqa: E402
+from fake_tmdb import API_KEY as TMDB_KEY  # noqa: E402
 from fake_tmdb import FakeTMDB  # noqa: E402
 from http_harness import FakeTelegram  # noqa: E402
 
-from app import channels, connect, db, tg, tmdb  # noqa: E402
+from app import channels, connect, db, settings, tg, tmdb  # noqa: E402
 from app.main import app  # noqa: E402
 
 KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
+PENDING_FILES = ("Avatar.2009.1080p.mkv", "Els.Pirates.CAT.mkv", "La.Mosca.1986.mkv")
 
 
 def seed() -> None:
     """The world every browser test starts from. Add what a screen needs here."""
     tg._client.add_channel(-1001234567890, "Cinema Club", username="cinemaclub")
     tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
-    channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
+    movies = channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
+    seed_review(movies["id"])
+
+
+def seed_review(channel_id: int) -> None:
+    settings.set("tmdb_key", TMDB_KEY)
+    with db.conn() as c:
+        for message_id, file_name in enumerate(PENDING_FILES, start=1):
+            c.execute(
+                """INSERT INTO pending_review (channel_id, message_id, parsed_title, file_name,
+                                               group_key, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'review.reason.no_match', ?)""",
+                (channel_id, message_id, file_name.split(".")[0], file_name, file_name, message_id),
+            )
 
 
 def install_fakes() -> None:
     tg._client = FakeTelegram()
-    tmdb.transport = FakeTMDB().transport
+    fake_tmdb = FakeTMDB()
+    fake_tmdb.add_movie(19995, titles={"en-US": "Avatar", "ca-ES": "Avatar"}, release_date="2009-12-18",
+                        imdb_id="tt0499549")
+    tmdb.transport = fake_tmdb.transport
     connect.transport = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY).transport()
 
 
