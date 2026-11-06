@@ -5,7 +5,7 @@ import { expect, test } from "./fixtures";
 const statusLine = (page: Page) => page.getByTestId("status-line");
 
 test("the overview follows the queue live and leads to Downloads", async ({ signedInPage: page }) => {
-  await page.goto("/ui/");
+  await page.goto("/");
   await expect(page.getByRole("link", { name: /2\s*Canals/ })).toBeVisible();
   await expect(statusLine(page)).toContainText("Tot funciona");
 
@@ -16,5 +16,5 @@ test("the overview follows the queue live and leads to Downloads", async ({ sign
   await expect(statusLine(page)).toContainText("Tot funciona");
 
   await page.getByRole("link", { name: "Ara mateix no s’està baixant res." }).click();
-  await expect(page).toHaveURL("/ui/downloads");
+  await expect(page).toHaveURL("/downloads");
 });

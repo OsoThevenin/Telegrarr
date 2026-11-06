@@ -5,7 +5,7 @@ const RESUMED = "Descàrregues represes";
 
 test("the log can be searched and filtered, and picks up new entries on refresh", async ({ signedInPage: page }) => {
   await page.request.post("/api/queue/pause");
-  await page.goto("/ui/activity");
+  await page.goto("/activity");
   await expect(page.getByText(PAUSED)).toBeVisible();
 
   await page.request.post("/api/queue/resume");

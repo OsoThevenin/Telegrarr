@@ -7,7 +7,7 @@ import { App } from "@/app/App";
 import { createAppRouter, type AppRouter } from "@/app/router";
 
 interface RenderAppOptions {
-  /** Where the browser is, as a full URL path: "/ui/channels". */
+  /** Where the browser is, as a full URL path: "/channels". */
   route?: string;
 }
 
@@ -18,7 +18,7 @@ interface RenderedApp {
 }
 
 /** Renders the whole app, shell included, at a URL. */
-export async function renderApp({ route = "/ui/" }: RenderAppOptions = {}): Promise<RenderedApp> {
+export async function renderApp({ route = "/" }: RenderAppOptions = {}): Promise<RenderedApp> {
   const router = createAppRouter({ history: createMemoryHistory({ initialEntries: [route] }) });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 

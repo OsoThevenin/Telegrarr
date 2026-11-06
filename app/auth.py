@@ -10,6 +10,7 @@ from .config import SECRET_KEY, DEFAULT_USER, DEFAULT_PASS
 
 MAX_AGE = 7 * 86400   # cookies expire server-side after 7 days
 MIN_PASSWORD_LEN = 12
+FIRST_PRINTABLE = 0x20
 _signer = URLSafeTimedSerializer(SECRET_KEY or secrets.token_hex(32), salt="telearr-session")
 
 # ── login throttling ──────────────────────────────────────────────────
@@ -136,6 +137,16 @@ def cookie_user(request: Request):
     if str(data.get("e")) != _epoch():   # revoked by a password change
         return None
     return data.get("u")
+
+
+def local_path(target: str) -> str:
+    """`target` if it stays on this host, else the root: where to go after signing in
+    comes from the URL, so it must not be able to send anyone elsewhere. Browsers read
+    a backslash as a slash and drop control characters, which is why neither passes."""
+    is_on_this_host = target.startswith("/") and not target.startswith("//")
+    if not is_on_this_host or "\\" in target or any(ord(ch) < FIRST_PRINTABLE for ch in target):
+        return "/"
+    return target
 
 
 def require_user(request: Request):

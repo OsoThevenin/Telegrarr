@@ -24,6 +24,9 @@ export const CANCELLED_TAB: DownloadTab = { id: "cancelled", labelKey: "dl.cance
 
 export const DOWNLOAD_TABS = [ACTIVE_TAB, COMPLETED_TAB, FAILED_TAB, CANCELLED_TAB] as const;
 
+/** The tab a URL names, if it names one. */
+export const tabFromUrl = (id: unknown): string | undefined => DOWNLOAD_TABS.find((tab) => tab.id === id)?.id;
+
 const RETRYABLE: readonly DownloadStatus[] = ["failed", "cancelled"];
 const PAUSABLE: readonly DownloadStatus[] = ["downloading", "queued"];
 

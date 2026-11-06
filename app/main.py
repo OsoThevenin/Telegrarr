@@ -4,8 +4,9 @@ import json
 import asyncio
 import logging
 import contextlib
+from urllib.parse import urlencode
 
-from fastapi import FastAPI, Request, Form, Depends, HTTPException
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, Query
 from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
                                Response, StreamingResponse, FileResponse)
 from fastapi.staticfiles import StaticFiles
@@ -73,7 +74,7 @@ for _router in (catalog_routes, channel_series, connect_routes, download_routes,
     app.include_router(_router.router)
 
 
-# The UI is entirely first-party: templates, /static assets and inline handlers,
+# The UI is entirely first-party: the built app, the login template and /static assets,
 # with no CDN or remote XHR. A tight CSP therefore costs nothing and shuts down
 # injected-script and clickjacking attempts.
 _CSP = ("default-src 'self'; "
@@ -99,23 +100,21 @@ async def security_headers(request: Request, call_next):
     return resp
 
 
+app.add_exception_handler(404, spa_routes.fallback)
+
+
 # ── auth / pages ──────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    if not auth.cookie_user(request):
-        return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "index.html", _page_ctx(i18n.ui_lang()))
-
-
 _LOGIN_ERRORS = {"invalid": "login.err.invalid", "throttled": "login.err.throttled"}
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = "", wait: int = 0):
+async def login_page(request: Request, error: str = "", wait: int = 0,
+                     return_to: str = Query("", alias="next")):
     lang = i18n.ui_lang()
     key = _LOGIN_ERRORS.get(error)
     text = i18n.translate(key, lang, wait=wait) if key else ""
-    return templates.TemplateResponse(request, "login.html", _page_ctx(lang, error=text))
+    return templates.TemplateResponse(request, "login.html",
+                                      _page_ctx(lang, error=text, return_to=return_to))
 
 
 def _is_secure(request: Request) -> bool:
@@ -126,23 +125,26 @@ def _is_secure(request: Request) -> bool:
 
 
 @app.post("/login")
-async def do_login(request: Request, username: str = Form(...), password: str = Form(...)):
+async def do_login(request: Request, username: str = Form(...), password: str = Form(...),
+                   return_to: str = Form("", alias="next")):
     key = auth.client_key(request)
+    return_to = auth.local_path(return_to)
+    remembered = "" if return_to == "/" else f"&{urlencode({'next': return_to})}"
 
     wait = auth.throttle_retry_after(key)
     if wait:
         db.log("WARN", i18n.message("event.login_locked", client=key, seconds=wait))
         return RedirectResponse(
-            f"/login?error=throttled&wait={wait}",
+            f"/login?error=throttled&wait={wait}{remembered}",
             status_code=303)
 
     if not auth.verify(username, password):
         auth.record_failure(key)
         db.log("WARN", i18n.message("event.login_failed", user=username, client=key))
-        return RedirectResponse("/login?error=invalid", status_code=303)
+        return RedirectResponse(f"/login?error=invalid{remembered}", status_code=303)
 
     auth.record_success(key)
-    r = RedirectResponse("/", status_code=303)
+    r = RedirectResponse(return_to, status_code=303)
     # secure=True only when the request actually arrived over TLS, so the
     # cookie still works for the common plain-HTTP LAN deployment.
     r.set_cookie("telearr_sess", auth.make_cookie(username),
@@ -161,15 +163,6 @@ async def logout():
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
-
-
-@app.get("/sw.js")
-async def service_worker():
-    # Served from the root so its scope covers the whole app (a /static/ path
-    # would only control /static/). Service-Worker-Allowed lifts the scope cap.
-    return FileResponse(os.path.join(HERE, "static", "sw.js"),
-                        media_type="application/javascript",
-                        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
 
 def _stats(c) -> dict:

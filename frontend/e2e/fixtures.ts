@@ -16,6 +16,13 @@ export async function signIn(request: APIRequestContext): Promise<void> {
   expect(response.headers().location).toBe("/");
 }
 
+/** Signs in as a visitor does, from an open login page. */
+export async function submitLoginForm(page: Page): Promise<void> {
+  await page.getByPlaceholder("Nom d’usuari").fill(E2E_USER);
+  await page.getByPlaceholder("Contrasenya").fill(E2E_PASSWORD);
+  await page.getByRole("button", { name: "Inicia la sessió" }).click();
+}
+
 /** Sets environment variables on the backend, as a deployment would, until the next reset. */
 export async function setBackendEnv(request: APIRequestContext, values: Record<string, string>): Promise<void> {
   const response = await request.post("/__e2e__/env", { data: values });

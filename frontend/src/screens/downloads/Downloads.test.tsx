@@ -7,7 +7,7 @@ import { emitSnapshot } from "@/test/event-stream";
 import { renderApp } from "@/test/render";
 import { server, STATUS } from "@/test/server";
 
-const ROUTE = "/ui/downloads";
+const ROUTE = "/downloads";
 
 function download(fields: Partial<Download> = {}): Download {
   return {
@@ -172,6 +172,32 @@ describe.each(TABS)("Downloads, $label tab", ({ label, status, empty }) => {
     await user.type(await filterBox(), "nothing like this");
 
     expect(await screen.findByText("Cap coincidència.")).toBeVisible();
+  });
+});
+
+describe("Downloads tab in the URL", () => {
+  it("opens the tab a link names", async () => {
+    serveDownloads([download({ status: "failed" })]);
+    await renderApp({ route: "/downloads?tab=failed" });
+
+    expect(await tab("Fallides")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens on the Active tab for a tab that does not exist", async () => {
+    serveDownloads([]);
+    await renderApp({ route: "/downloads?tab=nonsense" });
+
+    expect(await tab("A la cua / Actives")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("remembers the chosen tab in the URL", async () => {
+    serveDownloads([]);
+    const { router, user } = await renderApp({ route: "/downloads" });
+
+    await openTab(user, "Completades");
+
+    expect(await tab("Completades")).toHaveAttribute("aria-selected", "true");
+    expect(router.history.location.search).toBe("?tab=completed");
   });
 });
 

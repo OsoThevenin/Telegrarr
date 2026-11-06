@@ -10,21 +10,21 @@ import { settingsHandlers } from "@/test/settings";
 vi.mock("@/lib/browser", () => ({ goToLogin: vi.fn() }));
 
 const SCREENS = [
-  ["Tauler", "/ui/"],
-  ["Canals", "/ui/channels"],
-  ["Baixades", "/ui/downloads"],
-  ["Activitat", "/ui/activity"],
-  ["Revisió", "/ui/review"],
-  ["Connexió", "/ui/connect"],
-  ["Sistema", "/ui/system"],
-  ["Configuració", "/ui/settings"],
+  ["Tauler", "/"],
+  ["Canals", "/channels"],
+  ["Baixades", "/downloads"],
+  ["Activitat", "/activity"],
+  ["Revisió", "/review"],
+  ["Connexió", "/connect"],
+  ["Sistema", "/system"],
+  ["Configuració", "/settings"],
 ] as const;
 
 describe("navigation", () => {
   beforeEach(() => server.use(...settingsHandlers()));
 
   it.each(SCREENS)("reaches %s from the sidebar", async (name, url) => {
-    const { router, user } = await renderApp({ route: "/ui/review" });
+    const { router, user } = await renderApp({ route: "/review" });
     const sidebar = screen.getByRole("navigation", { name: "Navegació principal" });
 
     await user.click(within(sidebar).getByRole("link", { name }));
@@ -35,7 +35,7 @@ describe("navigation", () => {
   });
 
   it.each(SCREENS)("reaches %s from the drawer, which then closes", async (name, url) => {
-    const { router, user } = await renderApp({ route: "/ui/review" });
+    const { router, user } = await renderApp({ route: "/review" });
 
     await user.click(screen.getByRole("button", { name: "Obre el menú" }));
     const drawer = await screen.findByRole("dialog", { name: "Menú" });
@@ -47,7 +47,7 @@ describe("navigation", () => {
   });
 
   it("starts the keyboard at the first link when the drawer opens", async () => {
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.click(screen.getByRole("button", { name: "Obre el menú" }));
     const drawer = await screen.findByRole("dialog", { name: "Menú" });
@@ -56,13 +56,13 @@ describe("navigation", () => {
   });
 
   it("opens a deep link on its own screen", async () => {
-    await renderApp({ route: "/ui/settings" });
+    await renderApp({ route: "/settings" });
 
     expect(screen.getByRole("heading", { level: 1, name: "Configuració" })).toBeVisible();
   });
 
   it("offers a way out of an unknown path, inside the shell", async () => {
-    const { user } = await renderApp({ route: "/ui/no-such-screen" });
+    const { user } = await renderApp({ route: "/no-such-screen" });
 
     expect(screen.getByText("Aquesta pàgina no existeix.")).toBeVisible();
 
@@ -89,7 +89,7 @@ describe("language switch", () => {
         return HttpResponse.json({ ok: true });
       }),
     );
-    const { user } = await renderApp({ route: "/ui/channels" });
+    const { user } = await renderApp({ route: "/channels" });
 
     await user.selectOptions(languageSelect(), "English");
 

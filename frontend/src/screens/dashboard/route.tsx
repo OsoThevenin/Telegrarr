@@ -6,6 +6,6 @@ import { Dashboard } from "@/screens/dashboard/Dashboard";
 export const dashboardRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/",
-  staticData: { titleKey: "nav.dashboard" },
+  staticData: { titleKey: "nav.dashboard", hasOwnStatusLine: true },
   component: Dashboard,
 });

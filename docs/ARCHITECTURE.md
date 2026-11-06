@@ -173,62 +173,31 @@ still flow through the battle-tested scanner, and the API layer only translates
 protocols and resolves GUIDs. See [ARR_INTEGRATION.md](ARR_INTEGRATION.md) for setup
 and current limitations.
 
-## Front-end architecture (v2.1 UI overhaul)
+## Front-end architecture
 
-The web UI is a **buildless, dependency-free single-page app** written in native
-ES modules. There is no bundler, transpiler, or npm step: `index.html` loads one
-`<script type="module" src="/static/js/main.js">`, the browser resolves the relative
-imports over HTTP, and a single hand-authored stylesheet (`app/static/app.css`)
-carries the whole design system. FastAPI serves these as ordinary static files.
+The web UI is a React single-page app in `frontend/`, built by Vite with TypeScript,
+Tailwind and shadcn/ui. TanStack Router owns the URLs, TanStack Query the server state,
+and react-i18next the copy, from the dictionaries in `app/static/i18n`, which the
+backend's login page shares. [CONTRIBUTING.md](../CONTRIBUTING.md) has the commands.
 
-### Module split
+### Serving
 
-Four modules, each with a single clear responsibility:
+`app/routes/spa.py` serves `frontend/dist` at the root. It is a 404 handler rather than
+a catch-all route: a path reaches it only when no route claims it, so API, Newznab and
+SAB paths keep their own slash redirects, 405s and JSON 404s, and unknown paths under
+`/api`, `/sabnzbd` and `/static` stay 404s. What remains is a built file, public like
+`/static`, or a screen, which gets the index behind the login check. A signed-out
+visitor goes to `/login?next=<page>` and returns there afterwards.
 
-| Module | Responsibility |
-| --- | --- |
-| `app/static/js/core.js` | Framework-free foundation. The hyperscript DOM builder `h(tag, attrs, ...kids)` (children become **text nodes**, so interpolated data is escaped by construction; `innerHTML` is reachable only via an explicit `html:` attribute reserved for trusted SVG), the `mount`/`clear`/`qs` helpers, a tiny reactive `createStore`, the `toast()` notifier, the `api()`/`jpost()`/`jpatch()` fetch client (centralised `401 → /login` redirect and toast-on-error), a `copy()` clipboard helper, and the formatters (`gb`, `fmtBytes`, `fmtETA`, `base`). |
-| `app/static/js/icons.js` | A pure data module: a `PATHS` map of Feather/Lucide-style SVG path bodies and an `icon(name)` function that wraps them in an inline `<svg aria-hidden="true">` inheriting `currentColor`. No DOM, no state. |
-| `app/static/js/views.js` | One pure view-builder per route — `viewDashboard`, `viewChannels`, `viewDownloads`, `viewActivity`, `viewSettings` — plus the add/edit **channel modal** (`openChannelModal`, rendered into a separate `#modal-root`). Each builder returns a DOM subtree built with `h()`, with event handlers attached inline. Transient view state (active tab, search query, sort, density, the selection `Set`, expanded groups) lives in an exported mutable `ui` object, persisted to `localStorage` where it helps. |
-| `app/static/js/main.js` | The application shell and controller: builds the sidebar + sticky topbar + mobile bottom-nav once (`buildShell`), does hash-based routing (`#/<view>`), owns the client-side data cache `DATA` and the polling loop, keeps the shell chrome in sync (`syncNav`, `updateShell`, `syncThemeBtn`), and manages the tri-state (`auto`/`light`/`dark`) theme persisted to `localStorage` and applied via a `data-theme` attribute on `<html>`. |
+The old UI's addresses still work: `/ui/...` redirects to `/...`, and
+`frontend/src/lib/browser.ts` turns a `#/channels` bookmark into `/channels`.
 
-### The render / refresh / rerender ctx contract
+### Service worker
 
-Views never touch globals directly; they receive a single **`ctx`** object
-constructed once in `main.js` and threaded through every builder and handler:
+The worker at `/sw.js` has the scope `/`, so it sees every navigation on the host. It
+precaches the hashed assets and sends the app's own pages network-first, so an expired
+session still reaches the login page; other navigations go straight to the network.
 
-```
-ctx = {
-  get data(),            // live view of the DATA cache { status, downloads, channels }
-  refresh(),             // async: re-fetch data for the active view, then render()
-  rerender(),            // sync: re-render the active view from the current cache
-  getTheme(), setTheme() // tri-state theme accessors
-}
-```
-
-- **`render()`** rebuilds `#view-root` wholesale — `mount(root, NAV.find(...).view(ctx))`
-  — with no virtual DOM and no diffing. Before replacing the subtree it captures the
-  active element's `id` and caret position and best-effort restores focus/selection
-  afterward (elements without an `id`, e.g. checkboxes, are not preserved).
-- **`refresh()`** is the "data changed" path: a handler mutates server state
-  (`await api(...)`), then calls `ctx.refresh()` to re-fetch and repaint.
-- **`rerender()`** is the "view state changed" path: switching tabs, typing in the
-  filter, toggling a group — mutate the `ui` object, then repaint from cache without a
-  network round-trip.
-- A background `setInterval` polls `/api/status` (and downloads) every 2.5s via
-  `fetchForView()` and re-renders **only** the dashboard and downloads views, so
-  progress bars stay live without disturbing other pages. The modal renders into
-  `#modal-root`, outside `#view-root`, so polling re-renders never tear it down.
-
-### Design rationale (why buildless)
-
-The no-bundler choice is deliberate. The API surface is small and the data model is
-simple, so a full re-render on every change is cheap and removes an entire class of
-state-sync bugs; native ESM means zero toolchain, zero lockfile, and instant
-deploys (edit a file, refresh). XSS safety is a property of the `h()` primitive
-rather than a lint rule — text is always a text node, and the only `innerHTML` sink
-takes constant, in-repo SVG strings. The cost is manual DOM plumbing and module-global
-mutable state (`DATA`, `ui`) instead of a reactive store; both are acceptable at this
-size and have a clear upgrade path (the unused `createStore` in `core.js`). A
-companion UX/accessibility review of this layer lives in
-[UI_REVIEW.md](UI_REVIEW.md).
+The old UI's worker had the same URL and scope, so a browser with it installed replaces
+it by the ordinary update check. `frontend/public/retire-old-shell.js` then deletes the
+old `telearr-shell-*` caches, which nothing else would.

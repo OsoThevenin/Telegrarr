@@ -1,7 +1,7 @@
 import { expect, setBackendEnv, test } from "./fixtures";
 
 test("an app connects with a saved key, and Telegrarr registers in it", async ({ signedInPage: page }) => {
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   const sonarr = page.getByRole("group", { name: "Sonarr" });
 
   await sonarr.getByLabel("URL", { exact: true }).fill("http://sonarr.test");
@@ -23,7 +23,7 @@ test("an app connects with a saved key, and Telegrarr registers in it", async ({
 });
 
 test("a wrong key says so on the app's own card", async ({ signedInPage: page }) => {
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   const radarr = page.getByRole("group", { name: "Radarr" });
 
   await radarr.getByLabel("URL", { exact: true }).fill("http://radarr.test");
@@ -38,7 +38,7 @@ test("an app whose URL is set by an environment variable still saves its key and
   signedInPage: page,
 }) => {
   await setBackendEnv(page.request, { TELEARR_SONARR_URL: "http://sonarr.test" });
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   const sonarr = page.getByRole("group", { name: "Sonarr" });
   const url = sonarr.getByLabel("URL", { exact: true });
 
@@ -55,7 +55,7 @@ test("an app whose URL is set by an environment variable still saves its key and
 
 test("an API key set by an environment variable is read-only", async ({ signedInPage: page }) => {
   await setBackendEnv(page.request, { TELEARR_RADARR_KEY: "from-the-environment" });
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   const radarr = page.getByRole("group", { name: "Radarr" });
 
   await expect(radarr.getByText("Definit per variable d’entorn")).toBeVisible();
@@ -65,7 +65,7 @@ test("an API key set by an environment variable is read-only", async ({ signedIn
 });
 
 test("an external URL is refused unless http, then saves and clears", async ({ signedInPage: page }) => {
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   const radarr = page.getByRole("group", { name: "Radarr" });
   const external = radarr.getByLabel("URL externa");
   const save = radarr.getByRole("button", { name: "Desa i prova" });
@@ -89,7 +89,7 @@ test("an external URL is refused unless http, then saves and clears", async ({ s
 
 test("fits a phone without sideways scrolling", async ({ signedInPage: page }) => {
   await page.setViewportSize({ width: 360, height: 740 });
-  await page.goto("/ui/connect");
+  await page.goto("/connect");
   await expect(page.getByRole("group", { name: "Sonarr" })).toBeVisible();
 
   const hasOverflow = await page.evaluate(

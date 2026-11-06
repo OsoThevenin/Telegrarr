@@ -1,20 +1,22 @@
-import { Link, type LinkProps } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 
 import { useI18n } from "@/i18n/use-i18n";
 import type { Stats } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { ACTIVE_TAB, COMPLETED_TAB, FAILED_TAB, type DownloadTab } from "@/screens/downloads/download-list";
 
 type StatProps = {
-  to: NonNullable<LinkProps["to"]>;
+  /** The Downloads tab it opens; without one, it opens the Channels. */
+  tab?: DownloadTab;
   value: number;
   label: string;
   isAlert?: boolean;
 };
 
-function Stat({ to, value, label, isAlert = false }: StatProps) {
+function Stat({ tab, value, label, isAlert = false }: StatProps) {
   return (
     <Link
-      to={to}
+      {...(tab ? { to: "/downloads", search: { tab: tab.id } } : { to: "/channels" })}
       className="flex min-w-0 flex-1 basis-[30%] flex-col gap-0.5 bg-card p-3 transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring sm:basis-0 sm:p-4"
     >
       <span className={cn("text-2xl font-semibold tabular-nums", isAlert && "text-destructive")}>{value}</span>
@@ -29,11 +31,11 @@ export function StatStrip({ stats }: { stats: Stats }) {
 
   return (
     <nav aria-label={t("nav.dashboard")} className="flex flex-wrap gap-px overflow-hidden rounded-lg border bg-border">
-      <Stat to="/channels" value={stats.channels} label={t("nav.channels")} />
-      <Stat to="/downloads" value={stats.downloading} label={t("dash.stat.downloading")} />
-      <Stat to="/downloads" value={stats.queued} label={t("dash.stat.queued")} />
-      <Stat to="/downloads" value={stats.completed} label={t("dash.stat.completed")} />
-      <Stat to="/downloads" value={stats.failed} label={t("dash.stat.failed")} isAlert={stats.failed > 0} />
+      <Stat value={stats.channels} label={t("nav.channels")} />
+      <Stat tab={ACTIVE_TAB} value={stats.downloading} label={t("dash.stat.downloading")} />
+      <Stat tab={ACTIVE_TAB} value={stats.queued} label={t("dash.stat.queued")} />
+      <Stat tab={COMPLETED_TAB} value={stats.completed} label={t("dash.stat.completed")} />
+      <Stat tab={FAILED_TAB} value={stats.failed} label={t("dash.stat.failed")} isAlert={stats.failed > 0} />
     </nav>
   );
 }

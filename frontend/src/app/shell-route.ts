@@ -11,6 +11,8 @@ declare module "@tanstack/react-router" {
     titleKey?: string;
     /** What the screen offers in the top bar, after the palette. */
     HeaderAction?: ComponentType;
+    /** The screen says for itself what the shell's banners would. */
+    hasOwnStatusLine?: boolean;
   }
 }
 

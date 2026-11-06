@@ -11,7 +11,7 @@ const menuButton = (page: Page, title: string) => page.getByRole("button", { nam
 const tab = (page: Page, name: RegExp) => page.getByRole("tab", { name });
 
 const openChannels = async (page: Page) => {
-  await page.goto("/ui/channels");
+  await page.goto("/channels");
   await expect(page.getByRole("tablist")).toBeVisible();
 };
 
@@ -157,8 +157,8 @@ test.describe("channels", () => {
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByRole("button", { name: "Tanca" })).toBeVisible();
 
-    const box = await sheet.boundingBox();
-    expect(box?.width).toBeLessThanOrEqual(PHONE.width);
+    // Polled: while the sheet slides in, its width can round to a hair over the screen's.
+    await expect.poll(async () => (await sheet.boundingBox())?.width).toBeLessThanOrEqual(PHONE.width);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );

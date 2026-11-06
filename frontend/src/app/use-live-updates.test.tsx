@@ -183,7 +183,7 @@ describe("live updates", () => {
   });
 
   it("uses one connection for the whole app", async () => {
-    await renderApp({ route: "/ui/downloads" });
+    await renderApp({ route: "/downloads" });
 
     expect(openStreamCount()).toBe(1);
   });
