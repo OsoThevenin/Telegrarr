@@ -21,6 +21,7 @@ export function channel(fields: Partial<Channel> & { id: number }): Channel {
     poll_minutes: 30,
     language: "cat",
     fallback_quality: "1080p",
+    last_scanned_at: 0,
     history: NO_HISTORY,
     ...fields,
   };

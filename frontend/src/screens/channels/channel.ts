@@ -18,6 +18,8 @@ export type Channel = {
   poll_minutes: number;
   language: string;
   fallback_quality: string;
+  /** Unix seconds; 0 until the first scan. */
+  last_scanned_at: number;
   history: {
     read: number;
     total_estimate: number | null;
