@@ -35,6 +35,25 @@ from app import channels, connect, db, tg, tmdb  # noqa: E402
 from app.main import app  # noqa: E402
 
 KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
+CINEMA_CLUB_CHAT = -1001234567890
+CATALOG_GIB = 1024 ** 3
+CATALOG_FIRST_TMDB = 9001
+CATALOG_FILLER_FILMS = 26     # with Pa negre, two pages of 25
+
+
+def seed_catalog() -> None:
+    """Cinema Club's Catalog: Pa negre, the newest post, then enough films for a second page."""
+    films = [(f"Pel·lícula {n:02}", "720p") for n in range(1, CATALOG_FILLER_FILMS + 1)]
+    films.append(("Pa negre", "1080p"))
+    with db.conn() as c:
+        channel_id = c.execute("SELECT id FROM channels WHERE chat_id=?", (CINEMA_CLUB_CHAT,)).fetchone()[0]
+        c.executemany(
+            """INSERT INTO releases (channel_id, message_id, title, quality, size, added_at,
+                                     movie_tmdb_id, movie_imdb_id, year, movie_title)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?, 2010, ?)""",
+            [(channel_id, index + 1, title, quality, 2 * CATALOG_GIB, CATALOG_FIRST_TMDB + index,
+              f"tt{CATALOG_FIRST_TMDB + index}", title)
+             for index, (title, quality) in enumerate(films)])
 
 
 def seed() -> None:
@@ -43,12 +62,16 @@ def seed() -> None:
     tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
     channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
+    seed_catalog()
 
 
 def install_fakes() -> None:
     tg._client = FakeTelegram()
     tmdb.transport = FakeTMDB().transport
-    connect.transport = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY).transport()
+    arrs = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
+    arrs.radarr.quality_profiles = [{"id": 4, "name": "HD-1080p"}]
+    arrs.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]
+    connect.transport = arrs.transport()
 
 
 def clear_database() -> None:
