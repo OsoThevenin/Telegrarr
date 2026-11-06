@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import { DOWNLOADS_KEY, type Download } from "@/lib/downloads";
+import { DOWNLOADS_KEY, MAX_DOWNLOADS, type Download } from "@/lib/downloads";
 import { hasHistoryBatchComing, isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
 import type { SeriesPayload } from "@/screens/channels/use-series-mapping";
@@ -57,11 +57,11 @@ export function useUpdateChannel() {
   });
 }
 
-/** The endpoint has no channel filter and caps at 1000, newest first, across every channel. */
+/** The endpoint has no channel filter and caps at MAX_DOWNLOADS, newest first, across every channel. */
 export const useCompletedDownloads = () =>
   useQuery({
     queryKey: [...DOWNLOADS_KEY, "completed"],
-    queryFn: () => api.get<CompletedDownload[]>("/api/downloads?status=completed&limit=1000"),
+    queryFn: () => api.get<CompletedDownload[]>(`/api/downloads?status=completed&limit=${MAX_DOWNLOADS}`),
   });
 
 export const useArt = (imdbId: string | null) =>

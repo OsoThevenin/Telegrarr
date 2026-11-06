@@ -4,7 +4,7 @@ import { api, type ServerMessage } from "@/lib/api";
 import { withTopic } from "@/lib/format";
 
 /** The API's own ceiling on one list of downloads. */
-const MAX_DOWNLOADS = 1000;
+export const MAX_DOWNLOADS = 1000;
 
 /** A row of GET /api/downloads, or of `active` in the live stream. */
 export type Download = {
