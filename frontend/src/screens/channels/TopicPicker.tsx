@@ -1,11 +1,11 @@
 import { useI18n } from "@/i18n/use-i18n";
 import { FIELD_CLASS } from "@/screens/channels/ChannelSettingsFields";
-import { kindChoiceLabel } from "@/screens/channels/channel";
+import { kindChoiceLabel, type ChannelKind } from "@/screens/channels/channel";
 import { NEW_CHANNEL_FORM, NEW_CHANNEL_KINDS } from "@/screens/channels/channel-settings";
 import type { ForumTopic } from "@/screens/channels/telegram-queries";
 
 /** The ticked topics and the kind each is added as. */
-export type TopicTicks = Record<number, string>;
+export type TopicTicks = Record<number, ChannelKind>;
 
 type Props = {
   topics: ForumTopic[];

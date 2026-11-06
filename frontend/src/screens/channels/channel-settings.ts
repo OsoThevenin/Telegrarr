@@ -1,4 +1,4 @@
-import { isMovieChannel, type Channel } from "@/screens/channels/channel";
+import { isMovieChannel, MOVIE_KIND, type Channel, type ChannelKind } from "@/screens/channels/channel";
 
 /** Account safety: mirrors config.POLL_FLOOR_MINUTES, which the server enforces. */
 export const POLL_FLOOR_MINUTES = 15;
@@ -7,7 +7,7 @@ export const WEEKDAY_NUMBERS = [0, 1, 2, 3, 4, 5, 6];
 
 /** What the settings form holds while it is being edited. */
 export type SettingsForm = {
-  kind: string;
+  kind: ChannelKind;
   language: string;
   fallback_quality: string;
   days: number[];
@@ -16,14 +16,14 @@ export type SettingsForm = {
 
 /** The fields PATCH /api/channels/{id} takes from the form. */
 export type ChannelSettings = {
-  kind: string;
+  kind: ChannelKind;
   language: string;
   fallback_quality: string;
   weekdays: string;
   poll_minutes: number;
 };
 
-export const NEW_CHANNEL_KINDS = ["tv", "movie"];
+export const NEW_CHANNEL_KINDS: ChannelKind[] = ["tv", MOVIE_KIND];
 
 export const NEW_CHANNEL_FORM: SettingsForm = {
   kind: "tv",

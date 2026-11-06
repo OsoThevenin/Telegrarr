@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import { isSeriesKind, type Channel } from "@/screens/channels/channel";
+import { isSeriesKind, type Channel, type ChannelKind } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
 import { CHANNELS_KEY } from "@/screens/channels/queries";
 import type { TopicTicks } from "@/screens/channels/TopicPicker";
@@ -9,7 +9,7 @@ import type { ForumTopic, PickedChat } from "@/screens/channels/telegram-queries
 import type { SeriesPayload } from "@/screens/channels/use-series-mapping";
 
 /** What is read from the chat: all of it, or one topic of a forum group. */
-export type SourceTarget = { kind: string; topic_id?: number; topic_title?: string };
+export type SourceTarget = { kind: ChannelKind; topic_id?: number; topic_title?: string };
 
 export type AddRequest = {
   chat: PickedChat;
