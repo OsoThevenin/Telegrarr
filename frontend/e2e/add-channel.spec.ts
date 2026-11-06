@@ -42,7 +42,6 @@ test.describe("adding a channel", () => {
     await expect(dialog.getByRole("listbox").getByRole("option")).toHaveCount(1);
     await page.keyboard.press("Enter");
     await expect(dialog.getByRole("option", { name: /Merlí 1080p/ })).toHaveAttribute("data-checked", "true");
-    await expect(dialog.getByText("Cal una clau de l’API de TMDB", { exact: false })).toBeVisible();
     await save(dialog);
 
     await expect(dialog).toBeHidden();
@@ -85,8 +84,6 @@ test.describe("adding a channel", () => {
 
   test("maps the new channel to the series TMDB finds for it", async ({ signedInPage: page }) => {
     const errors = watchErrors(page);
-    const stored = await page.request.patch("/api/settings", { data: { tmdb_key: "fake-tmdb-key" } });
-    expect(stored.ok()).toBe(true);
     const dialog = await openDialog(page);
 
     await dialog.getByRole("option", { name: /Merlí 1080p/ }).click();

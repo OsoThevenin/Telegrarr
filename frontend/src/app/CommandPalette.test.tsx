@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -154,7 +154,7 @@ describe("command palette", () => {
   it("offers Resume while the queue is paused", async () => {
     server.use(http.get("/api/status", () => HttpResponse.json({ ...STATUS, paused: true })));
     const { user } = await renderApp();
-    await screen.findByRole("button", { name: "Reprèn les baixades" });
+    await within(await screen.findByRole("complementary")).findByRole("button", { name: "Reprèn les baixades" });
 
     await openPalette(user);
 
