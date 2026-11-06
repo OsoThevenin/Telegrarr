@@ -9,7 +9,7 @@ test("assigns one release, then bulk-discards the rest", async ({ signedInPage: 
   await page.getByRole("button", { name: /^Avatar\.2009/ }).click();
   await page.getByRole("button", { name: /^Avatar \(2009\)/ }).click();
 
-  await expect(page.getByRole("status")).toContainText("S’ha ofert a Radarr");
+  await expect(page.getByText("S’ha ofert a Radarr")).toBeVisible();
   await expect(rows).toHaveCount(2);
 
   await page.getByRole("checkbox", { name: "Selecciona totes les visibles" }).click();

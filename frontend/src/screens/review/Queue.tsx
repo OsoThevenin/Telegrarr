@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,7 +24,6 @@ type OpenRow = { key: string; shouldFocusSearch: boolean };
 
 type Props = {
   releases: PendingRelease[];
-  onNotice: (notice: string) => void;
 };
 
 /** The row to carry on with once `key` leaves the list: the one below it, or else above. */
@@ -153,7 +153,7 @@ type RowsProps = Props & {
   onClearFilters: () => void;
 };
 
-function Rows({ releases, shown, onNotice, onClearFilters }: RowsProps) {
+function Rows({ releases, shown, onClearFilters }: RowsProps) {
   const { tn } = useI18n();
   const dropFromQueue = useDropFromQueue();
   const [open, setOpen] = useState<OpenRow | null>(null);
@@ -165,14 +165,15 @@ function Rows({ releases, shown, onNotice, onClearFilters }: RowsProps) {
 
   function handleResolved(key: string, notice: string) {
     const next = rowAfter(shown, key);
-    onNotice(notice);
+    toast.success(notice);
     setOpen(next ? { key: next, shouldFocusSearch: true } : null);
     dropFromQueue(new Set([key]));
   }
 
   function handleBulkSettled(outcome: BulkOutcome) {
     const doneKeys = [...outcome.discarded, ...outcome.gone].map(releaseKey);
-    onNotice(bulkNotice(outcome, tn));
+    const notice = bulkNotice(outcome, tn);
+    if (notice) toast.success(notice);
     setFailures(outcome.failures);
     setSelection((current) => updateSelection(current, doneKeys, false));
     dropFromQueue(new Set(doneKeys));
@@ -215,7 +216,7 @@ function Rows({ releases, shown, onNotice, onClearFilters }: RowsProps) {
   );
 }
 
-export function Queue({ releases, onNotice }: Props) {
+export function Queue({ releases }: Props) {
   const [requestedFilters, setFilters] = useState(NO_FILTERS);
   const filters = withoutVanished(releases, requestedFilters);
   return (
@@ -224,7 +225,6 @@ export function Queue({ releases, onNotice }: Props) {
       <Rows
         releases={releases}
         shown={applyFilters(releases, filters)}
-        onNotice={onNotice}
         onClearFilters={() => setFilters(NO_FILTERS)}
       />
     </div>

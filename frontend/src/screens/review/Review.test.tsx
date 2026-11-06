@@ -96,6 +96,8 @@ const ALL_NAMES = ["Avatar.2022.1080p.mkv", "Els.Pirates.CAT.mkv", "fly.mkv"];
 const shownNames = () => ALL_NAMES.filter((name) => screen.queryByText(name));
 const rowOf = async (name: string) => (await screen.findByText(name)).closest("li") as HTMLElement;
 
+const toast = (text: string) => screen.findByText((content) => content.includes(text));
+
 describe("the list", () => {
   it("says there is nothing to review when no release is pending", async () => {
     serveReleases([]);
@@ -300,7 +302,7 @@ describe("an expanded row", () => {
     await openRow(user, /^Avatar\.2022/);
     await user.click(await screen.findByRole("button", { name: /Avatar \(2009\)/ }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha ofert a Radarr com a Avatar");
+    expect(await toast("S’ha ofert a Radarr com a Avatar")).toBeVisible();
     expect(posts.assigned).toEqual([{ tmdb_id: 19995 }]);
     expect(shownNames()).toEqual(["fly.mkv"]);
     expect(await filmSearch()).toHaveFocus();
@@ -345,7 +347,7 @@ describe("an expanded row", () => {
     await openRow(user, /^Avatar\.2022/);
     await user.click(screen.getByRole("button", { name: "Descarta" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha descartat");
+    expect(await toast("S’ha descartat")).toBeVisible();
     expect(posts.discarded).toEqual(["1"]);
     expect(shownNames()).toEqual(["fly.mkv"]);
     expect(await filmSearch()).toHaveFocus();
@@ -364,7 +366,7 @@ describe("an expanded row", () => {
     await openRow(user, /^Avatar\.2022/);
     await user.click(screen.getByRole("button", { name: "Descarta" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("1 ja no estava pendent");
+    expect(await toast("1 ja no estava pendent")).toBeVisible();
     expect(shownNames()).toEqual(["fly.mkv"]);
   });
 });
@@ -451,7 +453,7 @@ describe("bulk Discard", () => {
     await select(user, "Avatar.2022.1080p.mkv");
     await confirm(user, await bulkDiscard(user));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’han descartat 2 publicacions");
+    expect(await toast("S’han descartat 2 publicacions")).toBeVisible();
     expect(posts.discarded.toSorted()).toEqual(["1", "3"]);
     await waitFor(() => expect(shownNames()).toEqual(["Els.Pirates.CAT.mkv"]));
     expect(screen.queryByRole("button", { name: "Descarta les seleccionades" })).not.toBeInTheDocument();
@@ -481,7 +483,7 @@ describe("bulk Discard", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("No s’ha pogut descartar 1 publicació; continua seleccionada.");
     expect(alert).toHaveTextContent("Els.Pirates.CAT.mkv: Base de dades bloquejada");
-    expect(screen.getByRole("status")).toHaveTextContent("S’ha descartat 1 publicació");
+    expect(await toast("S’ha descartat 1 publicació")).toBeVisible();
     await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Selecciona fly.mkv" })).toBeNull());
     expect(isSelected("Els.Pirates.CAT.mkv")).toBe(true);
     expect(screen.getByText("1 seleccionada")).toBeVisible();
@@ -510,7 +512,7 @@ describe("bulk Discard", () => {
     await confirm(user, await bulkDiscard(user));
 
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
-    expect(screen.getByRole("status")).toHaveTextContent("S’ha descartat 1 publicació");
+    expect(await toast("S’ha descartat 1 publicació")).toBeVisible();
   });
 
   it("counts a release already resolved elsewhere as gone, not failed", async () => {
@@ -523,8 +525,8 @@ describe("bulk Discard", () => {
     await select(user, "Els.Pirates.CAT.mkv");
     await confirm(user, await bulkDiscard(user));
 
-    expect(await screen.findByRole("status")).toHaveTextContent("S’ha descartat 1 publicació");
-    expect(screen.getByRole("status")).toHaveTextContent("1 ja no estava pendent");
+    expect(await toast("S’ha descartat 1 publicació")).toBeVisible();
+    expect(await toast("1 ja no estava pendent")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
