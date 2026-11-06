@@ -16,6 +16,7 @@ __pycache__/
 # local test-runner artifacts (not part of the repo)
 node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/test-results/
 frontend/playwright-report/
 .pytest_cache/
