@@ -4,10 +4,16 @@
 
 ### Added
 - A new web interface is taking shape at `/ui/`: the navigation for all eight screens,
-  on a sidebar or a phone drawer, in Catalan or English. The screens themselves are
-  still placeholders, and the current interface at `/` is unchanged.
+  on a sidebar or a phone drawer, in Catalan or English. Channels works there: series
+  and movie tabs, cards with TMDB art or initials, and a side panel with a channel's
+  details, sources and downloaded episodes, where it can be scanned, edited or removed.
+  The other screens are still placeholders, and the current interface at `/` is
+  unchanged.
 - The new interface follows the queue live, can pause and resume it, has a command
   palette on ⌘K / Ctrl+K, and installs as an app.
+- Review in the new interface: search and filter pending releases by channel and reason,
+  expand a compact row to assign or discard it, and discard several at once. Any release
+  that fails to discard is named and stays selected.
 
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 

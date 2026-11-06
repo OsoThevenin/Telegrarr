@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyStoredTheme, currentTheme, cycleTheme, subscribeToTheme } from "@/lib/theme";
+import { applyStoredTheme, chooseTheme, currentTheme, cycleTheme, subscribeToTheme } from "@/lib/theme";
 
 describe("applyStoredTheme", () => {
   afterEach(() => {
@@ -36,11 +36,35 @@ describe("applyStoredTheme", () => {
   });
 });
 
-describe("cycleTheme", () => {
+describe("choosing a theme", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
     delete document.documentElement.dataset.theme;
+  });
+
+  it("applies the choice and remembers it for the old UI", () => {
+    chooseTheme("dark");
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    expect(localStorage.getItem("theme")).toBe("dark");
+  });
+
+  it("hands auto back to the system preference", () => {
+    chooseTheme("dark");
+
+    chooseTheme("auto");
+
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    expect(currentTheme()).toBe("auto");
+  });
+
+  it("treats an unknown stored value as auto", () => {
+    localStorage.setItem("theme", "sepia");
+
+    applyStoredTheme();
+
+    expect(currentTheme()).toBe("auto");
   });
 
   it("goes from auto to light to dark and back, in the old UI's order", () => {
@@ -73,7 +97,7 @@ describe("cycleTheme", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeToTheme(listener);
 
-    cycleTheme();
+    chooseTheme("dark");
     unsubscribe();
     cycleTheme();
 
