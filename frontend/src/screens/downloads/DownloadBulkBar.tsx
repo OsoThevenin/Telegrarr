@@ -19,23 +19,81 @@ type Props = {
   children?: ReactNode;
 };
 
-/**
- * Stays under the shell's header, so the actions are at hand anywhere in a long list.
- * Each action is offered when the selection allows it, and sends only the rows it can
- * act on, in one request.
- */
+type OutlineActionProps = {
+  label: string;
+  hint?: string;
+  ids: number[];
+  isPending: boolean;
+  onRun: (ids: number[]) => void;
+};
+
+function OutlineAction({ label, hint, ids, isPending, onRun }: OutlineActionProps) {
+  if (ids.length === 0) return null;
+  return (
+    <Button variant="outline" size="sm" title={hint} disabled={isPending} onClick={() => onRun(ids)}>
+      {label}
+    </Button>
+  );
+}
+
+type ActionsProps = {
+  selected: readonly Download[];
+  onDone: () => void;
+};
+
+/** Each action is offered when the selection allows it, and sends only the rows it can act on. */
+function BulkActions({ selected, onDone }: ActionsProps) {
+  const { t } = useI18n();
+  const { isPending, pauseMany, resumeMany, retryMany, removeMany } = useDownloadActions();
+  const idsOf = (canAct: (download: Download) => boolean) => selected.filter(canAct).map(({ id }) => id);
+  const deletable = idsOf(isDeletable);
+
+  return (
+    <>
+      <OutlineAction
+        label={t("dl.pause")}
+        hint={t("dl.pause_hint")}
+        ids={idsOf(isPausable)}
+        isPending={isPending}
+        onRun={(ids) => pauseMany(ids, onDone)}
+      />
+      <OutlineAction
+        label={t("dl.resume")}
+        hint={t("dl.resume_hint")}
+        ids={idsOf(isPaused)}
+        isPending={isPending}
+        onRun={(ids) => resumeMany(ids, onDone)}
+      />
+      <OutlineAction
+        label={t("dl.retry")}
+        ids={idsOf(isRetryable)}
+        isPending={isPending}
+        onRun={(ids) => retryMany(ids, onDone)}
+      />
+      {deletable.length > 0 && (
+        <ConfirmTrigger
+          trigger={
+            <Button variant="destructive" size="sm" disabled={isPending}>
+              {t("common.delete")}
+            </Button>
+          }
+          title={t("common.delete")}
+          description={t("dl.delete_selected_confirm", { n: deletable.length })}
+          confirmLabel={t("common.delete")}
+          isDestructive
+          onConfirm={async () => removeMany(deletable, onDone)}
+        />
+      )}
+    </>
+  );
+}
+
+/** Stays under the shell's header, so the actions are at hand anywhere in a long list. */
 export function DownloadBulkBar({ rows, selection, children }: Props) {
   const { t, tn } = useI18n();
-  const { isPending, pauseMany, resumeMany, retryMany, removeMany } = useDownloadActions();
   const selectAll = useRef<HTMLButtonElement>(null);
   const { selected, toggleAll, clear } = selection;
-
   const count = selected.length;
-  const idsOf = (canAct: (download: Download) => boolean) => selected.filter(canAct).map(({ id }) => id);
-  const pausable = idsOf(isPausable);
-  const resumable = idsOf(isPaused);
-  const retryable = idsOf(isRetryable);
-  const deletable = idsOf(isDeletable);
 
   // The button that had focus goes with the selection, so it lands somewhere stable.
   const handleDone = () => {
@@ -56,47 +114,7 @@ export function DownloadBulkBar({ rows, selection, children }: Props) {
         <span aria-live="polite" className="text-sm text-muted-foreground tabular-nums">
           {count > 0 ? tn("dl.selected_n", count) : t("dl.select_all")}
         </span>
-        {pausable.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            title={t("dl.pause_hint")}
-            disabled={isPending}
-            onClick={() => pauseMany(pausable, handleDone)}
-          >
-            {t("dl.pause")}
-          </Button>
-        )}
-        {resumable.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            title={t("dl.resume_hint")}
-            disabled={isPending}
-            onClick={() => resumeMany(resumable, handleDone)}
-          >
-            {t("dl.resume")}
-          </Button>
-        )}
-        {retryable.length > 0 && (
-          <Button variant="outline" size="sm" disabled={isPending} onClick={() => retryMany(retryable, handleDone)}>
-            {t("dl.retry")}
-          </Button>
-        )}
-        {deletable.length > 0 && (
-          <ConfirmTrigger
-            trigger={
-              <Button variant="destructive" size="sm" disabled={isPending}>
-                {t("common.delete")}
-              </Button>
-            }
-            title={t("common.delete")}
-            description={t("dl.delete_selected_confirm", { n: deletable.length })}
-            confirmLabel={t("common.delete")}
-            isDestructive
-            onConfirm={async () => removeMany(deletable, handleDone)}
-          />
-        )}
+        <BulkActions selected={selected} onDone={handleDone} />
         {count > 0 && (
           <Button variant="ghost" size="sm" onClick={handleDone}>
             {t("dl.clear_selection")}
