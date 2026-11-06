@@ -51,6 +51,7 @@ function pairings(tokens: Tokens, tintAtRest: number, tintOnHover: number): [str
     ]),
     ["primary button", onPrimary, rgbOf(primary)],
     ["active sidebar item", rgbOf(primary), rgbOf(tokens["sidebar-accent"])],
+    ["muted text on a muted surface", rgbOf(tokens["muted-foreground"]), rgbOf(tokens.muted)],
   ];
 }
 

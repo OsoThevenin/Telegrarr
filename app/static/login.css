@@ -2,7 +2,7 @@
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7; --surface: #ffffff; --line: #d2d2d7; --line-soft: #e8e8ed;
-  --text: #1d1d1f; --muted: #6e6e73; --accent: #0066cc; --accent-hover: #0071e3;
+  --text: #1d1d1f; --muted: #68686d; --accent: #0066cc; --accent-hover: #0071e3;
   --accent-active: #005bb5; --on-accent: #ffffff; --err: #ad2424;
   --shadow: 0 8px 20px rgba(0,0,0,.06), 0 24px 60px rgba(0,0,0,.10);
   --font: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Inter, sans-serif;
