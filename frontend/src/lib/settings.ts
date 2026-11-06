@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { api, type ServerMessage } from "@/lib/api";
+import { api, ApiError, type ServerMessage } from "@/lib/api";
 
 export const ARR_APPS = ["prowlarr", "sonarr", "radarr"] as const;
 
@@ -10,8 +10,23 @@ export type ArrApp = (typeof ARR_APPS)[number];
 
 type ArrSettings = Record<`${ArrApp}_url`, string> & Record<`${ArrApp}_key_set`, boolean>;
 
+type ExternalUrlSettings = Record<`${Exclude<ArrApp, "prowlarr">}_external_url`, string>;
+
+/** The settings an environment variable can provide, as `ENV_VARS` in app/settings.py lists them. */
+type EnvBackedSetting =
+  | `${ArrApp}_url`
+  | `${ArrApp}_key`
+  | "tmdb_key"
+  | "tg_api_id"
+  | "tg_api_hash"
+  | "plex_url"
+  | "plex_token"
+  | "tg_proxy";
+
+type EnvLocks = Record<`${EnvBackedSetting}_env_locked`, boolean>;
+
 /** What `GET /api/settings` exposes: a secret is only ever a `_set` boolean. */
-export type Settings = ArrSettings & {
+export type Settings = ArrSettings & ExternalUrlSettings & EnvLocks & {
   dl_workers: number;
   max_concurrent: number;
   min_free_gb: number;
@@ -50,6 +65,22 @@ export type TestResult = { ok: boolean; detail?: ServerMessage };
 type Patch = Record<string, unknown>;
 
 export const SETTINGS_KEY = ["settings"] as const;
+
+/** Whether an environment variable provides `key`, so the server refuses any value for it. */
+export function isEnvLocked(settings: Settings, key: string): boolean {
+  return settings[`${key}_env_locked` as keyof Settings] === true;
+}
+
+/** Whether the server refused because of such a variable. Some endpoints say so inside a 200. */
+export function isEnvRefusal(error: unknown): boolean {
+  if (!(error instanceof ApiError) || typeof error.detail !== "object") return false;
+  return error.detail.key === "err.settings.env_locked";
+}
+
+/** One locked key would abort the whole patch, so none may reach the server. */
+function withoutEnvLocked<P extends Patch>(settings: Settings, patch: P): P {
+  return Object.fromEntries(Object.entries(patch).filter(([key]) => !isEnvLocked(settings, key))) as P;
+}
 
 export function useSettings() {
   return useQuery({
@@ -105,8 +136,14 @@ export function useSettingsForm<K extends keyof Settings>(settings: Settings, ke
   const [form, setForm] = useState(() => formValues(settings, keys));
   const [outcome, setOutcome] = useState<SaveOutcome>(IDLE);
 
-  const changed = changedValues(formValues(settings, keys), form);
+  const saved = formValues(settings, keys);
+  const changed = withoutEnvLocked(settings, changedValues(saved, form));
   const isDirty = Object.keys(changed).length > 0;
+  /** A locked field shows what env provides, even if something was typed before it locked. */
+  const shown = Object.fromEntries(keys.map((key) => [key, isEnvLocked(settings, key) ? saved[key] : form[key]])) as Record<
+    K,
+    string
+  >;
 
   function setField(key: K, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -115,11 +152,12 @@ export function useSettingsForm<K extends keyof Settings>(settings: Settings, ke
 
   /** Saves the changed fields plus any secrets; says whether the card may go on. */
   async function submit(secrets: Patch = {}): Promise<boolean> {
-    const patch = { ...changed, ...secrets };
+    const patch = withoutEnvLocked(settings, { ...changed, ...secrets });
     if (Object.keys(patch).length === 0) return true;
     try {
-      const kept = formValues(await save.mutateAsync(patch), keys);
-      const wasAdjusted = Object.keys(changedValues(kept, form)).length > 0;
+      const updated = await save.mutateAsync(patch);
+      const kept = formValues(updated, keys);
+      const wasAdjusted = Object.keys(withoutEnvLocked(updated, changedValues(kept, form))).length > 0;
       setForm(kept);
       setOutcome({ kind: wasAdjusted ? "adjusted" : "saved" });
       return true;
@@ -129,5 +167,5 @@ export function useSettingsForm<K extends keyof Settings>(settings: Settings, ke
     }
   }
 
-  return { form, setField, isDirty, isSaving: save.isPending, outcome, submit };
+  return { form: shown, setField, isDirty, isSaving: save.isPending, outcome, submit };
 }

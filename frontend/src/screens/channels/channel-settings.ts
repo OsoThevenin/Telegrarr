@@ -23,6 +23,16 @@ export type ChannelSettings = {
   poll_minutes: number;
 };
 
+export const NEW_CHANNEL_KINDS = ["tv", "movie"];
+
+export const NEW_CHANNEL_FORM: SettingsForm = {
+  kind: "tv",
+  language: "cat",
+  fallback_quality: "1080p",
+  days: WEEKDAY_NUMBERS,
+  poll: String(POLL_FLOOR_MINUTES),
+};
+
 export const formOf = (channel: Channel): SettingsForm => ({
   kind: channel.kind,
   language: channel.language || "cat",
@@ -40,5 +50,5 @@ export function settingsOf({ days, poll, ...fields }: SettingsForm): ChannelSett
 
 export const kindsFor = (channel: Channel) => {
   const isKnown = channel.kind === "tv" || isMovieChannel(channel);
-  return isKnown ? ["tv", "movie"] : ["tv", "movie", channel.kind];
+  return isKnown ? NEW_CHANNEL_KINDS : [...NEW_CHANNEL_KINDS, channel.kind];
 };

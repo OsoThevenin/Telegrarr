@@ -11,9 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/use-i18n";
 import { ChannelSettingsFields, Field, FIELD_CLASS } from "@/screens/channels/ChannelSettingsFields";
-import { sourceLabel, type Channel } from "@/screens/channels/channel";
+import { SeriesMapper } from "@/screens/channels/SeriesMapper";
+import { isSeriesKind, MOVIE_KIND, sourceLabel, type Channel } from "@/screens/channels/channel";
 import { formOf, kindsFor, settingsOf } from "@/screens/channels/channel-settings";
 import { useUpdateChannel } from "@/screens/channels/queries";
+import { useSeriesMapping } from "@/screens/channels/use-series-mapping";
 
 type Props = {
   source: Channel;
@@ -49,10 +51,13 @@ function EditForm({ source, onSaved }: Pick<Props, "source" | "onSaved">) {
   const { t, errorText } = useI18n();
   const [form, setForm] = useState(() => formOf(source));
   const update = useUpdateChannel();
+  const series = useSeriesMapping(source);
+  const isSeries = isSeriesKind(form.kind);
 
   const save = (event: FormEvent) => {
     event.preventDefault();
-    update.mutate({ id: source.id, fields: settingsOf(form) }, { onSuccess: onSaved });
+    const mapping = isSeries ? series.payload : null;
+    update.mutate({ id: source.id, fields: settingsOf(form), mapping }, { onSuccess: onSaved });
   };
 
   return (
@@ -61,6 +66,8 @@ function EditForm({ source, onSaved }: Pick<Props, "source" | "onSaved">) {
         <input className={FIELD_CLASS} value={sourceLabel(source)} disabled />
       </Field>
       <ChannelSettingsFields form={form} kinds={kindsFor(source)} onChange={setForm} />
+      {isSeries && <SeriesMapper mapping={series} source={source} />}
+      {form.kind === MOVIE_KIND && <p className="text-muted-foreground">{t("chm.movie_note")}</p>}
       {update.isError && (
         <p role="alert" className="text-destructive">
           {errorText(update.error)}

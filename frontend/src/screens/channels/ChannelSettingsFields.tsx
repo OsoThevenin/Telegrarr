@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
+import { kindChoiceLabel } from "@/screens/channels/channel";
 import { POLL_FLOOR_MINUTES, WEEKDAY_NUMBERS, type SettingsForm } from "@/screens/channels/channel-settings";
 
 const QUALITIES = [
@@ -48,17 +49,14 @@ function SelectField({ label, value, options, onChange }: SelectFieldProps) {
 
 type Props = {
   form: SettingsForm;
+  /** Empty leaves the kind out, for the forum topics that each choose their own. */
   kinds: string[];
   onChange: (form: SettingsForm) => void;
 };
 
-/** The settings every source has. #68 reuses them to add a channel. */
+/** The settings every source has. */
 export function ChannelSettingsFields({ form, kinds, onChange }: Props) {
   const { t } = useI18n();
-  const kindName = (kind: string) => {
-    if (kind === "tv") return t("chm.kind.tv");
-    return kind === "movie" ? t("chm.kind.movie") : kind;
-  };
   const languages = [
     { value: "cat", label: `${t("chm.lang.cat")} (CAT)` },
     { value: "es", label: `${t("chm.lang.es")} (SPA)` },
@@ -68,12 +66,14 @@ export function ChannelSettingsFields({ form, kinds, onChange }: Props) {
 
   return (
     <>
-      <SelectField
-        label={t("chm.kind")}
-        value={form.kind}
-        options={kinds.map((kind) => ({ value: kind, label: kindName(kind) }))}
-        onChange={(kind) => onChange({ ...form, kind })}
-      />
+      {kinds.length > 0 && (
+        <SelectField
+          label={t("chm.kind")}
+          value={form.kind}
+          options={kinds.map((kind) => ({ value: kind, label: kindChoiceLabel(kind, t) }))}
+          onChange={(kind) => onChange({ ...form, kind })}
+        />
+      )}
       <SelectField
         label={t("chm.audio_language")}
         value={form.language}

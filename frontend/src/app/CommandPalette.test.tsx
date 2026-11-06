@@ -128,12 +128,17 @@ describe("command palette", () => {
     expect(await screen.findByText("Cap ordre coincident")).toBeVisible();
   });
 
-  it("takes Add channel to the Channels screen", async () => {
+  it("opens the Add channel form on the Channels screen, ready to search", async () => {
+    server.use(
+      http.get("/api/channels", () => HttpResponse.json([])),
+      http.get("/api/telegram/dialogs", () => HttpResponse.json([])),
+    );
     const { user } = await renderApp();
 
     await runCommand(user, "Afegeix un canal");
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Canals" })).toBeVisible();
+    expect(await screen.findByRole("dialog", { name: "Afegeix un canal" })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Canal de Telegram" })).toHaveFocus());
   });
 
   it("pauses the queue", async () => {
