@@ -6,6 +6,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
 import { CompletedGroups } from "@/screens/downloads/CompletedGroups";
 import { ConfirmClear } from "@/screens/downloads/ConfirmClear";
+import { DownloadBulkBar } from "@/screens/downloads/DownloadBulkBar";
 import { DownloadList } from "@/screens/downloads/DownloadList";
 import {
   ACTIVE_TAB,
@@ -16,6 +17,7 @@ import {
   type SortOrder,
 } from "@/screens/downloads/download-list";
 import { useDownloadActions } from "@/screens/downloads/use-download-actions";
+import { useDownloadSelection } from "@/screens/downloads/use-download-selection";
 
 const SKELETON_ROWS = 3;
 
@@ -94,6 +96,7 @@ type Props = {
 
 export function DownloadTabPanel({ tab, rows, query, isFiltered, sort, isDense }: Props) {
   const { t } = useI18n();
+  const selection = useDownloadSelection(rows);
 
   if (query.isPending) return <LoadingRows />;
   if (query.isError && !query.data) return <ListFailure error={query.error} onRefetch={() => void query.refetch()} />;
@@ -103,12 +106,15 @@ export function DownloadTabPanel({ tab, rows, query, isFiltered, sort, isDense }
 
   const sortedRows = sortRows(rows, sort);
   // A filter looks for files, so it opens the show folders up into a flat list.
-  if (tab === COMPLETED_TAB && !isFiltered) return <CompletedGroups rows={sortedRows} isDense={isDense} />;
+  const isGrouped = tab === COMPLETED_TAB && !isFiltered;
+  const List = isGrouped ? CompletedGroups : DownloadList;
 
   return (
     <div className="flex flex-col gap-2">
-      {tab === FAILED_TAB && <ClearFailed rows={rows} />}
-      <DownloadList rows={sortedRows} isDense={isDense} />
+      <DownloadBulkBar rows={rows} selection={selection}>
+        {tab === FAILED_TAB && <ClearFailed rows={rows} />}
+      </DownloadBulkBar>
+      <List rows={sortedRows} isDense={isDense} selection={selection} />
     </div>
   );
 }

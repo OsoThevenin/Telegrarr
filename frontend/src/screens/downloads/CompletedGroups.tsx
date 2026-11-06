@@ -11,13 +11,15 @@ import { DownloadList } from "@/screens/downloads/DownloadList";
 import { groupByShow, type DownloadGroup } from "@/screens/downloads/download-list";
 import { formatSize } from "@/screens/downloads/format";
 import { useDownloadActions } from "@/screens/downloads/use-download-actions";
+import type { DownloadSelection } from "@/screens/downloads/use-download-selection";
 
 type CompletedGroupProps = {
   group: DownloadGroup;
   isDense: boolean;
+  selection: DownloadSelection;
 };
 
-function CompletedGroup({ group: { name, rows }, isDense }: CompletedGroupProps) {
+function CompletedGroup({ group: { name, rows }, isDense, selection }: CompletedGroupProps) {
   const { t, tn } = useI18n();
   const { isPending, removeMany } = useDownloadActions();
   const [isOpen, setIsOpen] = useState(false);
@@ -53,7 +55,7 @@ function CompletedGroup({ group: { name, rows }, isDense }: CompletedGroupProps)
           onConfirm={() => removeMany(rows.map(({ id }) => id))}
         />
       </div>
-      {isOpen && <DownloadList rows={rows} isDense={isDense} />}
+      {isOpen && <DownloadList rows={rows} isDense={isDense} selection={selection} />}
     </li>
   );
 }
@@ -61,15 +63,16 @@ function CompletedGroup({ group: { name, rows }, isDense }: CompletedGroupProps)
 type Props = {
   rows: readonly Download[];
   isDense: boolean;
+  selection: DownloadSelection;
 };
 
-export function CompletedGroups({ rows, isDense }: Props) {
+export function CompletedGroups({ rows, isDense, selection }: Props) {
   const { t } = useI18n();
 
   return (
     <ul className="flex flex-col gap-2">
       {groupByShow(rows, t("common.unknown")).map((group) => (
-        <CompletedGroup key={group.name} group={group} isDense={isDense} />
+        <CompletedGroup key={group.name} group={group} isDense={isDense} selection={selection} />
       ))}
     </ul>
   );

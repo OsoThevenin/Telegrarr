@@ -13,7 +13,9 @@ export type ToastDecision = {
 
 export type CancelAnswer = { ok?: boolean };
 export type RetryAnswer = { ok?: boolean; reason?: string | null };
-type BulkRetryAnswer = { count?: number };
+export type PauseAnswer = { ok?: boolean };
+export type ResumeAnswer = RetryAnswer;
+export type BulkAnswer = { count?: number };
 
 /** Stop answers `ok: false` when the row had already finished. */
 export function cancelToast(answer: CancelAnswer): ToastDecision | null {
@@ -26,9 +28,30 @@ export function retryToast(answer: RetryAnswer): ToastDecision {
   return { messageKey: answer.reason || "dl.not_requeued", kind: "err" };
 }
 
-export function bulkRetryToast({ count = 0 }: BulkRetryAnswer): ToastDecision {
+export function bulkRetryToast({ count = 0 }: BulkAnswer): ToastDecision {
   if (count > 0) return { messageKey: "dl.requeued_n", params: { count }, kind: "ok" };
   return { messageKey: "dl.not_requeued", kind: "err" };
+}
+
+/** Pause answers `ok: false` when the row was no longer queued or running. */
+export function pauseToast(answer: PauseAnswer): ToastDecision {
+  return answer.ok ? { messageKey: "dl.paused", kind: "ok" } : { messageKey: "dl.nothing_to_pause", kind: "err" };
+}
+
+/** Like Retry, Resume can refuse a row with a reason while the request itself succeeds. */
+export function resumeToast(answer: ResumeAnswer): ToastDecision {
+  if (answer.ok) return { messageKey: "dl.resumed", kind: "ok" };
+  return { messageKey: answer.reason || "dl.not_paused", kind: "err" };
+}
+
+export function bulkPauseToast({ count = 0 }: BulkAnswer): ToastDecision {
+  if (count > 0) return { messageKey: "dl.paused_n", params: { count }, kind: "ok" };
+  return { messageKey: "dl.nothing_to_pause", kind: "err" };
+}
+
+export function bulkResumeToast({ count = 0 }: BulkAnswer): ToastDecision {
+  if (count > 0) return { messageKey: "dl.resumed_n", params: { count }, kind: "ok" };
+  return { messageKey: "dl.not_resumed", kind: "err" };
 }
 
 /** Raises what a decision above asked for; a `null` decision stays silent. */
