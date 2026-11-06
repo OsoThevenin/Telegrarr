@@ -351,7 +351,7 @@ describe("Sheet", () => {
 
     expect(within(sheet).getByRole("heading", { name: "Dark" })).toBeVisible();
     expect(await within(sheet).findByText("Una ciutat alemanya.")).toBeVisible();
-    expect(within(sheet).getByText(/2017 · sèrie · ★ 8.7 · tt1/)).toBeVisible();
+    expect(within(sheet).getByText(/2017 · Sèrie · ★ 8.7 · tt1/)).toBeVisible();
     expect(within(sheet).getByText("Actual: Dark (TVDB 334824 · TMDB 70523 · IMDb tt1)")).toBeVisible();
     expect(within(sheet).getByRole("listitem")).toHaveTextContent("Font A");
   });

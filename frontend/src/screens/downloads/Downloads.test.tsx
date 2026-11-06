@@ -66,7 +66,7 @@ describe("Downloads, Queued / Active tab", () => {
     expect(row.getByText(/3\.5 MB\/s/)).toBeVisible();
     expect(row.getByText(/Cinema Club/)).toBeVisible();
     expect(row.getByText(/2\.00 GB/)).toBeVisible();
-    expect(row.getByText("baixant")).toBeVisible();
+    expect(row.getByText("Baixant")).toBeVisible();
     expect(row.getByRole("progressbar", { name: "Merli.S01E01.mkv" })).toBeVisible();
   });
 
@@ -476,7 +476,7 @@ describe("Pause and resume a row", () => {
 
     await user.click(row.getByRole("button", { name: "Pausa" }));
 
-    expect(await row.findByText("en pausa")).toBeVisible();
+    expect(await row.findByText("En pausa")).toBeVisible();
     expect(calls).toEqual(["/api/downloads/7/pause"]);
     expect(row.getByRole("button", { name: "Reprèn" })).toBeEnabled();
     expect(row.queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
@@ -490,9 +490,9 @@ describe("Pause and resume a row", () => {
 
     await user.click(row.getByRole("button", { name: "Reprèn" }));
 
-    expect(await row.findByText("a la cua")).toBeVisible();
+    expect(await row.findByText("A la cua")).toBeVisible();
     expect(calls).toEqual(["/api/downloads/7/resume"]);
-    expect(row.queryByText("en pausa")).not.toBeInTheDocument();
+    expect(row.queryByText("En pausa")).not.toBeInTheDocument();
     expect(await screen.findByText("Torna a ser a la cua: començarà des del principi")).toBeVisible();
   });
 
@@ -514,7 +514,7 @@ describe("Pause and resume a row", () => {
     await user.click(row.getByRole("button", { name: "Reprèn" }));
 
     expect(await screen.findByText("El missatge de Telegram ja no existeix")).toBeVisible();
-    expect(row.getByText("en pausa")).toBeVisible();
+    expect(row.getByText("En pausa")).toBeVisible();
   });
 
   it("offers Pause on queued rows too, and nothing of the kind on finished ones", async () => {
@@ -786,7 +786,7 @@ describe("Paused rows and the live stream", () => {
     emitSnapshot({ active: [{ ...RUNNING, progress: 0.75 }] });
 
     await screen.findByText(/75%/);
-    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+    expect(within(await rowOf("held.mkv")).getByText("En pausa")).toBeVisible();
     expect(await pick("held.mkv")).toBeChecked();
   });
 
@@ -798,7 +798,7 @@ describe("Paused rows and the live stream", () => {
     emitSnapshot({ active: [] });
     emitSnapshot({ active: [] });
 
-    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+    expect(within(await rowOf("held.mkv")).getByText("En pausa")).toBeVisible();
   });
 
   it("shows a row paused elsewhere, though the stream no longer lists it", async () => {
@@ -811,7 +811,7 @@ describe("Paused rows and the live stream", () => {
     rows = [{ ...RUNNING, status: "paused", progress: 0, speed_mbs: 0 }];
     emitSnapshot({ active: [], stats: { ...STATUS.stats, paused: 1 } });
 
-    expect(await running.findByText("en pausa")).toBeVisible();
+    expect(await running.findByText("En pausa")).toBeVisible();
     expect(running.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
@@ -831,7 +831,7 @@ describe("Paused rows and the live stream", () => {
     await user.click(await screen.findByRole("button", { name: "Reprèn-ho tot" }));
 
     await screen.findByRole("button", { name: "Posa-ho tot en pausa" });
-    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+    expect(within(await rowOf("held.mkv")).getByText("En pausa")).toBeVisible();
     expect(rowCalls).toEqual([]);
   });
 });
