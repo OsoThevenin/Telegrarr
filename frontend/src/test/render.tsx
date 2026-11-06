@@ -12,6 +12,7 @@ interface RenderAppOptions {
 }
 
 interface RenderedApp {
+  queryClient: QueryClient;
   router: AppRouter;
   user: UserEvent;
 }
@@ -24,5 +25,5 @@ export async function renderApp({ route = "/ui/" }: RenderAppOptions = {}): Prom
   await router.load();
   render(<App router={router} queryClient={queryClient} />);
 
-  return { router, user: userEvent.setup() };
+  return { queryClient, router, user: userEvent.setup() };
 }

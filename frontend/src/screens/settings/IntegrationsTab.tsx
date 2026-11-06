@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { SaveOutcomeLine } from "@/components/SaveOutcomeLine";
-import { SecretField, secretPatch } from "@/components/SecretField";
+import { SecretField, secretPatch, secretState } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { TestOutcome } from "@/components/TestOutcome";
 import { TextField } from "@/components/TextField";
@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
-import { useSaveSettings, useSettingsForm, type Settings, type TestResult } from "@/lib/settings";
+import { isEnvLocked, useSaveSettings, useSettingsForm, type Settings, type TestResult } from "@/lib/settings";
 import { TelegramCard } from "@/screens/settings/TelegramCard";
 
 type Props = {
@@ -99,7 +99,7 @@ function TmdbCard({ settings }: Props) {
           <div className="w-full">
             <SecretField
               label={t("common.api_key")}
-              state={{ kind: settings.tmdb_key_set ? "saved" : "empty" }}
+              state={secretState(settings, "tmdb_key", settings.tmdb_key_set)}
               draft={draft}
               onDraftChange={setDraft}
               onClear={handleClear}
@@ -155,12 +155,13 @@ function PlexCard({ settings }: Props) {
               type="url"
               placeholder="http://plex:32400"
               className="font-mono"
+              isEnvLocked={isEnvLocked(settings, "plex_url")}
               value={form.plex_url}
               onChange={(event) => setField("plex_url", event.target.value)}
             />
             <SecretField
               label={t("set.plex_token")}
-              state={{ kind: settings.plex_token_set ? "saved" : "empty" }}
+              state={secretState(settings, "plex_token", settings.plex_token_set)}
               draft={draft}
               onDraftChange={setDraft}
               onClear={handleClear}

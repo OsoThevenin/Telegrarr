@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { expect, test } from "./fixtures";
+import { expect, setBackendEnv, test } from "./fixtures";
 
 const panel = (page: Page) => page.getByRole("tabpanel");
 
@@ -40,6 +40,32 @@ test("a secret shows as saved, can be cleared, and never comes back", async ({ s
   await openTab(page, "Integracions");
   await expect(tmdb.getByText("Desat ••••")).toBeVisible();
   await expect(page.getByText("tmdb-e2e-key")).toHaveCount(0);
+});
+
+test("values set by environment variables are read-only, and the rest of the card still saves", async ({
+  signedInPage: page,
+}) => {
+  await setBackendEnv(page.request, {
+    TELEARR_TMDB_KEY: "tmdb-from-the-environment",
+    PLEX_URL: "http://plex.env.test:32400",
+    TELEARR_PROXY: "socks5://user:hunter2@proxy.env.test:1080",
+  });
+  await openTab(page, "Integracions");
+
+  const tmdb = page.locator('[data-slot="card"]', { hasText: "Imatges (TMDB)" });
+  await expect(tmdb.getByText("Definit per variable d’entorn")).toBeVisible();
+  await expect(tmdb.getByRole("button", { name: /^Esborra|^Substitueix/ })).toHaveCount(0);
+
+  const telegram = page.locator('[data-slot="card"]', { hasText: "Compte de Telegram" });
+  await expect(telegram.getByText("socks5://proxy.env.test:1080")).toBeVisible();
+  await expect(telegram.getByRole("button", { name: "Connecta", exact: true })).toHaveCount(0);
+  await expect(page.getByText("hunter2")).toHaveCount(0);
+
+  const plex = page.locator('[data-slot="card"]', { hasText: "Plex" }).last();
+  await expect(plex.getByLabel("URL del servidor")).not.toBeEditable();
+  await plex.getByLabel("Testimoni").fill("plex-e2e-token");
+  await plex.getByRole("button", { name: "Desa i prova" }).click();
+  await expect(plex.getByText("Desat ••••")).toBeVisible();
 });
 
 test("autonomous mode only changes once its dialog is confirmed", async ({ signedInPage: page }) => {

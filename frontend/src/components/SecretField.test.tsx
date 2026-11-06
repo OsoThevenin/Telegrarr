@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api";
 
 const SAVED: SecretState = { kind: "saved" };
 const EMPTY: SecretState = { kind: "empty" };
+const LOCKED: SecretState = { kind: "locked" };
 
 type HarnessProps = {
   state: SecretState;
@@ -144,5 +145,38 @@ describe("an empty secret", () => {
     render(<Harness state={EMPTY} />);
 
     expect(screen.getByLabelText("Clau de l’API")).toHaveAttribute("autocomplete", "off");
+  });
+});
+
+describe("a secret set by an environment variable", () => {
+  it("says where it comes from, and cannot be edited, replaced or cleared", () => {
+    render(<Harness state={LOCKED} />);
+
+    expect(screen.getByText("Definit per variable d’entorn")).toBeVisible();
+    expect(screen.getByText("Clau de l’API")).toBeVisible();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Clau de l’API")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows the masked preview it is given", () => {
+    render(<Harness state={{ kind: "locked", preview: "socks5://host:1080" }} />);
+
+    expect(screen.getByText("socks5://host:1080")).toBeVisible();
+  });
+
+  it("does not offer a draft left over from before it was locked", () => {
+    render(
+      <SecretField
+        label="Clau de l’API"
+        state={LOCKED}
+        draft="typed earlier"
+        onDraftChange={() => {}}
+        onClear={async () => {}}
+      />,
+    );
+
+    expect(screen.queryByDisplayValue("typed earlier")).not.toBeInTheDocument();
+    expect(screen.getByText("Definit per variable d’entorn")).toBeVisible();
   });
 });

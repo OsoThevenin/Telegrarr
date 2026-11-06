@@ -3,14 +3,14 @@ import { useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { SecretField } from "@/components/SecretField";
+import { LockedSecret, SecretField } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { TextField } from "@/components/TextField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/i18n/use-i18n";
-import type { Settings } from "@/lib/settings";
+import { isEnvLocked, type Settings } from "@/lib/settings";
 import { ProxySection } from "@/screens/settings/ProxySection";
 import { telegramPost, useRefreshTelegram, useTelegramAuth } from "@/screens/settings/telegram-api";
 import { TelegramSignInDialog } from "@/screens/settings/TelegramSignInDialog";
@@ -44,7 +44,7 @@ export function TelegramCard({ settings }: { settings: Settings }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {auth.isError && <StatusLine tone="error">{errorText(auth.error)}</StatusLine>}
-        <ApiCredentials isReady={auth.data?.api_ready ?? false} />
+        <ApiCredentialsSection settings={settings} isReady={auth.data?.api_ready ?? false} />
         <div className="flex flex-col items-start gap-2">
           {isAuthorized ? (
             <Button type="button" variant="outline" size="sm" onClick={() => setIsConfirmingLogout(true)}>
@@ -70,6 +70,30 @@ export function TelegramCard({ settings }: { settings: Settings }) {
         isDestructive
       />
     </Card>
+  );
+}
+
+type ApiCredentialsSectionProps = {
+  settings: Settings;
+  isReady: boolean;
+};
+
+/** The endpoint writes the ID and the hash together, so one locked value freezes the pair. */
+function ApiCredentialsSection({ settings, isReady }: ApiCredentialsSectionProps) {
+  const { t } = useI18n();
+  const isIdLocked = isEnvLocked(settings, "tg_api_id");
+  const isHashLocked = isEnvLocked(settings, "tg_api_hash");
+
+  if (!isIdLocked && !isHashLocked) return <ApiCredentials isReady={isReady} />;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {isIdLocked && <LockedSecret label={t("set.tg_api_id")} />}
+      {isHashLocked && <LockedSecret label={t("set.tg_api_hash")} />}
+      {isIdLocked !== isHashLocked && !isReady && (
+        <p className="text-sm text-muted-foreground">{t("set.tg_api_env_pair")}</p>
+      )}
+    </div>
   );
 }
 

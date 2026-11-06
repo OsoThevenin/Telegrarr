@@ -290,6 +290,114 @@ describe("secrets", () => {
   });
 });
 
+describe("a value set by an environment variable", () => {
+  const LOCKED_LABEL = "Definit per variable d’entorn";
+
+  it("shows a locked TMDB key read-only, and Save & test only tests", async () => {
+    const patches = acceptPatches();
+    const test = vi.fn();
+    server.use(
+      http.post("/api/integrations/tmdb/test", () => {
+        test();
+        return HttpResponse.json({ ok: true });
+      }),
+      ...settingsHandlers({ tmdb_key_set: true, tmdb_key_env_locked: true }),
+    );
+    const user = await openTab("Integracions");
+    const tmdb = await card("Imatges (TMDB)");
+
+    expect(within(tmdb).getByText(LOCKED_LABEL)).toBeVisible();
+    expect(within(tmdb).queryByRole("button", { name: /Esborra|Substitueix/ })).not.toBeInTheDocument();
+
+    await user.click(within(tmdb).getByRole("button", { name: "Desa i prova" }));
+
+    await waitFor(() => expect(test).toHaveBeenCalledOnce());
+    expect(patches).toEqual([]);
+  });
+
+  it("saves the Plex token with the Plex URL locked, leaving the URL out", async () => {
+    const locked = { plex_url: "http://plex.env:32400", plex_url_env_locked: true };
+    const patches = acceptPatches(locked);
+    server.use(
+      http.post("/api/integrations/plex/test", () => HttpResponse.json({ ok: true })),
+      ...settingsHandlers(locked),
+    );
+    const user = await openTab("Integracions");
+    const plex = await card("Plex");
+
+    const url = within(plex).getByLabelText("URL del servidor");
+    expect(url).toHaveValue("http://plex.env:32400");
+    expect(url).toHaveAttribute("readonly");
+    expect(url).toHaveAccessibleDescription(LOCKED_LABEL);
+
+    await user.type(within(plex).getByLabelText("Testimoni"), "token");
+    await user.click(within(plex).getByRole("button", { name: "Desa i prova" }));
+
+    await waitFor(() => expect(patches).toEqual([{ plex_token: "token" }]));
+  });
+
+  it("saves the Plex URL with the Plex token locked", async () => {
+    const locked = { plex_token_set: true, plex_token_env_locked: true };
+    const patches = acceptPatches(locked);
+    server.use(
+      http.post("/api/integrations/plex/test", () => HttpResponse.json({ ok: true })),
+      ...settingsHandlers(locked),
+    );
+    const user = await openTab("Integracions");
+    const plex = await card("Plex");
+
+    expect(within(plex).getByText(LOCKED_LABEL)).toBeVisible();
+
+    await user.type(within(plex).getByLabelText("URL del servidor"), "http://plex:32400");
+    await user.click(within(plex).getByRole("button", { name: "Desa i prova" }));
+
+    await waitFor(() => expect(patches).toEqual([{ plex_url: "http://plex:32400" }]));
+  });
+
+  it("shows a locked proxy read-only, with where it points and nothing to connect", async () => {
+    server.use(
+      http.get("/api/telegram/proxy", () => HttpResponse.json({ proxy: "socks5://host:1080" })),
+      ...settingsHandlers({ proxy_set: true, tg_proxy_env_locked: true }),
+    );
+    await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    expect(await within(telegram).findByText("socks5://host:1080")).toBeVisible();
+    expect(within(telegram).getByText(LOCKED_LABEL)).toBeVisible();
+    expect(within(telegram).queryByLabelText("URL del servidor intermediari")).not.toBeInTheDocument();
+    expect(within(telegram).queryByRole("button", { name: "Connecta" })).not.toBeInTheDocument();
+  });
+
+  it("shows the Telegram API ID and hash read-only when both are locked", async () => {
+    server.use(
+      http.get("/api/telegram/auth", () => HttpResponse.json({ authorized: false, api_ready: true })),
+      ...settingsHandlers({ tg_api_id_env_locked: true, tg_api_hash_env_locked: true }),
+    );
+    await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    await within(telegram).findByText("API ID");
+    expect(within(telegram).getByText("API hash")).toBeVisible();
+    expect(within(telegram).getAllByText(LOCKED_LABEL)).toHaveLength(2);
+    expect(within(telegram).queryByRole("button", { name: /API hash/ })).not.toBeInTheDocument();
+    expect(within(telegram).queryByRole("button", { name: "Desa" })).not.toBeInTheDocument();
+  });
+
+  it("explains that the Telegram pair cannot be finished here when only one is locked", async () => {
+    server.use(
+      http.get("/api/telegram/auth", () => HttpResponse.json({ authorized: false, api_ready: false })),
+      ...settingsHandlers({ tg_api_id_env_locked: true }),
+    );
+    await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    expect(await within(telegram).findByText(/Defineix també l’altra variable/)).toBeVisible();
+    expect(within(telegram).getAllByText(LOCKED_LABEL)).toHaveLength(1);
+    expect(within(telegram).queryByLabelText("API hash")).not.toBeInTheDocument();
+    expect(within(telegram).queryByRole("button", { name: "Desa" })).not.toBeInTheDocument();
+  });
+});
+
 describe("Telegram", () => {
   it("saves the API hash through its own endpoint, because a settings patch ignores it", async () => {
     let body: unknown;
@@ -398,5 +506,44 @@ describe("Telegram", () => {
 
     expect(await within(telegram).findByRole("alert")).toHaveTextContent("timeout");
     expect(await within(telegram).findByText("Desat socks5://host:1080")).toBeVisible();
+  });
+
+  it("keeps the typed proxy when env refuses it inside a 200, because nothing was saved", async () => {
+    server.use(
+      http.post("/api/telegram/proxy", () =>
+        HttpResponse.json({ error: { key: "err.settings.env_locked", params: { env: "TELEARR_PROXY" } } }),
+      ),
+      ...settingsHandlers(),
+    );
+    const user = await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    await user.type(await within(telegram).findByLabelText("URL del servidor intermediari"), "socks5://host:1080");
+    await user.click(within(telegram).getByRole("button", { name: "Connecta" }));
+
+    expect(await within(telegram).findByRole("alert")).toHaveTextContent("TELEARR_PROXY");
+    expect(within(telegram).getByLabelText("URL del servidor intermediari")).toHaveValue("socks5://host:1080");
+  });
+
+  it("shows the proxy as locked, with the reason, when the refusal comes from a stale page", async () => {
+    let locked = false;
+    server.use(
+      http.get("/api/settings", () =>
+        HttpResponse.json(settingsResponse({ proxy_set: locked, tg_proxy_env_locked: locked })),
+      ),
+      http.post("/api/telegram/proxy", () => {
+        locked = true;
+        return HttpResponse.json({ error: { key: "err.settings.env_locked", params: { env: "TELEARR_PROXY" } } });
+      }),
+      ...settingsHandlers(),
+    );
+    const user = await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    await user.type(await within(telegram).findByLabelText("URL del servidor intermediari"), "socks5://host:1080");
+    await user.click(within(telegram).getByRole("button", { name: "Connecta" }));
+
+    expect(await within(telegram).findByText("Definit per variable d’entorn")).toBeVisible();
+    expect(within(telegram).getByRole("alert")).toHaveTextContent("TELEARR_PROXY");
   });
 });

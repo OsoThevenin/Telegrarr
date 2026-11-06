@@ -3,26 +3,28 @@ import { useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { SaveOutcomeLine } from "@/components/SaveOutcomeLine";
-import { SecretField, secretPatch } from "@/components/SecretField";
+import { SecretField, secretPatch, secretState } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { TextField } from "@/components/TextField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/i18n/use-i18n";
-import { useSaveSettings, useSettingsForm, type ArrApp, type Settings } from "@/lib/settings";
+import { isEnvLocked, useSaveSettings, useSettingsForm, type ArrApp, type Settings } from "@/lib/settings";
 import { RADARR_DEFAULTS_KEY, useAppStatus } from "@/screens/connect/connect-api";
 
 type AppDetails = {
   name: string;
   port: number;
   roleKey: string;
+  /** Set for an app whose pages Telegrarr links to from the operator's browser. */
+  externalUrlKey?: "sonarr_external_url" | "radarr_external_url";
 };
 
 const APP_DETAILS: Record<ArrApp, AppDetails> = {
   prowlarr: { name: "Prowlarr", port: 9696, roleKey: "connect.role.prowlarr" },
-  sonarr: { name: "Sonarr", port: 8989, roleKey: "connect.role.sonarr" },
-  radarr: { name: "Radarr", port: 7878, roleKey: "connect.role.radarr" },
+  sonarr: { name: "Sonarr", port: 8989, roleKey: "connect.role.sonarr", externalUrlKey: "sonarr_external_url" },
+  radarr: { name: "Radarr", port: 7878, roleKey: "connect.role.radarr", externalUrlKey: "radarr_external_url" },
 };
 
 export function appName(app: ArrApp): string {
@@ -38,12 +40,15 @@ export function AppCard({ app, settings }: Props) {
   const { t, msg, errorText } = useI18n();
   const urlKey = `${app}_url` as const;
   const secretKey = `${app}_key`;
-  const { form, setField, isSaving, outcome, submit } = useSettingsForm(settings, [urlKey]);
+  const { name, port, roleKey, externalUrlKey } = APP_DETAILS[app];
+  const { form, setField, isSaving, outcome, submit } = useSettingsForm(
+    settings,
+    externalUrlKey ? [urlKey, externalUrlKey] : [urlKey],
+  );
   const save = useSaveSettings();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
 
-  const { name, port, roleKey } = APP_DETAILS[app];
   const isKeySaved = settings[`${app}_key_set`];
   const isSetUp = Boolean(settings[urlKey]) && isKeySaved;
   const status = useAppStatus(app, isSetUp);
@@ -93,17 +98,29 @@ export function AppCard({ app, settings }: Props) {
               type="url"
               placeholder={`http://${app}:${port}`}
               className="font-mono"
+              isEnvLocked={isEnvLocked(settings, urlKey)}
               value={form[urlKey]}
               onChange={(event) => setField(urlKey, event.target.value)}
             />
             <SecretField
               label={t("common.api_key")}
               hint={t("connect.key_placeholder")}
-              state={{ kind: isKeySaved ? "saved" : "empty" }}
+              state={secretState(settings, secretKey, isKeySaved)}
               draft={draft}
               onDraftChange={setDraft}
               onClear={handleClear}
             />
+            {externalUrlKey && (
+              <TextField
+                label={t("connect.external_url")}
+                hint={t("connect.external_url_hint")}
+                type="url"
+                placeholder={`https://${app}.example.com`}
+                className="font-mono"
+                value={form[externalUrlKey]}
+                onChange={(event) => setField(externalUrlKey, event.target.value)}
+              />
+            )}
           </div>
           <Button type="submit" size="sm" disabled={isSaving || status.isFetching}>
             {t("common.save_test")}
