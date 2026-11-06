@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
 import type { Channel } from "@/screens/channels/channel";
 import {
   exactHit,
@@ -19,14 +20,6 @@ export type SeriesPayload = { tmdb_id: number | null; tvdb_id: string | null; ti
 
 type SeriesChoice = { tmdb_id: number; title: string };
 type SeriesSearch = { term: string; digitsAsId: boolean };
-type SettingsReply = { settings: { tmdb_key_set: boolean } };
-
-const useHasTmdbKey = () =>
-  useQuery({
-    queryKey: ["settings"],
-    queryFn: () => api.get<SettingsReply>("/api/settings"),
-    select: ({ settings }) => settings.tmdb_key_set,
-  });
 
 /** The series block's state. It lives above the block, so hiding the block keeps the choice. */
 export function useSeriesMapping(source?: Channel) {
@@ -35,7 +28,7 @@ export function useSeriesMapping(source?: Channel) {
   const [choice, setChoice] = useState<SeriesChoice | null>(null);
   const [tvdb, setTvdb] = useState({ value: source?.tvdb_id ? String(source.tvdb_id) : "", isEdited: false });
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const hasTmdbKey = useHasTmdbKey();
+  const hasTmdbKey = useSettings().data?.settings.tmdb_key_set;
   const search = useMutation({
     mutationFn: ({ term, digitsAsId }: SeriesSearch) => api.get<SeriesHit[]>(seriesSearchUrl(term, digitsAsId)),
   });
@@ -89,7 +82,7 @@ export function useSeriesMapping(source?: Channel) {
 
     const term = seriesQuery(chatTitle);
     setQuery(term);
-    if (hasTmdbKey.data !== false) runSearch(term, false);
+    if (hasTmdbKey !== false) runSearch(term, false);
   };
 
   const typedTvdb = tvdb.value.trim();
@@ -109,7 +102,7 @@ export function useSeriesMapping(source?: Channel) {
     tvdb: tvdb.value,
     changeTvdb: (value: string) => setTvdb({ value, isEdited: true }),
     search,
-    isTmdbKeyMissing: hasTmdbKey.data === false,
+    isTmdbKeyMissing: hasTmdbKey === false,
     payload,
   };
 }
