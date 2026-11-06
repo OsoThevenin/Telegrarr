@@ -1,3 +1,5 @@
+import { withTopic } from "@/lib/format";
+
 /** A row of GET /api/channels: one source, which is a chat or one topic of a forum group. */
 export type Channel = {
   id: number;
@@ -63,7 +65,7 @@ export function groupIntoShows(channels: Channel[]): Show[] {
 
 /** How a source is named: its chat, plus the topic for a topic source. */
 export const sourceLabel = (channel: Channel) =>
-  channel.topic_title ? `${channel.title} › ${channel.topic_title}` : channel.title;
+  withTopic(channel.title, channel.topic_title);
 
 export const showTitle = ({ lead }: Show) => lead.imdb_title || sourceLabel(lead);
 

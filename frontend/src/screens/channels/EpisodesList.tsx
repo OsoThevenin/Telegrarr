@@ -1,14 +1,12 @@
 import { useId } from "react";
 
 import { useI18n } from "@/i18n/use-i18n";
+import { downloadName } from "@/lib/downloads";
 import type { Show } from "@/screens/channels/channel";
 import { useCompletedDownloads, type CompletedDownload } from "@/screens/channels/queries";
 
 const MAX_LISTED = 60;
 const BYTES_PER_GB = 1e9;
-
-const episodeName = ({ save_path, file_name }: CompletedDownload) =>
-  save_path?.split("/").pop() || file_name || "";
 
 const episodesOf = ({ sources }: Show, downloads: CompletedDownload[]) => {
   const sourceIds = new Set(sources.map(({ id }) => id));
@@ -44,8 +42,8 @@ export function EpisodesList({ show }: Props) {
         <ul aria-labelledby={headingId} className="flex flex-col gap-1">
           {episodes.slice(0, MAX_LISTED).map((episode) => (
             <li key={episode.id} className="flex justify-between gap-3">
-              <span className="min-w-0 truncate" title={episodeName(episode)}>
-                {episodeName(episode)}
+              <span className="min-w-0 truncate" title={downloadName(episode)}>
+                {downloadName(episode)}
               </span>
               {Boolean(episode.file_size) && (
                 <span className="shrink-0 text-muted-foreground tabular-nums">

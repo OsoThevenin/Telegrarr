@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
 import { api, type ServerMessage } from "@/lib/api";
+import { withTopic } from "@/lib/format";
 
 /** The API's own ceiling on one list of downloads. */
 const MAX_DOWNLOADS = 1000;
@@ -40,12 +41,14 @@ export const downloadsQuery = queryOptions({
 });
 
 /** The name a person knows a download by: the file as saved, once it has a place. */
-export function downloadName({ save_path: savePath, file_name: fileName }: Download): string {
+export function downloadName({
+  save_path: savePath,
+  file_name: fileName,
+}: Pick<Download, "save_path" | "file_name">): string {
   return savePath?.split("/").pop() || fileName || "";
 }
 
 /** The Channel a download came from, with its topic in a forum group. */
 export function downloadSource({ channel_title: channelTitle, topic_title: topic }: Download): string {
-  const title = channelTitle ?? "";
-  return topic ? `${title} › ${topic}` : title;
+  return withTopic(channelTitle ?? "", topic);
 }

@@ -1,6 +1,10 @@
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 const BYTES_PER_UNIT = 1024;
 
+/** How a Channel is named: its chat, plus the topic in a forum group. */
+export const withTopic = (title: string, topic: string | null | undefined): string =>
+  topic ? `${title} › ${topic}` : title;
+
 /** A size for reading: "1.5 GB". */
 export function formatBytes(bytes: number | null | undefined): string {
   if (!bytes) return "0 B";

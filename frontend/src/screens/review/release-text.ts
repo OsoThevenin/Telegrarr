@@ -1,3 +1,5 @@
+import { withTopic } from "@/lib/format";
+
 import type { PendingRelease } from "./review-api";
 
 type Translate = (key: string, params: { id: number }) => string;
@@ -7,9 +9,7 @@ export function releaseName(release: PendingRelease, t: Translate): string {
 }
 
 export function channelLabel(release: PendingRelease): string {
-  return release.topic_title
-    ? `${release.channel_title} › ${release.topic_title}`
-    : release.channel_title;
+  return withTopic(release.channel_title, release.topic_title);
 }
 
 /** How the file name was read, as `Title (year)`; null when no title came out of it. */
