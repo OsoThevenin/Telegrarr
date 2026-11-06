@@ -8,7 +8,7 @@ import type { ChannelSettings } from "@/screens/channels/channel-settings";
 export const CHANNELS_KEY = ["channels"] as const;
 
 /** TMDB art barely changes, and each lookup costs the backend a TMDB call. */
-const ART_STALE_MS = 60 * 60 * 1000;
+export const ART_STALE_MS = 60 * 60 * 1000;
 /** How much of a Catalog is searched for a card's poster; most rows are identified. */
 const CATALOG_SAMPLE = 8;
 

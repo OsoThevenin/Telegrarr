@@ -64,7 +64,7 @@ export function ChannelSheet({ show, isOpen, controls, onClose, onCloseAutoFocus
             </Button>
           </div>
           <SourceList show={show} controls={controls} />
-          {isMovieChannel(lead) ? <CatalogSection channel={lead} /> : <EpisodesList show={show} />}
+          {isMovieChannel(lead) ? <CatalogSection key={lead.id} channel={lead} /> : <EpisodesList show={show} />}
         </div>
       </SheetContent>
     </Sheet>
