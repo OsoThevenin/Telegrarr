@@ -43,11 +43,25 @@ def seed() -> None:
     tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
     channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
+    # Chats the account is in but Telegrarr does not read yet, for Add channel.
+    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat")
+    tg._client.add_group(-1001234567893, "Amics del cinema")
+    tg._client.add_forum(-1001234567894, "Anime en català", topics=("Sèries HD", "Pel·lícules HD"))
+    tg._client.add_channel(-1001234567895, "Canal Secret", username="canalsecret")
+
+
+def fake_tmdb() -> FakeTMDB:
+    """What TMDB knows. Searching it takes a key, which the seed leaves unset."""
+    fake = FakeTMDB()
+    fake.add_series(1001, titles={"ca-ES": "Merlí", "en-US": "Merlí"}, first_air_date="2015-09-14",
+                    tvdb_id=2001, imdb_id="tt4419684")
+    return fake
 
 
 def install_fakes() -> None:
     tg._client = FakeTelegram()
-    tmdb.transport = FakeTMDB().transport
+    tg._dialogs_cache.update(ts=0, data=[])
+    tmdb.transport = fake_tmdb().transport
     connect.transport = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY).transport()
 
 
