@@ -470,6 +470,27 @@ describe("bulk Discard", () => {
     expect(screen.getByRole("checkbox", { name: "Selecciona totes les visibles" })).toHaveFocus();
   });
 
+  it("hands focus to Select all when Clear selection goes away", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await user.click(screen.getByRole("button", { name: "Treu la selecció" }));
+
+    expect(screen.queryByRole("button", { name: "Treu la selecció" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Selecciona totes les visibles" })).toHaveFocus();
+  });
+
+  it("hands focus to Clear filters when Clear selection goes away and no row is shown", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await user.type(screen.getByRole("searchbox"), "zzz");
+    await user.click(screen.getByRole("button", { name: "Treu la selecció" }));
+
+    expect(screen.queryByRole("button", { name: "Treu la selecció" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Treu els filtres" })).toHaveFocus();
+  });
+
   it("leaves focus alone if it moved on during a bulk Discard", async () => {
     const { user } = await renderQueue();
 

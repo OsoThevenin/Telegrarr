@@ -42,12 +42,17 @@ function updateSelection(
   return new Set([...selection].filter((key) => !keys.includes(key)));
 }
 
-function NoMatches({ onClear }: { onClear: () => void }) {
+type NoMatchesProps = {
+  onClear: () => void;
+  clearRef: RefObject<HTMLButtonElement | null>;
+};
+
+function NoMatches({ onClear, clearRef }: NoMatchesProps) {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-start gap-2 py-6">
       <p className="text-sm">{t("review.no_matches")}</p>
-      <Button type="button" variant="outline" size="sm" onClick={onClear}>
+      <Button ref={clearRef} type="button" variant="outline" size="sm" onClick={onClear}>
         {t("review.clear_filters")}
       </Button>
     </div>
@@ -172,9 +177,20 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [failures, setFailures] = useState<BulkFailure[]>([]);
   const selectAllRef = useRef<HTMLButtonElement>(null);
+  const clearFiltersRef = useRef<HTMLButtonElement>(null);
 
   const selected = releases.filter((release) => selection.has(releaseKey(release)));
   const shownSelected = shown.filter((release) => selection.has(releaseKey(release)));
+
+  // Select all is disabled with no row shown, and a disabled control can't take focus.
+  function focusStableControl() {
+    (shown.length > 0 ? selectAllRef : clearFiltersRef).current?.focus();
+  }
+
+  function handleClearSelection() {
+    setSelection(new Set());
+    focusStableControl();
+  }
 
   function handleResolved(key: string, notice: string) {
     const next = rowAfter(shown, key);
@@ -191,7 +207,7 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
     setSelection((current) => updateSelection(current, doneKeys, false));
     dropFromQueue(new Set(doneKeys));
     // With no selection left, the bulk action is about to unmount.
-    if (outcome.failures.length === 0 && hasLostFocus()) selectAllRef.current?.focus();
+    if (outcome.failures.length === 0 && hasLostFocus()) focusStableControl();
   }
 
   return (
@@ -210,14 +226,14 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
           <BulkDiscard
             selected={selected}
             hiddenCount={selected.length - shownSelected.length}
-            onClear={() => setSelection(new Set())}
+            onClear={handleClearSelection}
             onStart={() => setFailures([])}
             onSettled={handleBulkSettled}
           />
         )}
       </Toolbar>
       {shown.length === 0 ? (
-        <NoMatches onClear={onClearFilters} />
+        <NoMatches onClear={onClearFilters} clearRef={clearFiltersRef} />
       ) : (
         <ReleaseList
           shown={shown}
