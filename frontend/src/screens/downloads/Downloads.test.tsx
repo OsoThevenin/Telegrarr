@@ -449,17 +449,484 @@ describe("Row actions", () => {
     await openTab(user, "Fallides");
     expect(within(await rowOf("broken.mkv")).queryByRole("button", { name: "Atura" })).not.toBeInTheDocument();
   });
+});
 
-  // The backend discards a paused transfer's partial file, so progress is back at 0.
-  it("treats a paused row as unfinished: it starts over from 0% and offers no Delete", async () => {
-    serveDownloads([download({ status: "paused", progress: 0 })]);
+describe("Pause and resume a row", () => {
+  type RowAnswer = { ok: boolean; reason?: string };
 
+  /** The backend for one row: the pause or resume moves it, and the list then says so. */
+  function serveRow(path: "pause" | "resume", statusAfter: Download["status"], answer: RowAnswer = { ok: true }) {
+    const calls: string[] = [];
+    let row = download({ id: 7, status: path === "pause" ? "downloading" : "paused", progress: 0.4 });
+    server.use(
+      http.get("/api/downloads", () => HttpResponse.json([row])),
+      http.post(`/api/downloads/7/${path}`, ({ request }) => {
+        calls.push(new URL(request.url).pathname);
+        if (answer.ok) row = { ...row, status: statusAfter, progress: 0, speed_mbs: 0 };
+        return HttpResponse.json(answer);
+      }),
+    );
+    return calls;
+  }
+
+  it("pauses a running transfer and labels the row paused", async () => {
+    const calls = serveRow("pause", "paused");
+    const { user } = await renderApp({ route: ROUTE });
+    const row = within(await rowOf("Merli.S01E01.mkv"));
+
+    await user.click(row.getByRole("button", { name: "Pausa" }));
+
+    expect(await row.findByText("en pausa")).toBeVisible();
+    expect(calls).toEqual(["/api/downloads/7/pause"]);
+    expect(row.getByRole("button", { name: "Reprèn" })).toBeEnabled();
+    expect(row.queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
+    expect(await screen.findByText("En pausa: s’ha descartat el fitxer parcial")).toBeVisible();
+  });
+
+  it("resumes a paused row and says the file starts again", async () => {
+    const calls = serveRow("resume", "queued");
+    const { user } = await renderApp({ route: ROUTE });
+    const row = within(await rowOf("Merli.S01E01.mkv"));
+
+    await user.click(row.getByRole("button", { name: "Reprèn" }));
+
+    expect(await row.findByText("a la cua")).toBeVisible();
+    expect(calls).toEqual(["/api/downloads/7/resume"]);
+    expect(row.queryByText("en pausa")).not.toBeInTheDocument();
+    expect(await screen.findByText("Torna a ser a la cua: començarà des del principi")).toBeVisible();
+  });
+
+  it("says so when there was nothing left to pause", async () => {
+    serveRow("pause", "paused", { ok: false });
+    const { user } = await renderApp({ route: ROUTE });
+    const row = within(await rowOf("Merli.S01E01.mkv"));
+
+    await user.click(row.getByRole("button", { name: "Pausa" }));
+
+    expect(await screen.findByText(/No s’ha posat res en pausa/)).toBeVisible();
+  });
+
+  it("shows the server's reason when a row can't be resumed", async () => {
+    serveRow("resume", "queued", { ok: false, reason: "dl.err.message_gone" });
+    const { user } = await renderApp({ route: ROUTE });
+    const row = within(await rowOf("Merli.S01E01.mkv"));
+
+    await user.click(row.getByRole("button", { name: "Reprèn" }));
+
+    expect(await screen.findByText("El missatge de Telegram ja no existeix")).toBeVisible();
+    expect(row.getByText("en pausa")).toBeVisible();
+  });
+
+  it("offers Pause on queued rows too, and nothing of the kind on finished ones", async () => {
+    serveDownloads([
+      download({ id: 1, status: "queued", file_name: "waiting.mkv" }),
+      download({ id: 2, status: "completed", file_name: "done.mkv" }),
+    ]);
+    const { user } = await renderApp({ route: ROUTE });
+
+    const waiting = within(await rowOf("waiting.mkv"));
+    expect(waiting.getByRole("button", { name: "Pausa" })).toBeEnabled();
+
+    await openTab(user, "Completades");
+    await user.click(await screen.findByRole("button", { name: /^Cinema Club/ }));
+    const done = within(await rowOf("done.mkv"));
+    expect(done.queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
+    expect(done.queryByRole("button", { name: "Reprèn" })).not.toBeInTheDocument();
+  });
+
+  it("warns before pausing that the partial file goes", async () => {
+    serveDownloads([download({ status: "downloading" })]);
+    await renderApp({ route: ROUTE });
+
+    const pause = within(await rowOf("Merli.S01E01.mkv")).getByRole("button", { name: "Pausa" });
+
+    expect(pause).toHaveAccessibleDescription(/Descarta el fitxer parcial/);
+  });
+
+  it("shows no stale figures on a paused row, and that it will start over", async () => {
+    serveDownloads([download({ status: "paused", speed_mbs: 3.5 })]);
     await renderApp({ route: ROUTE });
 
     const row = within(await rowOf("Merli.S01E01.mkv"));
-    expect(row.getByRole("progressbar", { name: "Merli.S01E01.mkv" })).toBeVisible();
-    expect(row.getByText(/0%/)).toBeVisible();
+
+    expect(row.getByText("Tornarà a començar des del principi quan el reprenguis")).toBeVisible();
+    expect(row.getByText(/Cinema Club · 2\.00 GB/)).toBeVisible();
+    expect(row.queryByText(/%/)).not.toBeInTheDocument();
+    expect(row.queryByText(/MB\/s/)).not.toBeInTheDocument();
+    expect(row.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("can still Stop a paused row", async () => {
+    serveDownloads([download({ status: "paused" })]);
+    await renderApp({ route: ROUTE });
+
+    const row = within(await rowOf("Merli.S01E01.mkv"));
+
+    expect(row.getByRole("button", { name: "Atura" })).toBeEnabled();
     expect(row.queryByRole("button", { name: "Suprimeix el registre" })).not.toBeInTheDocument();
+  });
+});
+
+const BULK_BAR = "Accions sobre les baixades seleccionades";
+const SELECT_ALL = "Selecciona-ho tot";
+
+const bulkBar = async () => within(await screen.findByRole("group", { name: BULK_BAR }));
+const pick = (name: string) => screen.findByRole("checkbox", { name: `Selecciona ${name}` });
+
+/** Answers the bulk endpoint, and keeps what each request asked for. */
+function serveBulk(count: number | (() => Response) = 1) {
+  const bodies: unknown[] = [];
+  server.use(
+    http.post("/api/downloads/bulk", async ({ request }) => {
+      bodies.push(await request.json());
+      return typeof count === "number" ? HttpResponse.json({ ok: true, count }) : count();
+    }),
+  );
+  return bodies;
+}
+
+describe("Selecting downloads", () => {
+  const ROWS = [
+    download({ id: 1, status: "downloading", file_name: "running.mkv" }),
+    download({ id: 2, status: "queued", file_name: "waiting.mkv" }),
+    download({ id: 3, status: "paused", file_name: "held.mkv" }),
+  ];
+
+  it("selects every row in view, then none", async () => {
+    serveDownloads(ROWS);
+    const { user } = await renderApp({ route: ROUTE });
+    await pick("running.mkv");
+
+    await user.click(await screen.findByRole("checkbox", { name: SELECT_ALL }));
+
+    expect(await pick("held.mkv")).toBeChecked();
+    expect(await pick("running.mkv")).toBeChecked();
+    expect((await bulkBar()).getByText("3 seleccionades")).toBeVisible();
+
+    await user.click(screen.getByRole("checkbox", { name: SELECT_ALL }));
+
+    expect(await pick("held.mkv")).not.toBeChecked();
+    expect((await bulkBar()).queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
+  });
+
+  it("shows a partial selection on Select all", async () => {
+    serveDownloads(ROWS);
+    const { user } = await renderApp({ route: ROUTE });
+
+    await user.click(await pick("waiting.mkv"));
+
+    expect(screen.getByRole("checkbox", { name: SELECT_ALL })).toBePartiallyChecked();
+    expect((await bulkBar()).getByText("1 seleccionada")).toBeVisible();
+  });
+
+  it("works from the keyboard", async () => {
+    serveDownloads([download({ id: 1, status: "queued", file_name: "waiting.mkv" })]);
+    const bodies = serveBulk();
+    const { user } = await renderApp({ route: ROUTE });
+    const checkbox = await pick("waiting.mkv");
+
+    checkbox.focus();
+    await user.keyboard(" ");
+    expect(checkbox).toBeChecked();
+
+    const bar = await bulkBar();
+    bar.getByRole("button", { name: "Pausa" }).focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(bodies).toEqual([{ action: "pause", ids: [1] }]));
+  });
+
+  it("gives focus back to Select all when the actions go away", async () => {
+    serveDownloads(ROWS);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("waiting.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Esborra la selecció" }));
+
+    expect(screen.getByRole("checkbox", { name: SELECT_ALL })).toHaveFocus();
+    expect(await pick("waiting.mkv")).not.toBeChecked();
+  });
+
+  it("forgets the selection on another tab", async () => {
+    serveDownloads([...ROWS, download({ id: 4, status: "failed", file_name: "broken.mkv" })]);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("waiting.mkv"));
+
+    await openTab(user, "Fallides");
+    await pick("broken.mkv");
+    await openTab(user, "A la cua / Actives");
+
+    expect(await pick("waiting.mkv")).not.toBeChecked();
+  });
+
+  it("drops a selected row that leaves the tab", async () => {
+    const rows = [...ROWS];
+    server.use(http.get("/api/downloads", () => HttpResponse.json(rows)));
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("waiting.mkv"));
+    await user.click(await pick("running.mkv"));
+    await screen.findByText("2 seleccionades");
+
+    rows[0] = { ...rows[0], status: "completed" };
+    emitSnapshot({ stats: { ...STATUS.stats, completed: STATUS.stats.completed + 1 } });
+    emitSnapshot({ stats: { ...STATUS.stats, completed: STATUS.stats.completed + 2 } });
+
+    expect(await screen.findByText("1 seleccionada")).toBeVisible();
+  });
+});
+
+describe("Bulk pause and resume", () => {
+  const ROWS = [
+    download({ id: 1, status: "downloading", file_name: "running.mkv" }),
+    download({ id: 2, status: "queued", file_name: "waiting.mkv" }),
+    download({ id: 3, status: "paused", file_name: "held.mkv" }),
+    download({ id: 4, status: "paused", file_name: "kept.mkv" }),
+  ];
+
+  it("pauses the selected rows in one request", async () => {
+    serveDownloads(ROWS);
+    const bodies = serveBulk(2);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("running.mkv"));
+    await user.click(await pick("waiting.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Pausa" }));
+
+    expect(await screen.findByText("Baixades en pausa: 2. S’han descartat els fitxers parcials")).toBeVisible();
+    expect(bodies).toEqual([{ action: "pause", ids: [1, 2] }]);
+    expect(await pick("running.mkv")).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: SELECT_ALL })).toHaveFocus();
+  });
+
+  it("resumes the selected rows in one request, saying they start again", async () => {
+    serveDownloads(ROWS);
+    const bodies = serveBulk(2);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("held.mkv"));
+    await user.click(await pick("kept.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Reprèn" }));
+
+    expect(await screen.findByText("Tornen a ser a la cua: 2. Començaran des del principi")).toBeVisible();
+    expect(bodies).toEqual([{ action: "resume", ids: [3, 4] }]);
+  });
+
+  it("sends each action only the rows it can act on", async () => {
+    serveDownloads(ROWS);
+    const bodies = serveBulk();
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("running.mkv"));
+    await user.click(await pick("held.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Pausa" }));
+
+    await waitFor(() => expect(bodies).toEqual([{ action: "pause", ids: [1] }]));
+  });
+
+  it("offers only what the selection allows", async () => {
+    serveDownloads(ROWS);
+    const { user } = await renderApp({ route: ROUTE });
+
+    await user.click(await pick("held.mkv"));
+
+    const bar = await bulkBar();
+    expect(bar.getByRole("button", { name: "Reprèn" })).toBeEnabled();
+    expect(bar.queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
+    expect(bar.queryByRole("button", { name: "Suprimeix" })).not.toBeInTheDocument();
+    expect(bar.queryByRole("button", { name: "Torna-ho a provar" })).not.toBeInTheDocument();
+  });
+
+  it("leaves out rows the filter hides", async () => {
+    serveDownloads(ROWS);
+    const bodies = serveBulk();
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("running.mkv"));
+    await user.click(await pick("waiting.mkv"));
+
+    await user.type(await filterBox(), "waiting");
+    await screen.findByText("1 seleccionada");
+    await user.click((await bulkBar()).getByRole("button", { name: "Pausa" }));
+
+    await waitFor(() => expect(bodies).toEqual([{ action: "pause", ids: [2] }]));
+  });
+
+  it("says when the server held nothing", async () => {
+    serveDownloads(ROWS);
+    serveBulk(0);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("running.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Pausa" }));
+
+    expect(await screen.findByText(/No s’ha posat res en pausa/)).toBeVisible();
+  });
+
+  it("keeps the selection when the request fails, to try again", async () => {
+    serveDownloads(ROWS);
+    serveBulk(() => HttpResponse.json({ detail: "boom" }, { status: 500 }));
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("running.mkv"));
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Pausa" }));
+
+    await screen.findByText("boom");
+    expect(await pick("running.mkv")).toBeChecked();
+  });
+});
+
+describe("Paused rows and the live stream", () => {
+  const HELD = download({ id: 1, status: "paused", file_name: "held.mkv" });
+  const RUNNING = download({ id: 2, status: "downloading", file_name: "running.mkv", progress: 0.1 });
+
+  it("keeps a paused row, its badge and its selection while others move", async () => {
+    serveDownloads([HELD, RUNNING]);
+    const { user } = await renderApp({ route: ROUTE });
+    await user.click(await pick("held.mkv"));
+
+    emitSnapshot({ active: [{ ...RUNNING, progress: 0.75 }] });
+
+    await screen.findByText(/75%/);
+    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+    expect(await pick("held.mkv")).toBeChecked();
+  });
+
+  it("keeps a paused row when nothing is active any more", async () => {
+    serveDownloads([HELD]);
+    await renderApp({ route: ROUTE });
+    await rowOf("held.mkv");
+
+    emitSnapshot({ active: [] });
+    emitSnapshot({ active: [] });
+
+    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+  });
+
+  it("shows a row paused elsewhere, though the stream no longer lists it", async () => {
+    let rows = [RUNNING];
+    server.use(http.get("/api/downloads", () => HttpResponse.json(rows)));
+    await renderApp({ route: ROUTE });
+    const running = within(await rowOf("running.mkv"));
+    emitSnapshot({ active: [RUNNING] });
+
+    rows = [{ ...RUNNING, status: "paused", progress: 0, speed_mbs: 0 }];
+    emitSnapshot({ active: [], stats: { ...STATUS.stats, paused: 1 } });
+
+    expect(await running.findByText("en pausa")).toBeVisible();
+    expect(running.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("leaves a paused row alone when Resume all runs", async () => {
+    const rowCalls: string[] = [];
+    server.use(
+      http.get("/api/status", () => HttpResponse.json({ ...STATUS, paused: true })),
+      http.get("/api/downloads", () => HttpResponse.json([HELD])),
+      http.post("/api/queue/resume", () => HttpResponse.json({ ok: true, paused: false })),
+      http.post("/api/downloads/:id/resume", ({ request }) => {
+        rowCalls.push(request.url);
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const { user } = await renderApp({ route: ROUTE });
+
+    await user.click(await screen.findByRole("button", { name: "Reprèn-ho tot" }));
+
+    await screen.findByRole("button", { name: "Posa-ho tot en pausa" });
+    expect(within(await rowOf("held.mkv")).getByText("en pausa")).toBeVisible();
+    expect(rowCalls).toEqual([]);
+  });
+});
+
+describe("Bulk Retry, Delete and Clear selection", () => {
+  const FAILED = [
+    download({ id: 1, status: "failed", file_name: "Merli.mkv" }),
+    download({ id: 2, status: "failed", file_name: "Plats.bruts.mkv" }),
+    download({ id: 3, status: "failed", file_name: "Polseres.mkv" }),
+  ];
+
+  async function selectFailed(...names: string[]) {
+    const { user } = await renderApp({ route: ROUTE });
+    await openTab(user, "Fallides");
+    for (const name of names) await user.click(await pick(name));
+    return user;
+  }
+
+  it("retries the selected rows in one request and counts them", async () => {
+    serveDownloads(FAILED);
+    const bodies = serveBulk(2);
+    const user = await selectFailed("Merli.mkv", "Polseres.mkv");
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Torna-ho a provar" }));
+
+    expect(await screen.findByText("Baixades tornades a la cua: 2")).toBeVisible();
+    expect(bodies).toEqual([{ action: "retry", ids: [1, 3] }]);
+    expect(await pick("Merli.mkv")).not.toBeChecked();
+  });
+
+  it("says when a bulk Retry re-queued nothing", async () => {
+    serveDownloads(FAILED);
+    serveBulk(0);
+    const user = await selectFailed("Merli.mkv");
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Torna-ho a provar" }));
+
+    expect(await screen.findByText(/No s’ha tornat a posar res a la cua/)).toBeVisible();
+  });
+
+  it("deletes the selected records once confirmed", async () => {
+    serveDownloads(FAILED);
+    const bodies = serveBulk(2);
+    const user = await selectFailed("Merli.mkv", "Plats.bruts.mkv");
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Suprimeix" }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    expect(dialog.getByText("Vols suprimir 2 registre(s) seleccionat(s)? Els fitxers del disc es conserven.")).toBeVisible();
+    await user.click(dialog.getByRole("button", { name: "Suprimeix" }));
+
+    await waitFor(() => expect(bodies).toEqual([{ action: "delete", ids: [1, 2] }]));
+    expect(await pick("Merli.mkv")).not.toBeChecked();
+  });
+
+  it("deletes nothing if the confirmation is cancelled", async () => {
+    serveDownloads(FAILED);
+    const bodies = serveBulk();
+    const user = await selectFailed("Merli.mkv");
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Suprimeix" }));
+    await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel·la" }));
+
+    expect(bodies).toEqual([]);
+    expect(await pick("Merli.mkv")).toBeChecked();
+  });
+
+  it("offers Delete but not Retry on completed rows, inside their show", async () => {
+    serveDownloads([download({ id: 5, status: "completed", file_name: "Done.mkv", save_path: "/tv/Merli/Season 1/Done.mkv" })]);
+    const { user } = await renderApp({ route: ROUTE });
+    await openTab(user, "Completades");
+    await user.click(await screen.findByRole("button", { name: /^Merli/ }));
+
+    await user.click(await pick("Done.mkv"));
+
+    const bar = await bulkBar();
+    expect(bar.getByRole("button", { name: "Suprimeix" })).toBeEnabled();
+    expect(bar.queryByRole("button", { name: "Torna-ho a provar" })).not.toBeInTheDocument();
+  });
+
+  it("clears the selection without calling the backend", async () => {
+    serveDownloads(FAILED);
+    const bodies = serveBulk();
+    const user = await selectFailed("Merli.mkv", "Polseres.mkv");
+
+    await user.click((await bulkBar()).getByRole("button", { name: "Esborra la selecció" }));
+
+    expect(await pick("Polseres.mkv")).not.toBeChecked();
+    expect(bodies).toEqual([]);
+  });
+
+  it("keeps Clear failed in reach beside the selection", async () => {
+    serveDownloads(FAILED);
+    await selectFailed("Merli.mkv");
+
+    expect(await screen.findByRole("button", { name: "Esborra les 3 fallides" })).toBeEnabled();
   });
 });
 

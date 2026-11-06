@@ -4,6 +4,7 @@ Telegram, TMDB and the *arrs replaced by the same fakes the HTTP tests use.
 frontend/playwright.config.ts starts it, and it serves the built UI from
 frontend/dist. Each test begins with POST /__e2e__/reset, which only exists here.
 """
+import base64
 import itertools
 import os
 import sys
@@ -30,7 +31,7 @@ sys.path[:0] = [str(REPO_ROOT), str(TESTS_DIR)]
 
 import uvicorn  # noqa: E402
 from fastapi import HTTPException, Response  # noqa: E402
-from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack  # noqa: E402
+from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack, radarr_release  # noqa: E402
 from fake_tmdb import API_KEY as TMDB_KEY  # noqa: E402
 from fake_tmdb import FakeTMDB  # noqa: E402
 from http_harness import FakeTelegram  # noqa: E402
@@ -46,6 +47,8 @@ PENDING_FILES = ("Avatar.2009.1080p.mkv", "Els.Pirates.CAT.mkv", "La.Mosca.1986.
 CATALOG_GIB = 1024 ** 3
 CATALOG_FIRST_TMDB = 9001
 CATALOG_FILLER_FILMS = 26     # with Pa negre, two pages of 25
+FIRST_RADARR_MOVIE = 1        # the first film a test downloads becomes this one in the fake Radarr
+CHANNEL_PHOTO = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")  # one pixel
 
 
 def seed_catalog(channel_id: int) -> None:
@@ -66,12 +69,12 @@ _message_ids = itertools.count(1)
 
 def seed() -> None:
     """The world every browser test starts from. Add what a screen needs here."""
-    tg._client.add_channel(CHAT_ID, "Cinema Club", username="cinemaclub")
-    tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
+    tg._client.add_channel(CHAT_ID, "Cinema Club", username="cinemaclub").photo = CHANNEL_PHOTO
+    tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat").photo = CHANNEL_PHOTO
     movies = channels.upsert(CHAT_ID, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
     # Chats the account is in but Telegrarr does not read yet, for Add channel.
-    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat")
+    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat").photo = CHANNEL_PHOTO
     tg._client.add_group(-1001234567893, "Amics del cinema")
     tg._client.add_forum(-1001234567894, "Anime en català", topics=("Sèries HD", "Pel·lícules HD"))
     tg._client.add_channel(-1001234567895, "Canal Secret", username="canalsecret")
@@ -108,6 +111,9 @@ def install_fakes() -> None:
     arrs = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
     arrs.radarr.quality_profiles = [{"id": 4, "name": "HD-1080p"}]
     arrs.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]
+    arrs.radarr.releases = {FIRST_RADARR_MOVIE: [radarr_release(
+        "Pa.negre.2010.CATALAN.1080p.WEB-DL.x264-TELEGRARR.a.very.long.release.name.that.has.no.spaces.at.all",
+        rejections=("Quality profile does not allow 1080p",))]}
     connect.transport = arrs.transport()
 
 
@@ -159,6 +165,14 @@ def set_progress(download_id: int, progress: float) -> None:
     """What a running transfer writes as it goes, for the live stream to pick up."""
     with db.conn() as c:
         c.execute("UPDATE downloads SET progress = ? WHERE id = ?", (progress, download_id))
+
+
+@app.post("/__e2e__/downloads/{download_id}/message", status_code=204, include_in_schema=False)
+def post_message(download_id: int) -> None:
+    """The Telegram message behind a row, which Resume and Retry ask for."""
+    with db.conn() as c:
+        row = c.execute("SELECT message_id, file_name FROM downloads WHERE id = ?", (download_id,)).fetchone()
+    tg._client.post(CHAT_ID, text=row["file_name"], file_name=row["file_name"], message_id=row["message_id"])
 
 
 @app.post("/__e2e__/env", status_code=204, include_in_schema=False)

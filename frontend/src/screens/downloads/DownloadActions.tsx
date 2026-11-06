@@ -3,7 +3,7 @@ import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
-import { isInTransfer, isRetryable } from "@/screens/downloads/download-list";
+import { isInTransfer, isPausable, isPaused, isRetryable } from "@/screens/downloads/download-list";
 import { useDownloadActions } from "@/screens/downloads/use-download-actions";
 
 type Props = {
@@ -12,10 +12,32 @@ type Props = {
 
 export function DownloadActions({ download }: Props) {
   const { t } = useI18n();
-  const { isPending, stop, retry, remove } = useDownloadActions();
+  const { isPending, stop, retry, pause, resume, remove } = useDownloadActions();
 
   return (
     <div className="flex items-center gap-1">
+      {isPausable(download) && (
+        <Button
+          variant="outline"
+          size="sm"
+          title={t("dl.pause_hint")}
+          disabled={isPending}
+          onClick={() => pause(download.id)}
+        >
+          {t("dl.pause")}
+        </Button>
+      )}
+      {isPaused(download) && (
+        <Button
+          variant="outline"
+          size="sm"
+          title={t("dl.resume_hint")}
+          disabled={isPending}
+          onClick={() => resume(download.id)}
+        >
+          {t("dl.resume")}
+        </Button>
+      )}
       {isInTransfer(download) && (
         <Button variant="outline" size="sm" disabled={isPending} onClick={() => stop(download.id)}>
           {t("dl.stop")}

@@ -110,8 +110,8 @@ test.describe("signed in", () => {
 });
 
 test.describe("old addresses", () => {
-  test("/ui/... opens the same screen at the root", async ({ signedInPage: page }) => {
-    await page.goto("/ui/channels");
+  test("/... opens the same screen at the root", async ({ signedInPage: page }) => {
+    await page.goto("/channels");
 
     await expect(page).toHaveURL("/channels");
     await expect(screenHeading(page, "Canals")).toBeVisible();

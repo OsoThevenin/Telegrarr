@@ -2,7 +2,17 @@ import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AppToaster } from "@/app/AppToaster";
-import { bulkRetryToast, cancelToast, retryToast, useDownloadToast, type ToastDecision } from "@/lib/download-toasts";
+import {
+  bulkPauseToast,
+  bulkResumeToast,
+  bulkRetryToast,
+  cancelToast,
+  pauseToast,
+  resumeToast,
+  retryToast,
+  useDownloadToast,
+  type ToastDecision,
+} from "@/lib/download-toasts";
 
 describe("download toasts", () => {
   it.each([
@@ -25,6 +35,35 @@ describe("download toasts", () => {
     [{ count: 0 }, { messageKey: "dl.not_requeued", kind: "err" }],
   ])("reports how many rows a bulk Retry re-queued: %j", (answer, expected) => {
     expect(bulkRetryToast(answer)).toEqual(expected);
+  });
+
+  it.each([
+    [{ ok: true }, { messageKey: "dl.paused", kind: "ok" }],
+    [{ ok: false }, { messageKey: "dl.nothing_to_pause", kind: "err" }],
+  ])("says paused only when the server paused: %j", (answer, expected) => {
+    expect(pauseToast(answer)).toEqual(expected);
+  });
+
+  it.each([
+    [{ ok: true }, { messageKey: "dl.resumed", kind: "ok" }],
+    [{ ok: false }, { messageKey: "dl.not_paused", kind: "err" }],
+    [{ ok: false, reason: "dl.err.message_gone" }, { messageKey: "dl.err.message_gone", kind: "err" }],
+  ])("says resumed only when the server re-queued: %j", (answer, expected) => {
+    expect(resumeToast(answer)).toEqual(expected);
+  });
+
+  it.each([
+    [{ count: 2 }, { messageKey: "dl.paused_n", params: { count: 2 }, kind: "ok" }],
+    [{ count: 0 }, { messageKey: "dl.nothing_to_pause", kind: "err" }],
+  ])("reports how many rows a bulk Pause held: %j", (answer, expected) => {
+    expect(bulkPauseToast(answer)).toEqual(expected);
+  });
+
+  it.each([
+    [{ count: 2 }, { messageKey: "dl.resumed_n", params: { count: 2 }, kind: "ok" }],
+    [{ count: 0 }, { messageKey: "dl.not_resumed", kind: "err" }],
+  ])("reports how many rows a bulk Resume re-queued: %j", (answer, expected) => {
+    expect(bulkResumeToast(answer)).toEqual(expected);
   });
 });
 

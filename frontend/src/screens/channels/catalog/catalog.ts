@@ -1,5 +1,7 @@
 /** What the Catalog decides, apart from how it looks. */
 
+import type { ServerMessage } from "@/lib/api";
+
 export const PAGE_SIZE = 25;
 
 export type FilterId = "all" | "missing" | "downloaded" | "upgrade";
@@ -7,11 +9,24 @@ export type FilterId = "all" | "missing" | "downloaded" | "upgrade";
 /** Rows per filter over the whole channel; the status filters are null until Radarr is read. */
 export type CatalogCounts = { all: number } & Record<Exclude<FilterId, "all">, number | null>;
 
+/** The file Radarr holds, with what Radarr reports of it. Any detail can be missing. */
+export type RadarrFile = {
+  quality: string | null;
+  resolution: string | null;
+  video_codec: string | null;
+  container: string | null;
+  audio_languages: string[];
+  subtitle_languages: string[];
+  /** In bytes. */
+  size: number | null;
+};
+
 /** Radarr's view of a film, from GET …/catalog/status or a row of a status-filtered page. */
 export type FilmStatus = {
   status: "missing" | "requested" | "downloaded" | "upgrade";
-  /** The file Radarr holds. */
+  /** The quality of the file Radarr holds. */
   radarr_quality?: string;
+  file?: RadarrFile;
   /** The channel's best release, when it beats that file. */
   best_quality?: string;
 };
@@ -25,6 +40,8 @@ export type FilmRow = Partial<FilmStatus> & {
   quality: string;
   size: number;
   language: string;
+  /** The film's page in Radarr, or null with no Radarr URL set. */
+  radarr_link: string | null;
 };
 
 /** A message waiting in Review. It has no film yet, so no tmdb_id and no Radarr status. */
@@ -54,6 +71,13 @@ export type CatalogStatus = {
   radarr: { available: boolean; error: unknown };
   counts: CatalogCounts;
   rows: StatusRow[];
+};
+
+/** POST …/catalog/{tmdb_id}/why-not-grabbed. */
+export type WhyNotGrabbedAnswer = {
+  verdict: "would_accept" | "rejected" | "no_releases";
+  message: ServerMessage;
+  releases: { title: string; approved: boolean; rejections: string[] }[];
 };
 
 export type CatalogView = {
@@ -106,6 +130,10 @@ export function filmAction(status: FilmStatus | undefined, isAvailable: boolean)
   return null;
 }
 
+/** Only a film Radarr should be grabbing has anything to explain. */
+export const canAskWhyNotGrabbed = (status: FilmStatus | undefined) =>
+  status?.status === "requested" || status?.status === "upgrade";
+
 /** The status once Radarr accepted the request: an upgrade keeps both its qualities. */
 export const requestedStatus = <Status extends FilmStatus>(status: Status): Status => ({
   ...status,
@@ -154,6 +182,13 @@ export function shownRange(page: number, rowsOnPage: number): string {
 
 const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 const BYTES_PER_UNIT = 1024;
+const BYTES_PER_GB = BYTES_PER_UNIT ** 3;
+
+export const formatGb = (bytes: number) => `${(bytes / BYTES_PER_GB).toFixed(1)} GB`;
+
+/** A file's quality and size, for a collapsed row. */
+export const fileSummary = ({ quality, size }: RadarrFile) =>
+  [quality, size ? formatGb(size) : null].filter(Boolean).join(" · ");
 
 export function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";

@@ -91,6 +91,32 @@ test.describe("Catalog", () => {
     await expect(sheet.getByRole("button", { name: "Baixar Pa negre" })).toBeDisabled();
   });
 
+  test("says why Radarr hasn't grabbed a film, on a phone", async ({ signedInPage: page }) => {
+    await page.setViewportSize(PHONE);
+    await connectRadarr(page);
+
+    const sheet = await openCatalog(page);
+    await sheet.getByRole("searchbox", { name: "Cerca per títol" }).fill("pa negre");
+    await sheet.getByRole("button", { name: "Baixar Pa negre" }).click();
+    await expect(sheet.getByRole("button", { name: "Sol·licitada" })).toBeVisible();
+    await sheet.getByRole("button", { name: /^Pa negre 2010/ }).click();
+
+    await sheet.getByRole("button", { name: "Per què no s’ha agafat?" }).click();
+
+    await expect(sheet.getByText("Radarr ha rebutjat les versions del canal d’aquesta pel·lícula.")).toBeVisible();
+    await expect(sheet.getByText("Quality profile does not allow 1080p")).toBeVisible();
+
+    const link = sheet.getByRole("link", { name: "Obre Pa negre a Radarr" });
+    await expect(link).toHaveAttribute("href", "http://radarr.test/movie/9027");
+    await expect(link).toHaveAttribute("target", "_blank");
+
+    const { scrollWidth, clientWidth } = await sheet.evaluate(({ scrollWidth, clientWidth }) => ({
+      scrollWidth,
+      clientWidth,
+    }));
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
+  });
+
   test("fits a phone", async ({ signedInPage: page }) => {
     await page.setViewportSize(PHONE);
     await connectRadarr(page);

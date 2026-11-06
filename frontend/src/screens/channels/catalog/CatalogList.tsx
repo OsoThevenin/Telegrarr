@@ -16,6 +16,7 @@ const statusOfRow = (film: Film, statuses: ReadonlyMap<number, FilmStatus>): Fil
   statuses.get(film.tmdb_id) ?? (film.status ? { ...film, status: film.status } : undefined);
 
 type Props = {
+  channelId: number;
   page: CatalogPage;
   view: CatalogView;
   lastPage: number;
@@ -30,6 +31,7 @@ type Props = {
 };
 
 export function CatalogList({
+  channelId,
   page: { rows, count },
   view,
   lastPage,
@@ -55,6 +57,7 @@ export function CatalogList({
             isFilm(row) ? (
               <FilmRow
                 key={row.tmdb_id}
+                channelId={channelId}
                 film={row}
                 status={statusOfRow(row, statuses)}
                 poster={posterOf(row.tmdb_id)}

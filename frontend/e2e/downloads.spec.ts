@@ -74,3 +74,55 @@ test("the Downloads screen: filter, live progress, Stop, Retry and Pause all", a
   await button(page, "Reprèn-ho tot").click();
   await expect(button(page, "Posa-ho tot en pausa")).toBeEnabled();
 });
+
+test("the bulk bar pauses and resumes rows in one request, and Resume all leaves them paused", async ({
+  signedInPage: page,
+}) => {
+  const names = [RUNNING, WAITING];
+  for (const file_name of names) {
+    const id = await addDownload(page, {
+      file_name,
+      file_size: 1_000_000_000,
+      status: "queued",
+      save_path: `/media/tv/${file_name}`,
+    });
+    const response = await page.request.post(`/__e2e__/downloads/${id}/message`);
+    expect(response.ok()).toBe(true);
+  }
+  const bulkRequests: unknown[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/downloads/bulk")) bulkRequests.push(request.postDataJSON());
+  });
+  const pausedBadge = (name: string) => row(page, name).getByText("en pausa", { exact: true });
+  const selectBoth = async () => {
+    for (const name of names) await page.getByRole("checkbox", { name: `Selecciona ${name}` }).check();
+    await expect(page.getByText("2 seleccionades")).toBeVisible();
+  };
+  const bar = page.getByRole("group", { name: "Accions sobre les baixades seleccionades" });
+
+  await page.goto("/downloads");
+  await selectBoth();
+  await bar.getByRole("button", { name: "Pausa" }).click();
+
+  await expect(pausedBadge(RUNNING)).toBeVisible();
+  await expect(pausedBadge(WAITING)).toBeVisible();
+  expect(bulkRequests).toHaveLength(1);
+
+  await button(page, "Posa-ho tot en pausa").click();
+  await button(page, "Reprèn-ho tot").click();
+  await expect(button(page, "Posa-ho tot en pausa")).toBeEnabled();
+  await page.reload();
+  await expect(pausedBadge(RUNNING)).toBeVisible();
+  await expect(pausedBadge(WAITING)).toBeVisible();
+
+  // Under the global pause the resumed rows wait in the queue, with no transfer behind them.
+  await button(page, "Posa-ho tot en pausa").click();
+  await expect(button(page, "Reprèn-ho tot")).toBeEnabled();
+  await selectBoth();
+  await bar.getByRole("button", { name: "Reprèn" }).click();
+
+  await expect(pausedBadge(RUNNING)).toBeHidden();
+  await expect(pausedBadge(WAITING)).toBeHidden();
+  await expect(row(page, RUNNING)).toBeVisible();
+  expect(bulkRequests).toHaveLength(2);
+});

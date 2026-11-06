@@ -52,6 +52,8 @@ export function useChannelActions() {
       run(sources, ({ id }) => api.post(`/api/channels/${id}/backfill`), t("ch.backfill_started")),
     setEnabled: (sources: Channel[], isEnabled: boolean) =>
       runAndRefresh(sources, ({ id }) => api.patch(`/api/channels/${id}`, { enabled: isEnabled ? 1 : 0 })),
+    setScanning: (source: Channel, isScanning: boolean) =>
+      runAndRefresh([source], ({ id }) => api.patch(`/api/channels/${id}`, { scanning: isScanning })),
     remove: (source: Channel, doneText: string) =>
       runAndRefresh([source], ({ id }) => api.delete(`/api/channels/${id}`), doneText),
   };
