@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { emptyCatalog } from "@/screens/channels/catalog/test-data";
 import { channel } from "@/screens/channels/test-data";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
@@ -319,9 +320,7 @@ describe("Sheet", () => {
 
   it("opens a movie channel with room for its Catalog, and asks for no downloads", async () => {
     serveChannels([channel({ id: 7, title: "Cinema Club", kind: "movie" })]);
-    server.use(
-      http.get("/api/channels/7/catalog", () => HttpResponse.json({ rows: [] })),
-    );
+    server.use(...emptyCatalog(7));
     const downloads = vi.fn(() => HttpResponse.json([]));
     server.use(http.get("/api/downloads", downloads));
 
@@ -629,7 +628,7 @@ describe("edit dialog", () => {
     server.use(
       http.get("/api/channels", () => HttpResponse.json(rows(kind))),
       http.get("/api/downloads", () => HttpResponse.json([])),
-      http.get("/api/channels/1/catalog", () => HttpResponse.json({ rows: [] })),
+      ...emptyCatalog(1),
       http.patch("/api/channels/1", () => {
         kind = "movie";
         return HttpResponse.json({ ok: true });
