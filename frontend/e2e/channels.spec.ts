@@ -97,6 +97,53 @@ test.describe("channels", () => {
     expect(errors).toEqual([]);
   });
 
+  test("stops and resumes scanning, and a stopped channel refuses a scan and says why", async ({
+    signedInPage: page,
+  }) => {
+    const STOPPED = "Escaneig aturat";
+    const card = page.getByRole("article").filter({ hasText: "Sèries CAT" });
+    const sheet = page.getByRole("dialog");
+    const scanning = sheet.getByRole("switch", { name: "Escaneig" });
+
+    await openChannels(page);
+    await expect(card.getByText(STOPPED)).toBeHidden();
+    await cardButton(page, "Sèries CAT").click();
+    await expect(scanning).toBeChecked();
+
+    await scanning.click();
+
+    await expect(sheet.getByText(STOPPED)).toBeVisible();
+    await expect(scanning).not.toBeChecked();
+
+    await sheet.getByRole("button", { name: "Escaneja" }).click();
+    await expect(page.getByText(/^Sèries CAT: L’escaneig d’aquest canal està desactivat/)).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(card.getByText(STOPPED)).toBeVisible();
+
+    await page.reload();
+    await expect(card.getByText(STOPPED)).toBeVisible();
+
+    await cardButton(page, "Sèries CAT").click();
+    await expect(scanning).not.toBeChecked();
+
+    await scanning.click();
+
+    await expect(scanning).toBeChecked();
+    await expect(sheet.getByText(STOPPED)).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(card.getByText(STOPPED)).toBeHidden();
+  });
+
+  test("a card shows the channel's Telegram photo", async ({ signedInPage: page }) => {
+    await openChannels(page);
+
+    const photo = page.getByRole("article").filter({ hasText: "Sèries CAT" }).locator("img");
+
+    await expect(photo).toHaveAttribute("src", /^\/api\/channels\/\d+\/photo$/);
+    await expect.poll(() => photo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  });
+
   test("a phone reaches every action, with no sideways scroll", async ({ signedInPage: page }) => {
     await page.setViewportSize(PHONE);
     await openChannels(page);
