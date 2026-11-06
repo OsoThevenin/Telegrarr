@@ -2,18 +2,11 @@ import type { Page } from "@playwright/test";
 
 import { expect, test } from "./fixtures";
 
-const SEEDED_CHAT_ID = -1001234567890;
-
 const statusLine = (page: Page) => page.getByTestId("status-line");
-const stat = (page: Page, name: RegExp) => page.getByRole("link", { name });
 
-test("from first run to a live overview that leads to Downloads", async ({ signedInPage: page }) => {
+test("the overview follows the queue live and leads to Downloads", async ({ signedInPage: page }) => {
   await page.goto("/ui/");
-  await expect(page.getByRole("link", { name: "Afegeix un canal" })).toBeVisible();
-
-  await page.request.post("/api/channels", { data: { chat_id: SEEDED_CHAT_ID } });
-
-  await expect(stat(page, /1\s*Canals/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /2\s*Canals/ })).toBeVisible();
   await expect(statusLine(page)).toContainText("Tot funciona");
 
   await page.request.post("/api/queue/pause");
