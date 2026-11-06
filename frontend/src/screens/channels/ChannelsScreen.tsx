@@ -146,7 +146,7 @@ function ShowGrid({ shows, emptyText, controls }: ShowGridProps) {
   if (shows.length === 0) return <p className="py-8 text-center text-muted-foreground">{emptyText}</p>;
 
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-4">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-4 pt-2">
       {shows.map((show) => (
         <ChannelCard key={show.key} show={show} controls={controls} />
       ))}

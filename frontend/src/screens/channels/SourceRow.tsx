@@ -33,29 +33,31 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
         </span>
         <span className="block truncate text-xs text-muted-foreground">{detail.join(" · ")}</span>
       </span>
-      <Button
-        variant="ghost"
-        aria-describedby={labelId}
-        onClick={() => controls.actions.setEnabled([source], !isEnabled)}
-      >
-        {t(isEnabled ? "common.disable" : "common.enable")}
-      </Button>
-      <Button
-        variant="ghost"
-        aria-describedby={labelId}
-        onClick={(event) => controls.editSource(source, event.currentTarget)}
-      >
-        {t("common.edit")}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={t(isOnlySource ? "ch.remove_aria" : "ch.remove_source")}
-        aria-describedby={labelId}
-        onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
-      >
-        <Trash2Icon />
-      </Button>
+      <div className="flex items-center">
+        <Button
+          variant="ghost"
+          aria-describedby={labelId}
+          onClick={() => controls.actions.setEnabled([source], !isEnabled)}
+        >
+          {t(isEnabled ? "common.disable" : "common.enable")}
+        </Button>
+        <Button
+          variant="ghost"
+          aria-describedby={labelId}
+          onClick={(event) => controls.editSource(source, event.currentTarget)}
+        >
+          {t("common.edit")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t(isOnlySource ? "ch.remove_aria" : "ch.remove_source")}
+          aria-describedby={labelId}
+          onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
+        >
+          <Trash2Icon />
+        </Button>
+      </div>
     </li>
   );
 }

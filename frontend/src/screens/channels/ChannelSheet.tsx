@@ -113,7 +113,7 @@ function Summary({ show, art, poster }: SummaryProps) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-end gap-3">
-        <div className="-mt-10 w-24 shrink-0 overflow-hidden rounded-lg border">
+        <div className="relative -mt-10 w-24 shrink-0 overflow-hidden rounded-lg border bg-background">
           <ChannelPoster title={title} url={poster} />
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 pt-3">
