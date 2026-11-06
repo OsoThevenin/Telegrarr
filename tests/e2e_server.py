@@ -4,6 +4,7 @@ Telegram, TMDB and the *arrs replaced by the same fakes the HTTP tests use.
 frontend/playwright.config.ts starts it, and it serves the built UI from
 frontend/dist. Each test begins with POST /__e2e__/reset, which only exists here.
 """
+import base64
 import itertools
 import os
 import sys
@@ -29,7 +30,7 @@ for library_dir in ("TV_DIR", "TV_DIR_4K", "MOVIES_DIR", "MOVIES_DIR_4K", "OTHER
 sys.path[:0] = [str(REPO_ROOT), str(TESTS_DIR)]
 
 import uvicorn  # noqa: E402
-from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack  # noqa: E402
+from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack, radarr_release  # noqa: E402
 from fake_tmdb import API_KEY as TMDB_KEY  # noqa: E402
 from fake_tmdb import FakeTMDB  # noqa: E402
 from http_harness import FakeTelegram  # noqa: E402
@@ -43,6 +44,8 @@ PENDING_FILES = ("Avatar.2009.1080p.mkv", "Els.Pirates.CAT.mkv", "La.Mosca.1986.
 CATALOG_GIB = 1024 ** 3
 CATALOG_FIRST_TMDB = 9001
 CATALOG_FILLER_FILMS = 26     # with Pa negre, two pages of 25
+FIRST_RADARR_MOVIE = 1        # the first film a test downloads becomes this one in the fake Radarr
+CHANNEL_PHOTO = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")  # one pixel
 
 
 def seed_catalog(channel_id: int) -> None:
@@ -63,12 +66,12 @@ _message_ids = itertools.count(1)
 
 def seed() -> None:
     """The world every browser test starts from. Add what a screen needs here."""
-    tg._client.add_channel(CHAT_ID, "Cinema Club", username="cinemaclub")
-    tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
+    tg._client.add_channel(CHAT_ID, "Cinema Club", username="cinemaclub").photo = CHANNEL_PHOTO
+    tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat").photo = CHANNEL_PHOTO
     movies = channels.upsert(CHAT_ID, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
     # Chats the account is in but Telegrarr does not read yet, for Add channel.
-    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat")
+    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat").photo = CHANNEL_PHOTO
     tg._client.add_group(-1001234567893, "Amics del cinema")
     tg._client.add_forum(-1001234567894, "Anime en català", topics=("Sèries HD", "Pel·lícules HD"))
     tg._client.add_channel(-1001234567895, "Canal Secret", username="canalsecret")
@@ -105,6 +108,9 @@ def install_fakes() -> None:
     arrs = make_stack(PROWLARR_KEY, SONARR_KEY, RADARR_KEY)
     arrs.radarr.quality_profiles = [{"id": 4, "name": "HD-1080p"}]
     arrs.radarr.root_folders = [{"id": 1, "path": "/movies", "freeSpace": 1}]
+    arrs.radarr.releases = {FIRST_RADARR_MOVIE: [radarr_release(
+        "Pa.negre.2010.CATALAN.1080p.WEB-DL.x264-TELEGRARR.a.very.long.release.name.that.has.no.spaces.at.all",
+        rejections=("Quality profile does not allow 1080p",))]}
     connect.transport = arrs.transport()
 
 

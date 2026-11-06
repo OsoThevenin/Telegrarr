@@ -67,6 +67,7 @@ export function CatalogSection({ channel }: Props) {
 
     return (
       <CatalogList
+        channelId={channel.id}
         page={page.data}
         view={view}
         lastPage={lastPage}

@@ -1,9 +1,12 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { emptyCatalog } from "@/screens/channels/catalog/test-data";
+import type { Channel } from "@/screens/channels/channel";
+import { HISTORY_REFRESH_MS } from "@/screens/channels/queries";
 import { channel } from "@/screens/channels/test-data";
+import { emitSnapshot } from "@/test/event-stream";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -77,9 +80,49 @@ describe("tabs", () => {
 
 describe("card image", () => {
   const POSTER = "https://image.tmdb.org/poster.jpg";
+  const PHOTO = "/api/channels/1/photo";
   const posterOf = (title: string) => cardButton(title).querySelector("img");
+  /** What the backend answers for a channel with no photo: the browser reports a failed image. */
+  const photoIsMissing = (title: string) => fireEvent.error(posterOf(title) as HTMLImageElement);
 
-  it("shows the TMDB poster of the mapping", async () => {
+  it("prefers the channel's Telegram photo over the TMDB poster", async () => {
+    serveChannels([channel({ id: 1, imdb_id: "tt1", imdb_title: "Dark" })]);
+    const art = vi.fn(() => HttpResponse.json({ poster: POSTER }));
+    server.use(http.get("/api/art", art));
+
+    await openChannels();
+    await waitFor(() => expect(art).toHaveBeenCalled());
+
+    await waitFor(() => expect(posterOf("Dark")).toHaveAttribute("src", PHOTO));
+  });
+
+  it("falls back to the TMDB poster, then to initials, when the images fail", async () => {
+    serveChannels([channel({ id: 1, imdb_id: "tt1", imdb_title: "Dark" })]);
+    server.use(http.get("/api/art", () => HttpResponse.json({ poster: POSTER })));
+
+    await openChannels();
+    photoIsMissing("Dark");
+
+    await waitFor(() => expect(posterOf("Dark")).toHaveAttribute("src", POSTER));
+
+    fireEvent.error(posterOf("Dark") as HTMLImageElement);
+
+    expect(posterOf("Dark")).toBeNull();
+    expect(within(screen.getByRole("article")).getByText("D")).toBeInTheDocument();
+  });
+
+  it("shows the Telegram photo in the Sheet too", async () => {
+    serveChannels([channel({ id: 1, title: "Sèries CAT" })]);
+    server.use(http.get("/api/downloads", () => HttpResponse.json([])));
+
+    const { user } = await openChannels();
+    await user.click(cardButton("Sèries CAT"));
+
+    const sheet = await screen.findByRole("dialog");
+    expect(sheet.querySelector("img")).toHaveAttribute("src", PHOTO);
+  });
+
+  it("shows the TMDB poster of the mapping when there is no photo", async () => {
     serveChannels([channel({ id: 1, imdb_id: "tt1", imdb_title: "Dark" })]);
     server.use(
       http.get("/api/art", ({ request }) =>
@@ -88,6 +131,7 @@ describe("card image", () => {
     );
 
     await openChannels();
+    photoIsMissing("Dark");
 
     await waitFor(() => expect(posterOf("Dark")).toHaveAttribute("src", POSTER));
   });
@@ -107,6 +151,7 @@ describe("card image", () => {
 
     const { user } = await openChannels();
     await user.click(tab(/^Pel·lícules/));
+    photoIsMissing("Cinema Club");
 
     await waitFor(() => expect(posterOf("Cinema Club")).toHaveAttribute("src", POSTER));
   });
@@ -115,6 +160,7 @@ describe("card image", () => {
     serveChannels([channel({ id: 1, title: "Sèries Clàssiques" })]);
 
     await openChannels();
+    photoIsMissing("Sèries Clàssiques");
 
     expect(within(screen.getByRole("article")).getByText("SC")).toBeInTheDocument();
     expect(posterOf("Sèries Clàssiques")).toBeNull();
@@ -128,20 +174,12 @@ describe("card image", () => {
     await openChannels();
 
     await waitFor(() => expect(lookedUp).toHaveBeenCalled());
+    photoIsMissing("Dark");
+
     expect(within(screen.getByRole("article")).getByText("D")).toBeInTheDocument();
     expect(posterOf("Dark")).toBeNull();
   });
 
-  it("falls back to initials when the poster does not load", async () => {
-    serveChannels([channel({ id: 1, imdb_id: "tt1", imdb_title: "Dark" })]);
-    server.use(http.get("/api/art", () => HttpResponse.json({ poster: POSTER })));
-
-    await openChannels();
-    await waitFor(() => expect(posterOf("Dark")).not.toBeNull());
-    fireEvent.error(posterOf("Dark") as HTMLImageElement);
-
-    expect(posterOf("Dark")).toBeNull();
-  });
 });
 
 describe("card actions", () => {
@@ -459,6 +497,218 @@ describe("Sheet", () => {
     expect(await within(row).findByRole("button", { name: "Activa" })).toBeVisible();
     const other = within(sheet).getByText("Font A").closest("li") as HTMLElement;
     expect(within(other).getByRole("button", { name: "Desactiva" })).toBeVisible();
+  });
+
+  describe("scanning", () => {
+    const STOPPED = "Escaneig aturat";
+    const REFUSED = /^Canal 1: L’escaneig d’aquest canal està desactivat/;
+
+    /** A channel list that keeps what a PATCH sends, and a record of those. */
+    const serveScanning = (scanning: number) => {
+      let row = channel({ id: 1, scanning });
+      const sent: unknown[] = [];
+      server.use(
+        http.get("/api/channels", () => HttpResponse.json([row])),
+        http.patch("/api/channels/1", async ({ request }) => {
+          const body = (await request.json()) as { scanning: boolean };
+          sent.push(body);
+          row = { ...row, scanning: Number(body.scanning) };
+          return HttpResponse.json(row);
+        }),
+      );
+      serveDownloads([]);
+      return sent;
+    };
+
+    const scanningRefused = (path: string) =>
+      server.use(
+        http.post(path, () => HttpResponse.json({ detail: { key: "err.channel.scanning_off" } }, { status: 409 })),
+      );
+
+    it("turns off with a real boolean, and the card and the Sheet follow", async () => {
+      const sent = serveScanning(1);
+
+      const { user, sheet } = await openSheet("Canal 1");
+      const toggle = within(sheet).getByRole("switch", { name: "Escaneig" });
+      expect(toggle).toBeChecked();
+      expect(within(sheet).queryByText(STOPPED)).not.toBeInTheDocument();
+
+      await user.click(toggle);
+
+      expect(await within(sheet).findByText(STOPPED)).toBeVisible();
+      expect(toggle).not.toBeChecked();
+      expect(sent).toEqual([{ scanning: false }]);
+      expect(within(screen.getByRole("article", { hidden: true })).getByText(STOPPED)).toBeInTheDocument();
+    });
+
+    it("turns back on from the keyboard", async () => {
+      const sent = serveScanning(0);
+
+      const { user, sheet } = await openSheet("Canal 1");
+      const toggle = within(sheet).getByRole("switch", { name: "Escaneig" });
+      act(() => toggle.focus());
+      await user.keyboard(" ");
+
+      await waitFor(() => expect(within(sheet).queryByText(STOPPED)).not.toBeInTheDocument());
+      expect(toggle).toBeChecked();
+      expect(sent).toEqual([{ scanning: true }]);
+    });
+
+    it("goes back and says why when the change is refused", async () => {
+      serveChannels([channel({ id: 1 })]);
+      serveDownloads([]);
+      server.use(http.patch("/api/channels/1", () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
+
+      const { user, sheet } = await openSheet("Canal 1");
+      const toggle = within(sheet).getByRole("switch", { name: "Escaneig" });
+      await user.click(toggle);
+
+      expect(await screen.findByText("Canal 1: boom")).toBeVisible();
+      await waitFor(() => expect(toggle).toBeChecked());
+    });
+
+    it("explains a refused Scan, from the Sheet", async () => {
+      serveScanning(0);
+      scanningRefused("/api/channels/1/scan");
+
+      const { user, sheet } = await openSheet("Canal 1");
+      await user.click(within(sheet).getByRole("button", { name: "Escaneja" }));
+
+      expect(await screen.findByText(REFUSED)).toBeVisible();
+    });
+
+    it("explains a refused history fetch, from the Sheet", async () => {
+      serveScanning(0);
+      scanningRefused("/api/channels/1/backfill");
+
+      const { user, sheet } = await openSheet("Canal 1");
+      await user.click(within(sheet).getByRole("button", { name: "Recupera l’historial" }));
+
+      expect(await screen.findByText(REFUSED)).toBeVisible();
+    });
+
+    it("marks a show only when none of its sources is scanned", async () => {
+      serveChannels([
+        channel({ id: 1, title: "Font A", scanning: 0, ...DARK }),
+        channel({ id: 2, title: "Font B", ...DARK }),
+        channel({ id: 3, title: "Aturat", scanning: 0 }),
+      ]);
+      serveArt();
+
+      await openChannels();
+
+      expect(within(cardButton("Dark")).queryByText(STOPPED)).not.toBeInTheDocument();
+      expect(within(cardButton("Aturat")).getByText(STOPPED)).toBeVisible();
+    });
+  });
+
+  describe("history progress", () => {
+    const history = (fields: Partial<Channel["history"]>) => ({
+      read: 0,
+      total_estimate: null,
+      complete: false,
+      next_batch_at: null,
+      ...fields,
+    });
+    const inSeconds = (seconds: number) => Math.round(Date.now() / 1000) + seconds;
+    const READ = 12345;
+    const TOTAL = 50000;
+    const QUARTER = 25;
+    /** Under the live updates' silence limit, past which their watchdog refetches the list by itself. */
+    const STREAM_BEAT_MS = 3000;
+
+    /** Lets time pass with a healthy stream, which says nothing about history batches. */
+    const passTimeOnALiveStream = async (ms: number) => {
+      for (let passed = 0; passed < ms; passed += STREAM_BEAT_MS) {
+        emitSnapshot();
+        await act(() => vi.advanceTimersByTimeAsync(STREAM_BEAT_MS));
+      }
+    };
+
+    const openWith = (fields: Partial<Channel["history"]>) => {
+      serveChannels([channel({ id: 1, history: history(fields) })]);
+      serveDownloads([]);
+      return openSheet("Canal 1");
+    };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows what was read, the estimate and when the next batch runs", async () => {
+      const { sheet } = await openWith({ read: READ - 3000, total_estimate: TOTAL, next_batch_at: inSeconds(180) });
+
+      expect(within(sheet).getByText("9.345 de ~50.000 missatges llegits")).toBeVisible();
+      expect(within(sheet).getByText("Proper lot: d’aquí a 3 min")).toBeVisible();
+      expect(within(sheet).getByRole("progressbar", { name: "Historial" })).toHaveAttribute(
+        "aria-valuenow",
+        String(19),
+      );
+    });
+
+    it("says the next batch is due once its time has passed", async () => {
+      const { sheet } = await openWith({ read: 200, next_batch_at: inSeconds(-5) });
+
+      expect(within(sheet).getByText("Proper lot: imminent")).toBeVisible();
+    });
+
+    it("counts what was read while Telegram gave no estimate, with no bar", async () => {
+      const { sheet } = await openWith({ read: 1, next_batch_at: inSeconds(180) });
+
+      expect(within(sheet).getByText("1 missatge llegit")).toBeVisible();
+      expect(within(sheet).queryByRole("progressbar")).not.toBeInTheDocument();
+    });
+
+    it("says a history is complete, with no next batch", async () => {
+      const { sheet } = await openWith({ read: READ, total_estimate: READ, complete: true });
+
+      expect(within(sheet).getByText("Complet")).toBeVisible();
+      expect(within(sheet).getByText("12.345 missatges llegits")).toBeVisible();
+      expect(within(sheet).queryByRole("progressbar")).not.toBeInTheDocument();
+      expect(within(sheet).queryByText(/^Proper lot/)).not.toBeInTheDocument();
+    });
+
+    it("keeps what was read, with no next batch, while scanning is off", async () => {
+      serveChannels([channel({ id: 1, scanning: 0, history: history({ read: READ, total_estimate: TOTAL }) })]);
+      serveDownloads([]);
+
+      const { sheet } = await openSheet("Canal 1");
+
+      expect(within(sheet).getByText("12.345 de ~50.000 missatges llegits")).toBeVisible();
+      expect(within(sheet).queryByText(/^Proper lot/)).not.toBeInTheDocument();
+    });
+
+    it("shows nothing before a history has started", async () => {
+      const { sheet } = await openWith({});
+
+      expect(within(sheet).queryByText("Historial")).not.toBeInTheDocument();
+    });
+
+    it("follows the batches while one is coming, and stops when the history ends", async () => {
+      let progress = history({ read: QUARTER, total_estimate: 100, next_batch_at: inSeconds(60) });
+      const read = vi.fn(() => HttpResponse.json([channel({ id: 1, history: progress })]));
+      server.use(http.get("/api/channels", read));
+      serveDownloads([]);
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      const { sheet } = await openSheet("Canal 1");
+      expect(within(sheet).getByText("25 de ~100 missatges llegits")).toBeVisible();
+
+      progress = { ...progress, read: 50 };
+      await passTimeOnALiveStream(HISTORY_REFRESH_MS);
+
+      expect(await within(sheet).findByText("50 de ~100 missatges llegits")).toBeVisible();
+
+      progress = { ...progress, read: 100, complete: true, next_batch_at: null };
+      await passTimeOnALiveStream(HISTORY_REFRESH_MS);
+
+      expect(await within(sheet).findByText("Complet")).toBeVisible();
+      const reads = read.mock.calls.length;
+
+      await passTimeOnALiveStream(2 * HISTORY_REFRESH_MS);
+
+      expect(read).toHaveBeenCalledTimes(reads);
+    });
   });
 
   it("removes one source of several through an AlertDialog and stays open", async () => {

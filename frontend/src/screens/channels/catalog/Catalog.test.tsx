@@ -2,8 +2,9 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { FilmStatus, RadarrFile } from "@/screens/channels/catalog/catalog";
 import { CATALOG_REFRESH_MS } from "@/screens/channels/catalog/queries";
-import { CHANNEL_ID, film, serveCatalog, unidentified } from "@/screens/channels/catalog/test-data";
+import { CHANNEL_ID, film, radarrFile, serveCatalog, unidentified } from "@/screens/channels/catalog/test-data";
 import { channel } from "@/screens/channels/test-data";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
@@ -61,16 +62,97 @@ describe("rows", () => {
     expect(within(sheet).queryByText("tt1302067")).not.toBeInTheDocument();
   });
 
-  it("says in the expanded row which file Radarr holds", async () => {
-    serveCatalog([film(1, { title: "Pa negre", quality: "1080p" })], {
-      1: { status: "upgrade", radarr_quality: "720p", best_quality: "1080p" },
+  describe("the file Radarr holds", () => {
+    const FILM = film(1, { title: "Pa negre" });
+    const held = (file: RadarrFile) => ({
+      1: { status: "downloaded" as const, radarr_quality: file.quality ?? undefined, file },
+    });
+    const detail = (section: HTMLElement, label: string) => within(section).getByText(label).nextSibling;
+
+    it("sums it up on the collapsed row", async () => {
+      serveCatalog([FILM], held(radarrFile()));
+
+      const { sheet } = await openCatalog();
+
+      await within(sheet).findByText("Fitxer: Bluray-1080p · 2.5 GB");
+      expect(await rowTrigger(sheet, "Pa negre")).toHaveAttribute("aria-expanded", "false");
     });
 
-    const { sheet, user } = await openCatalog();
-    await within(sheet).findByText("Baixada · 720p");
-    await user.click(await rowTrigger(sheet, "Pa negre"));
+    it("gives every detail on the expanded row, as Radarr reports them", async () => {
+      serveCatalog([FILM], held(radarrFile()));
 
-    expect(within(sheet).getByText("Qualitat a Radarr").nextSibling).toHaveTextContent("720p");
+      const { sheet, user } = await openCatalog();
+      await within(sheet).findByText("Fitxer: Bluray-1080p · 2.5 GB");
+      await user.click(await rowTrigger(sheet, "Pa negre"));
+
+      const section = within(sheet).getByRole("group", { name: "Fitxer a Radarr" });
+      expect(detail(section, "Qualitat")).toHaveTextContent("Bluray-1080p");
+      expect(detail(section, "Resolució")).toHaveTextContent("1920x1080");
+      expect(detail(section, "Còdec de vídeo")).toHaveTextContent("x265");
+      expect(detail(section, "Contenidor")).toHaveTextContent("mkv");
+      expect(detail(section, "Àudio")).toHaveTextContent("Català, English");
+      expect(detail(section, "Subtítols")).toHaveTextContent("Español");
+      expect(detail(section, "Mida")).toHaveTextContent("2.5 GB");
+    });
+
+    it("leaves out what Radarr doesn't report", async () => {
+      const file = radarrFile({ resolution: null, video_codec: null, subtitle_languages: [] });
+      serveCatalog([FILM], held(file));
+
+      const { sheet, user } = await openCatalog();
+      await within(sheet).findByText("Fitxer: Bluray-1080p · 2.5 GB");
+      await user.click(await rowTrigger(sheet, "Pa negre"));
+
+      const section = within(sheet).getByRole("group", { name: "Fitxer a Radarr" });
+      expect(within(section).queryByText("Resolució")).not.toBeInTheDocument();
+      expect(within(section).queryByText("Còdec de vídeo")).not.toBeInTheDocument();
+      expect(within(section).queryByText("Subtítols")).not.toBeInTheDocument();
+    });
+
+    it("also comes with the rows of a status filter", async () => {
+      serveCatalog([FILM], held(radarrFile()));
+
+      const { sheet, user } = await openCatalog();
+      await user.click(await chip(sheet, /^Baixades/));
+
+      expect(await within(sheet).findByText("Fitxer: Bluray-1080p · 2.5 GB")).toBeVisible();
+    });
+
+    it("shows nothing for a film with no file", async () => {
+      serveCatalog([FILM], { 1: { status: "missing" } });
+
+      const { sheet, user } = await openCatalog();
+      await within(sheet).findByRole("button", { name: "Baixar Pa negre" });
+      await user.click(await rowTrigger(sheet, "Pa negre"));
+
+      expect(within(sheet).queryByText(/^Fitxer:/)).not.toBeInTheDocument();
+      expect(within(sheet).queryByRole("group", { name: "Fitxer a Radarr" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Open in Radarr", () => {
+    const LINK = "https://radarr.example/movie/1";
+
+    it("opens the film in Radarr in a new tab", async () => {
+      serveCatalog([film(1, { title: "Pa negre", radarr_link: LINK })]);
+
+      const { sheet, user } = await openCatalog();
+      await user.click(await rowTrigger(sheet, "Pa negre"));
+
+      const link = within(sheet).getByRole("link", { name: "Obre Pa negre a Radarr" });
+      expect(link).toHaveAttribute("href", LINK);
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    });
+
+    it("is hidden with no Radarr URL set", async () => {
+      serveCatalog([film(1, { title: "Pa negre" })]);
+
+      const { sheet, user } = await openCatalog();
+      await user.click(await rowTrigger(sheet, "Pa negre"));
+
+      expect(within(sheet).queryByRole("link", { name: /a Radarr$/ })).not.toBeInTheDocument();
+    });
   });
 
   it("offers Download outside the row's own button", async () => {
@@ -134,6 +216,131 @@ describe("rows", () => {
 
     expect(await rowTrigger(sheet, "Film 1")).toBeVisible();
     expect(within(sheet).queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("Why not grabbed?", () => {
+  const WHY_URL = `/api/channels/${CHANNEL_ID}/catalog/1/why-not-grabbed`;
+  const BUTTON = "Per què no s’ha agafat?";
+  const FILM = film(1, { title: "Pa negre" });
+  const REJECTED = "Radarr ha rebutjat les versions del canal d’aquesta pel·lícula.";
+  const WOULD_ACCEPT = "Radarr acceptaria la versió del canal: només està esperant, o ja és de camí.";
+  const NO_RELEASES = "La cerca de Radarr no ha trobat cap versió de Telegrarr d’aquesta pel·lícula.";
+  const REASON = "Quality profile does not allow 1080p";
+
+  const answer = (verdict: string, releases: unknown[] = []) =>
+    HttpResponse.json({ tmdb_id: 1, verdict, message: { key: `cat.why.${verdict}`, params: {} }, releases });
+
+  /** Opens the film's row, with the channel's film Requested. */
+  const openRow = async (status: FilmStatus = { status: "requested" }) => {
+    serveCatalog([FILM], { 1: status });
+    const app = await openCatalog();
+    await within(app.sheet).findByText(status.status === "requested" ? "Sol·licitada" : "Baixada · 720p");
+    await app.user.click(await rowTrigger(app.sheet, "Pa negre"));
+    return app;
+  };
+
+  const ask = async ({ user, sheet }: Awaited<ReturnType<typeof openRow>>) => {
+    await user.click(within(sheet).getByRole("button", { name: BUTTON }));
+  };
+
+  it("shows Radarr's rejections word for word, under each release", async () => {
+    server.use(
+      http.post(WHY_URL, () =>
+        answer("rejected", [
+          { title: "Pa.negre.2010.1080p", approved: false, rejections: [REASON, "Not an upgrade"] },
+          { title: "Pa.negre.2010.720p", approved: false, rejections: ["Size too small"] },
+        ]),
+      ),
+    );
+
+    const app = await openRow();
+    await ask(app);
+
+    expect(await within(app.sheet).findByText(REJECTED)).toBeVisible();
+    const release = (title: string) => within(within(app.sheet).getByText(title).closest("li") as HTMLElement);
+    expect(release("Pa.negre.2010.1080p").getByText(REASON)).toBeVisible();
+    expect(release("Pa.negre.2010.1080p").getByText("Not an upgrade")).toBeVisible();
+    expect(release("Pa.negre.2010.720p").getByText("Size too small")).toBeVisible();
+  });
+
+  it("answers for a Quality upgrade too", async () => {
+    server.use(http.post(WHY_URL, () => answer("would_accept")));
+
+    const app = await openRow({ status: "upgrade", radarr_quality: "720p", best_quality: "1080p" });
+    await ask(app);
+
+    expect(await within(app.sheet).findByText(WOULD_ACCEPT)).toBeVisible();
+  });
+
+  it("says so when Radarr's search found nothing", async () => {
+    server.use(http.post(WHY_URL, () => answer("no_releases")));
+
+    const app = await openRow();
+    await ask(app);
+
+    expect(await within(app.sheet).findByText(NO_RELEASES)).toBeVisible();
+  });
+
+  it("says why it couldn't answer, and can be asked again", async () => {
+    server.use(
+      http.post(
+        WHY_URL,
+        () => HttpResponse.json({ detail: { key: "err.catalog.not_in_radarr", params: { tmdb_id: 1 } } }, { status: 404 }),
+        { once: true },
+      ),
+      http.post(WHY_URL, () => answer("would_accept")),
+    );
+
+    const app = await openRow();
+    await ask(app);
+
+    expect(await within(app.sheet).findByRole("alert")).toHaveTextContent(
+      "Radarr no té aquesta pel·lícula (TMDB 1). Primer baixa-la.",
+    );
+
+    await ask(app);
+
+    expect(await within(app.sheet).findByText(WOULD_ACCEPT)).toBeVisible();
+    expect(within(app.sheet).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows it is asking, and asks once", async () => {
+    let answerNow = () => {};
+    const isAnswering = new Promise<void>((resolve) => {
+      answerNow = resolve;
+    });
+    const asked = vi.fn();
+    server.use(
+      http.post(WHY_URL, async () => {
+        asked();
+        await isAnswering;
+        return answer("no_releases");
+      }),
+    );
+
+    const app = await openRow();
+    await ask(app);
+
+    const pending = await within(app.sheet).findByRole("button", { name: "Consultant Radarr…" });
+    expect(pending).toBeDisabled();
+
+    answerNow();
+    await within(app.sheet).findByText(NO_RELEASES);
+    expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["to download", { status: "missing" }],
+    ["held in the best quality", { status: "downloaded", radarr_quality: "1080p" }],
+  ] as const)("isn't offered for a film %s", async (_, status) => {
+    serveCatalog([FILM], { 1: status });
+
+    const { sheet, user } = await openCatalog();
+    await user.click(await rowTrigger(sheet, "Pa negre"));
+
+    await waitFor(() => expect(within(sheet).getByText("TMDB")).toBeVisible());
+    expect(within(sheet).queryByRole("button", { name: BUTTON })).not.toBeInTheDocument();
   });
 });
 
