@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- A new web interface is taking shape at `/ui/`: the navigation for all eight screens,
+  on a sidebar or a phone drawer, in Catalan or English. The screens themselves are
+  still placeholders, and the current interface at `/` is unchanged.
+
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 
 ### Added

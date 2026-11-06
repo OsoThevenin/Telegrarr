@@ -22,7 +22,7 @@ from .config import summary
 from .log_redaction import protect_logs
 from .routes import channel_series, connect as connect_routes, review, tmdb as tmdb_routes
 from .routes import catalog as catalog_routes, downloads as download_routes, photos as photo_routes
-from .routes import topics as topic_routes
+from .routes import spa as spa_routes, topics as topic_routes
 from .routes.common import CONFLICT, TOO_MANY, bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 from .routes.common import normalize_topic_id as _normalize_topic_id
 
@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 for _router in (catalog_routes, channel_series, connect_routes, download_routes,
-                photo_routes, review, tmdb_routes, topic_routes):
+                photo_routes, review, spa_routes, tmdb_routes, topic_routes):
     app.include_router(_router.router)
 
 

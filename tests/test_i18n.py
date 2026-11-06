@@ -36,16 +36,34 @@ def test_no_translation_is_empty():
 JS_DIR = I18N_DIR.parent / "js"
 # t("key"), tn("key", n) and tOr("key", …) with a literal key; template keys are dynamic and skipped.
 JS_KEY = re.compile(r"\b(t|tn|tOr)\(\s*[\"`]([\w.-]+)[\"`]")
+FRONTEND_SRC = I18N_DIR.parents[2] / "frontend" / "src"
+# The frontend's navigation and routes name a screen's title by key, in these fields.
+KEY_FIELD = re.compile(r"\b(?:labelKey|titleKey):\s*\"([\w.-]+)\"")
+
+
+def _keys_missing_from_dictionary(paths, en):
+    missing = set()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for fn, key in JS_KEY.findall(text):
+            wanted = [f"{key}.one", f"{key}.other"] if fn == "tn" else [key]
+            missing |= {f"{path.name}: {k}" for k in wanted if k not in en}
+        missing |= {f"{path.name}: {k}" for k in KEY_FIELD.findall(text) if k not in en}
+    return missing
 
 
 def test_every_key_the_spa_uses_exists_in_the_dictionary():
-    en = _dictionary("en")
-    missing = set()
-    for path in JS_DIR.glob("*.js"):
-        for fn, key in JS_KEY.findall(path.read_text(encoding="utf-8")):
-            wanted = [f"{key}.one", f"{key}.other"] if fn == "tn" else [key]
-            missing |= {f"{path.name}: {k}" for k in wanted if k not in en}
-    assert missing == set()
+    assert _keys_missing_from_dictionary(JS_DIR.glob("*.js"), _dictionary("en")) == set()
+
+
+def test_every_key_the_frontend_uses_exists_in_the_dictionary():
+    sources = [
+        path
+        for path in FRONTEND_SRC.rglob("*.ts*")
+        if ".test." not in path.name and FRONTEND_SRC / "test" not in path.parents
+    ]
+    assert sources, "no frontend sources found"
+    assert _keys_missing_from_dictionary(sources, _dictionary("en")) == set()
 
 
 def test_translate_fills_placeholders_in_the_requested_language():
