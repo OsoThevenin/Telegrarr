@@ -20,7 +20,7 @@ function applyTheme(theme: string | null): void {
   else delete document.documentElement.dataset.theme;
 }
 
-/** Honours the choice made in the old UI, which shares this origin. */
+/** Applies the saved theme. With none saved, the system preference decides. */
 export function applyStoredTheme(): void {
   applyTheme(storedTheme());
 }
@@ -47,7 +47,7 @@ export function chooseTheme(theme: Theme): void {
   for (const listener of listeners) listener();
 }
 
-/** Moves on to the next theme, in the old UI's order. */
+/** Moves on to the next theme: auto, light, dark, then auto again. */
 export function cycleTheme(): void {
   chooseTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
 }
