@@ -1,6 +1,6 @@
 import { chromium, type Page } from "@playwright/test";
 
-import { expect, signIn, test } from "./fixtures";
+import { expect, signIn, submitLoginForm, test } from "./fixtures";
 
 const PAUSE = "Posa en pausa les baixades";
 const RESUME = "Reprèn les baixades";
@@ -23,12 +23,21 @@ async function isQueuePaused(page: Page): Promise<boolean> {
   return (await response.json()).paused;
 }
 
+const OLD_SHELL_CACHE = "telearr-shell-v18";
+
 const serviceWorkerScope = (page: Page) =>
   page.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+const cacheNames = (page: Page) => page.evaluate(() => caches.keys());
+const isControlled = (page: Page) => page.evaluate(() => navigator.serviceWorker.controller !== null);
+
+async function serveOldWorker(page: Page, serving: boolean) {
+  const response = await page.request.post("/__e2e__/old-worker", { params: { serving } });
+  expect(response.ok()).toBe(true);
+}
 
 test.describe("live updates", () => {
   test("a pause made elsewhere reaches the open page through the stream", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
     await expect(button(page, PAUSE)).toBeEnabled();
 
     await page.request.post("/api/queue/pause");
@@ -37,7 +46,7 @@ test.describe("live updates", () => {
   });
 
   test("the toggle pauses and resumes the queue", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
 
     await button(page, PAUSE).click();
     await expect(button(page, RESUME)).toBeEnabled();
@@ -51,17 +60,17 @@ test.describe("live updates", () => {
 
 test.describe("command palette", () => {
   test("reaches a screen with the keyboard alone", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
     await expect(button(page, PAUSE)).toBeEnabled();
 
     await runCommand(page, "Ves a Sistema");
 
     await expect(page.getByRole("heading", { level: 1, name: "Sistema" })).toBeVisible();
-    await expect(page).toHaveURL("/ui/system");
+    await expect(page).toHaveURL("/system");
   });
 
   test("runs an action against the backend", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
     await expect(button(page, PAUSE)).toBeEnabled();
 
     await runCommand(page, PAUSE);
@@ -71,7 +80,7 @@ test.describe("command palette", () => {
   });
 
   test("toggles the theme and keeps it across a reload", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
     await expect(button(page, PAUSE)).toBeEnabled();
 
     await runCommand(page, "Canvia el tema");
@@ -93,8 +102,8 @@ test.describe("installed app", () => {
     });
     await signIn(context.request);
     const page = await context.newPage();
-    await page.goto("/ui/");
-    expect(await serviceWorkerScope(page)).toMatch(/\/ui\/$/);
+    await page.goto("/");
+    expect(await serviceWorkerScope(page)).toBe(`${baseURL}/`);
 
     const browser = await context.newCDPSession(page);
     const { installabilityErrors } = await browser.send("Page.getInstallabilityErrors");
@@ -103,14 +112,34 @@ test.describe("installed app", () => {
     expect(installabilityErrors).toEqual([]);
   });
 
+  test("takes over from an installed copy of the old UI and drops its cache", async ({ page }) => {
+    await serveOldWorker(page, true);
+    await page.goto("/login");
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+    });
+    expect(await cacheNames(page)).toContain(OLD_SHELL_CACHE);
+
+    await serveOldWorker(page, false);
+    await page.reload();
+    await submitLoginForm(page);
+
+    await expect(page.getByRole("heading", { level: 1, name: "Tauler" })).toBeVisible();
+    await expect.poll(() => cacheNames(page)).not.toContain(OLD_SHELL_CACHE);
+    await expect.poll(() => isControlled(page)).toBe(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1, name: "Tauler" })).toBeVisible();
+  });
+
   test("still ends at the login page once the session is gone", async ({ signedInPage: page }) => {
-    await page.goto("/ui/");
+    await page.goto("/");
     await serviceWorkerScope(page);
     await page.reload();
     await expect(button(page, PAUSE)).toBeEnabled();
 
     await page.goto("/logout");
-    await page.goto("/ui/");
+    await page.goto("/");
 
     await expect(page).toHaveURL("/login");
   });

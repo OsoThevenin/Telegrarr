@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 
@@ -5,6 +6,8 @@ import { LanguageSwitch } from "@/app/LanguageSwitch";
 import { NAV_ITEMS } from "@/app/navigation";
 import { PauseToggle } from "@/app/PauseToggle";
 import { useI18n } from "@/i18n/use-i18n";
+import { statusQuery } from "@/lib/status";
+import { cn } from "@/lib/utils";
 
 const ROW = "flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-sidebar-accent";
 
@@ -18,6 +21,22 @@ function Logo() {
         <path d="M17 40 V45 A4 4 0 0 0 21 49 H43 A4 4 0 0 0 47 45 V40" />
       </g>
     </svg>
+  );
+}
+
+function TelegramState() {
+  const { t } = useI18n();
+  const { data: status } = useQuery(statusQuery);
+
+  if (!status) return null;
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <span
+        aria-hidden="true"
+        className={cn("size-2 rounded-full", status.authorized ? "bg-primary" : "bg-destructive")}
+      />
+      {t(status.authorized ? "shell.tg_connected" : "shell.tg_offline")}
+    </p>
   );
 }
 
@@ -53,6 +72,7 @@ export function ShellMenu({ onNavigate }: Props) {
         ))}
       </nav>
       <div className="flex flex-col gap-2 px-3 md:px-0">
+        <TelegramState />
         <PauseToggle />
         <LanguageSwitch />
         <a href="/logout" className={`${ROW} -mx-3 text-muted-foreground md:mx-0 md:px-0`}>

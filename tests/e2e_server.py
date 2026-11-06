@@ -29,6 +29,7 @@ for library_dir in ("TV_DIR", "TV_DIR_4K", "MOVIES_DIR", "MOVIES_DIR_4K", "OTHER
 sys.path[:0] = [str(REPO_ROOT), str(TESTS_DIR)]
 
 import uvicorn  # noqa: E402
+from fastapi import HTTPException, Response  # noqa: E402
 from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack  # noqa: E402
 from fake_tmdb import API_KEY as TMDB_KEY  # noqa: E402
 from fake_tmdb import FakeTMDB  # noqa: E402
@@ -39,6 +40,8 @@ from app.main import app  # noqa: E402
 
 KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
 CHAT_ID = -1001234567890
+OLD_WORKER = (TESTS_DIR / "old_service_worker.js").read_text(encoding="utf-8")
+NOT_FOUND = 404
 PENDING_FILES = ("Avatar.2009.1080p.mkv", "Els.Pirates.CAT.mkv", "La.Mosca.1986.mkv")
 CATALOG_GIB = 1024 ** 3
 CATALOG_FIRST_TMDB = 9001
@@ -117,8 +120,12 @@ def clear_database() -> None:
                 c.execute(f'DELETE FROM "{table}"')
 
 
+_old_worker: set[str] = set()
+
+
 @app.post("/__e2e__/reset", status_code=204, include_in_schema=False)
 def reset() -> None:
+    _old_worker.clear()
     for name in settings.ENV_VARS.values():
         os.environ.pop(name, None)
     clear_database()
@@ -158,6 +165,22 @@ def set_progress(download_id: int, progress: float) -> None:
 def set_env(values: dict[str, str]) -> None:
     """Provision settings as a deployment would. Env is read on every lookup; reset() undoes it."""
     os.environ.update(values)
+
+
+@app.post("/__e2e__/old-worker", status_code=204, include_in_schema=False)
+def serve_old_worker(serving: bool) -> None:
+    """Whether /sw.js is still the worker that the old UI shipped, as before an upgrade."""
+    _old_worker.clear()
+    if serving:
+        _old_worker.add(OLD_WORKER)
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker() -> Response:
+    """Not found, unless a test asks for the old one: the app's 404 handler serves the build."""
+    if not _old_worker:
+        raise HTTPException(NOT_FOUND)
+    return Response(OLD_WORKER, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
 
 
 def main() -> None:

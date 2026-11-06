@@ -27,7 +27,7 @@ type RouterOptions = {
 };
 
 export function createAppRouter({ history }: RouterOptions = {}) {
-  return createRouter({ routeTree, basepath: "/ui", history });
+  return createRouter({ routeTree, history });
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;

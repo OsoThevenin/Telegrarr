@@ -11,7 +11,7 @@ const menuButton = (page: Page, title: string) => page.getByRole("button", { nam
 const tab = (page: Page, name: RegExp) => page.getByRole("tab", { name });
 
 const openChannels = async (page: Page) => {
-  await page.goto("/ui/channels");
+  await page.goto("/channels");
   await expect(page.getByRole("tablist")).toBeVisible();
 };
 

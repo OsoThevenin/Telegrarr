@@ -5,6 +5,7 @@ import { Outlet, useMatches } from "@tanstack/react-router";
 import { AppToaster } from "@/app/AppToaster";
 import { CommandPalette } from "@/app/CommandPalette";
 import { MobileDrawer } from "@/app/MobileDrawer";
+import { ShellBanners } from "@/app/ShellBanners";
 import { ShellMenu } from "@/app/ShellMenu";
 import { useLiveUpdates } from "@/app/use-live-updates";
 import { useI18n } from "@/i18n/use-i18n";
@@ -38,6 +39,7 @@ export function Shell() {
           <CommandPalette />
           {HeaderAction && <HeaderAction />}
         </header>
+        <ShellBanners />
         <main className="flex-1 p-4 md:p-8">
           <Outlet />
         </main>

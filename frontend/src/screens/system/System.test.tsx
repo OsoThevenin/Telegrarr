@@ -46,7 +46,7 @@ const answerUpdates = (body: JsonBodyType) => server.use(http.get("/api/system/u
 
 async function openTab(name: string) {
   answerStatus();
-  const rendered = await renderApp({ route: "/ui/system" });
+  const rendered = await renderApp({ route: "/system" });
   await rendered.user.click(await screen.findByRole("tab", { name }));
   return rendered;
 }
@@ -60,7 +60,7 @@ describe("System: status", () => {
       }),
     );
 
-    await renderApp({ route: "/ui/system" });
+    await renderApp({ route: "/system" });
 
     expect(await screen.findByRole("status", { name: LOADING })).toBeVisible();
   });
@@ -73,7 +73,7 @@ describe("System: status", () => {
       ),
     );
 
-    const { user } = await renderApp({ route: "/ui/system" });
+    const { user } = await renderApp({ route: "/system" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("No disponible");
     failing = false;
@@ -85,7 +85,7 @@ describe("System: status", () => {
   it("says each health check's name, message and verdict", async () => {
     answerStatus();
 
-    await renderApp({ route: "/ui/system" });
+    await renderApp({ route: "/system" });
 
     const row = (await screen.findByText("Cua de baixades")).closest("li") as HTMLElement;
     expect(within(row).getByText("En pausa")).toBeVisible();
@@ -97,7 +97,7 @@ describe("System: status", () => {
   it("falls back to the check's id when the UI has no name for it", async () => {
     answerStatus();
 
-    await renderApp({ route: "/ui/system" });
+    await renderApp({ route: "/system" });
 
     const row = (await screen.findByText("newcomer")).closest("li") as HTMLElement;
     expect(within(row).getByText("All fine")).toBeVisible();
@@ -107,7 +107,7 @@ describe("System: status", () => {
   it("shows the facts about this install", async () => {
     answerStatus();
 
-    await renderApp({ route: "/ui/system" });
+    await renderApp({ route: "/system" });
 
     expect(await screen.findByText("v1.2.0")).toBeVisible();
     expect(screen.getByText("3.12.3")).toBeVisible();

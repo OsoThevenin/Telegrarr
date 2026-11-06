@@ -16,7 +16,7 @@ async function openCatalog(fields: Parameters<typeof channel>[0] = { id: CHANNEL
   server.use(
     http.get("/api/channels", () => HttpResponse.json([channel({ title: "Cinema Club", kind: "movie", ...fields })])),
   );
-  const app = await renderApp({ route: "/ui/channels" });
+  const app = await renderApp({ route: "/channels" });
   await app.user.click(await screen.findByRole("tab", { name: /^Pel·lícules/ }));
   await app.user.click(screen.getByRole("button", { name: /Cinema Club\s*\S/ }));
 

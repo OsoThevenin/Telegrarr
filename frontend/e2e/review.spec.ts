@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures";
 
 test("assigns one release, then bulk-discards the rest", async ({ signedInPage: page }) => {
-  await page.goto("/ui/review");
+  await page.goto("/review");
   const pending = page.getByRole("list", { name: "Publicacions pendents" });
   const rows = pending.locator("> li");
   await expect(rows).toHaveCount(3);

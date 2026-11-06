@@ -16,7 +16,7 @@ const RADARR_SAVED: Partial<Settings> = { radarr_url: "http://radarr:7878", rada
 const CONNECTED = (app: string) => HttpResponse.json({ app, ok: true, version: "4.0.1" });
 
 function openConnect() {
-  return renderApp({ route: "/ui/connect" });
+  return renderApp({ route: "/connect" });
 }
 
 function appCard(name: string) {

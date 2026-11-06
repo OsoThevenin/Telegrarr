@@ -10,7 +10,7 @@ import { server } from "@/test/server";
 const serveChannels = (rows: unknown[]) => server.use(http.get("/api/channels", () => HttpResponse.json(rows)));
 
 const openChannels = async () => {
-  const app = await renderApp({ route: "/ui/channels" });
+  const app = await renderApp({ route: "/channels" });
   await screen.findByRole("tablist");
   return app;
 };
@@ -815,7 +815,7 @@ describe("channel list", () => {
   it("explains an empty list", async () => {
     serveChannels([]);
 
-    await renderApp({ route: "/ui/channels" });
+    await renderApp({ route: "/channels" });
 
     expect(await screen.findByText("Encara no hi ha cap canal")).toBeVisible();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
@@ -824,7 +824,7 @@ describe("channel list", () => {
   it("reports a list that failed to load", async () => {
     server.use(http.get("/api/channels", () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
 
-    await renderApp({ route: "/ui/channels" });
+    await renderApp({ route: "/channels" });
 
     expect(await screen.findByText(/boom/)).toBeVisible();
   });

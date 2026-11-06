@@ -89,14 +89,14 @@ describe("command palette", () => {
   });
 
   it.each([
-    ["Tauler", "/ui/settings"],
-    ["Canals", "/ui/"],
-    ["Baixades", "/ui/"],
-    ["Activitat", "/ui/"],
-    ["Revisió", "/ui/"],
-    ["Connexió", "/ui/"],
-    ["Sistema", "/ui/"],
-    ["Configuració", "/ui/"],
+    ["Tauler", "/settings"],
+    ["Canals", "/"],
+    ["Baixades", "/"],
+    ["Activitat", "/"],
+    ["Revisió", "/"],
+    ["Connexió", "/"],
+    ["Sistema", "/"],
+    ["Configuració", "/"],
   ])("goes to %s", async (screenName, startingFrom) => {
     const { user } = await renderApp({ route: startingFrom });
 

@@ -6,7 +6,7 @@ const PHONE = { width: 390, height: 844 };
 const DIALOG_NAME = "Afegeix un canal";
 
 const openChannels = async (page: Page) => {
-  await page.goto("/ui/channels");
+  await page.goto("/channels");
   await expect(page.getByRole("tablist")).toBeVisible();
 };
 
@@ -97,7 +97,7 @@ test.describe("adding a channel", () => {
   });
 
   test("the palette opens the form ready to search, and it closes cleanly", async ({ signedInPage: page }) => {
-    await page.goto("/ui/downloads");
+    await page.goto("/downloads");
     await page.keyboard.press("ControlOrMeta+k");
     await page.keyboard.type(DIALOG_NAME);
     await page.keyboard.press("Enter");

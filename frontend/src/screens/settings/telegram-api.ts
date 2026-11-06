@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api, ApiError, type ServerMessage } from "@/lib/api";
 import { SETTINGS_KEY } from "@/lib/settings";
+import { STATUS_KEY } from "@/lib/status";
 
 const AUTH_KEY = ["telegram", "auth"] as const;
 const PROXY_KEY = ["telegram", "proxy"] as const;
@@ -38,6 +39,7 @@ export function useRefreshTelegram() {
       queryClient.invalidateQueries({ queryKey: AUTH_KEY }),
       queryClient.invalidateQueries({ queryKey: PROXY_KEY }),
       queryClient.invalidateQueries({ queryKey: SETTINGS_KEY }),
+      queryClient.invalidateQueries({ queryKey: STATUS_KEY }),
     ]);
   };
 }

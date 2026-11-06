@@ -5,7 +5,7 @@ import { expect, setBackendEnv, test } from "./fixtures";
 const panel = (page: Page) => page.getByRole("tabpanel");
 
 async function openTab(page: Page, name: string) {
-  await page.goto("/ui/settings");
+  await page.goto("/settings");
   await page.getByRole("tab", { name }).click();
 }
 
@@ -88,7 +88,7 @@ test("autonomous mode only changes once its dialog is confirmed", async ({ signe
 });
 
 test("a wrong password keeps the username dialog open with the reason", async ({ signedInPage: page }) => {
-  await page.goto("/ui/settings");
+  await page.goto("/settings");
 
   await page.getByRole("button", { name: "Canvia el nom d’usuari" }).click();
   const dialog = page.getByRole("dialog");

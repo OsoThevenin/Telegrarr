@@ -27,7 +27,7 @@ describe("Activity", () => {
       }),
     );
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     expect(await screen.findByRole("status", { name: "S’està carregant…" })).toBeVisible();
   });
@@ -41,7 +41,7 @@ describe("Activity", () => {
       }),
     );
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     await screen.findByText("Cap entrada del registre coincident.");
     expect(new URL(url).searchParams.get("limit")).toBe("500");
@@ -50,7 +50,7 @@ describe("Activity", () => {
   it("says so when there is nothing to show", async () => {
     answerLogs([]);
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     expect(await screen.findByText("Cap entrada del registre coincident.")).toBeVisible();
   });
@@ -63,7 +63,7 @@ describe("Activity", () => {
       ),
     );
 
-    const { user } = await renderApp({ route: "/ui/activity" });
+    const { user } = await renderApp({ route: "/activity" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Registre no disponible");
     failing = false;
@@ -78,7 +78,7 @@ describe("Activity", () => {
       row(1, "WARN", "A line from an old version"),
     ]);
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     expect(await screen.findByText("Descàrregues en pausa")).toBeVisible();
     expect(screen.getByText("A line from an old version")).toBeVisible();
@@ -88,7 +88,7 @@ describe("Activity", () => {
   it("gives each entry its severity and a relative time", async () => {
     answerLogs([row(1, "ERROR", "Disk full", NOW - 120)]);
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     const entry = (await screen.findByText("Disk full")).closest("li") as HTMLElement;
     expect(within(entry).getByText("ERROR")).toBeVisible();
@@ -103,7 +103,7 @@ describe("Activity", () => {
       row(1, "INFO", "Flood wait"),
     ]);
 
-    await renderApp({ route: "/ui/activity" });
+    await renderApp({ route: "/activity" });
 
     const entries = await screen.findAllByRole("listitem");
     const logEntries = entries.filter((entry) => entry.textContent?.includes("Flood wait"));
@@ -114,7 +114,7 @@ describe("Activity", () => {
   it("filters by search text", async () => {
     answerLogs([row(2, "INFO", "Scanned Cinema Club"), row(1, "INFO", "Scanned Sèries")]);
 
-    const { user } = await renderApp({ route: "/ui/activity" });
+    const { user } = await renderApp({ route: "/activity" });
     await screen.findByText("Scanned Sèries");
 
     await user.type(screen.getByRole("searchbox"), "cinema");
@@ -126,7 +126,7 @@ describe("Activity", () => {
   it("filters by level", async () => {
     answerLogs([row(2, "ERROR", "Disk full"), row(1, "INFO", "Scan finished")]);
 
-    const { user } = await renderApp({ route: "/ui/activity" });
+    const { user } = await renderApp({ route: "/activity" });
     await screen.findByText("Scan finished");
 
     await user.click(screen.getByRole("combobox", { name: "Nivell" }));
@@ -140,7 +140,7 @@ describe("Activity", () => {
     let rows = [row(1, "INFO", "First")];
     server.use(http.get("/api/logs", () => HttpResponse.json(rows)));
 
-    const { user } = await renderApp({ route: "/ui/activity" });
+    const { user } = await renderApp({ route: "/activity" });
     await screen.findByText("First");
     rows = [row(2, "INFO", "Second"), ...rows];
 

@@ -102,7 +102,7 @@ describe("the list", () => {
   it("says there is nothing to review when no release is pending", async () => {
     serveReleases([]);
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     expect(await screen.findByText("No hi ha res per revisar")).toBeVisible();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
@@ -111,7 +111,7 @@ describe("the list", () => {
   it("shows each release as one compact row", async () => {
     serveReleases([AVATAR]);
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     const row = await rowOf("Avatar.2022.1080p.mkv");
     expect(within(row).getByText(/Cinema Club/)).toBeVisible();
@@ -124,7 +124,7 @@ describe("the list", () => {
   it("names a topic's channel with its topic", async () => {
     serveReleases([{ ...AVATAR, topic_title: "Clàssics" }]);
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     expect(await screen.findByText(/Cinema Club › Clàssics/)).toBeVisible();
   });
@@ -132,7 +132,7 @@ describe("the list", () => {
   it("names a release without a file name after its message", async () => {
     serveReleases([release({ message_id: 42 })]);
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     expect(await screen.findByText("Missatge 42")).toBeVisible();
   });
@@ -140,7 +140,7 @@ describe("the list", () => {
   it("reports a list that cannot load", async () => {
     server.use(http.get("/api/review", () => HttpResponse.json({ detail: "boom" }, { status: 500 })));
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("boom");
   });
@@ -155,7 +155,7 @@ describe("search", () => {
     ["text without its accents", "catala", "Avatar.2022.1080p.mkv"],
   ])("matches %s", async (_, query, expected) => {
     serveReleases([AVATAR, PIRATES, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.type(await screen.findByRole("searchbox"), query);
 
@@ -164,7 +164,7 @@ describe("search", () => {
 
   it("says when nothing matches, and clears back to the whole list", async () => {
     serveReleases([AVATAR, PIRATES]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.type(await screen.findByRole("searchbox"), "zzz");
     expect(screen.getByText("Cap publicació coincideix amb els filtres")).toBeVisible();
@@ -180,7 +180,7 @@ describe("filters", () => {
   it("counts each channel and reason", async () => {
     serveReleases([AVATAR, PIRATES, MOSCA]);
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     const channel = await screen.findByRole("combobox", { name: "Canal" });
     expect(within(channel).getByRole("option", { name: "Tots els canals (3)" })).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe("filters", () => {
 
   it("filters by channel", async () => {
     serveReleases([AVATAR, PIRATES, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.selectOptions(await screen.findByRole("combobox", { name: "Canal" }), "Pel·lis (1)");
 
@@ -201,7 +201,7 @@ describe("filters", () => {
 
   it("filters by reason", async () => {
     serveReleases([AVATAR, PIRATES, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.click(await screen.findByRole("button", { name: "La cerca a TMDB ha fallat 1" }));
 
@@ -210,7 +210,7 @@ describe("filters", () => {
 
   it("combines with search, and counts what each option would show", async () => {
     serveReleases([AVATAR, PIRATES, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await user.selectOptions(await screen.findByRole("combobox", { name: "Canal" }), "Cinema Club (2)");
     await user.type(screen.getByRole("searchbox"), "mosca");
@@ -230,7 +230,7 @@ describe("an expanded row", () => {
 
   it("shows the caption and searches TMDB for the parsed title at once", async () => {
     const posts = serveReleases([AVATAR, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
 
@@ -242,7 +242,7 @@ describe("an expanded row", () => {
 
   it("names a film's original title when it differs", async () => {
     serveReleases([AVATAR]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
 
@@ -255,7 +255,7 @@ describe("an expanded row", () => {
 
   it("searches the caption's first line when no title was parsed", async () => {
     serveReleases([release({ message_id: 9, file_name: "x.mkv", caption: "Solaris\nTarkovski" })]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^x\.mkv/);
 
@@ -264,7 +264,7 @@ describe("an expanded row", () => {
 
   it("keeps one row open at a time", async () => {
     serveReleases([AVATAR, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     await openRow(user, /^fly\.mkv/);
@@ -276,7 +276,7 @@ describe("an expanded row", () => {
   it("says when TMDB finds nothing", async () => {
     serveReleases([AVATAR]);
     server.use(http.get("/api/tmdb/movies", () => HttpResponse.json([])));
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
 
@@ -288,7 +288,7 @@ describe("an expanded row", () => {
     server.use(
       http.get("/api/tmdb/movies", () => HttpResponse.json({ detail: "TMDB down" }, { status: 502 })),
     );
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
 
@@ -297,7 +297,7 @@ describe("an expanded row", () => {
 
   it("assigns the film a click picks, then moves on to the next row", async () => {
     const posts = serveReleases([AVATAR, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     await user.click(await screen.findByRole("button", { name: /Avatar \(2009\)/ }));
@@ -311,7 +311,7 @@ describe("an expanded row", () => {
 
   it("assigns a typed id on Enter, and only once there is one", async () => {
     const posts = serveReleases([AVATAR]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     expect(screen.getByRole("button", { name: "Assigna" })).toBeDisabled();
@@ -328,7 +328,7 @@ describe("an expanded row", () => {
         HttpResponse.json({ detail: { key: "err.review.pick_film" } }, { status: 400 }),
       ),
     );
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     await user.type(screen.getByLabelText(/identificador o enllaç/), "nope");
@@ -342,7 +342,7 @@ describe("an expanded row", () => {
 
   it("discards from the row, then moves on", async () => {
     const posts = serveReleases([AVATAR, MOSCA]);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     await user.click(screen.getByRole("button", { name: "Descarta" }));
@@ -361,7 +361,7 @@ describe("an expanded row", () => {
         return HttpResponse.json(NOT_PENDING, { status: 404 });
       }),
     );
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
     await user.click(screen.getByRole("button", { name: "Descarta" }));
@@ -385,7 +385,7 @@ describe("bulk Discard", () => {
 
   async function renderQueue(releases: Release[] = [AVATAR, PIRATES, MOSCA]) {
     const posts = serveReleases(releases);
-    const { user } = await renderApp({ route: "/ui/review" });
+    const { user } = await renderApp({ route: "/review" });
     await screen.findByText(releases[0].file_name as string);
     return { posts, user };
   }

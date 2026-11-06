@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useQuery } from "@tanstack/react-query";
+import { getRouteApi } from "@tanstack/react-router";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n/use-i18n";
@@ -10,10 +11,13 @@ import { DownloadTabPanel } from "@/screens/downloads/DownloadTabPanel";
 import { ACTIVE_TAB, DOWNLOAD_TABS, matchesFilter, rowsOfTab, type SortOrder } from "@/screens/downloads/download-list";
 import { storedDensity, storedSort, storeDensity, storeSort } from "@/screens/downloads/preferences";
 
+const route = getRouteApi("/downloads");
+
 export function Downloads() {
   const { t } = useI18n();
   const query = useQuery(downloadsQuery);
-  const [openTab, setOpenTab] = useState(ACTIVE_TAB.id);
+  const { tab: openTab = ACTIVE_TAB.id } = route.useSearch();
+  const navigate = route.useNavigate();
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState(storedSort);
   const [isDense, setIsDense] = useState(storedDensity);
@@ -40,7 +44,7 @@ export function Downloads() {
         isDense={isDense}
         onDensityToggle={handleDensityToggle}
       />
-      <Tabs value={openTab} onValueChange={setOpenTab}>
+      <Tabs value={openTab} onValueChange={(tab) => void navigate({ search: { tab }, replace: true })}>
         <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
           {DOWNLOAD_TABS.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="flex-none">

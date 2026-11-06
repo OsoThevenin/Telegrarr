@@ -24,7 +24,7 @@
 @custom-variant data-unchecked (&:where([data-state="unchecked"]));
 @custom-variant data-vertical (&:where([data-orientation="vertical"]));
 
-/* The old UI's palette (app/static/app.css) under shadcn/ui's token names. */
+/* Telegrarr's palette, also in app/static/login.css, under shadcn/ui's token names. */
 :root {
   --radius: 0.75rem;
   --background: #f5f5f7;

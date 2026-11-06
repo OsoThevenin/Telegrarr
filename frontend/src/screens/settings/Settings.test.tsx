@@ -26,7 +26,7 @@ function acceptPatches(result: Patch = {}) {
 }
 
 async function openTab(name: "Compte" | "Baixades" | "Integracions") {
-  const { user } = await renderApp({ route: "/ui/settings" });
+  const { user } = await renderApp({ route: "/settings" });
   await user.click(await screen.findByRole("tab", { name }));
   return user;
 }
@@ -40,7 +40,7 @@ describe("loading", () => {
   it("offers a retry when the settings cannot be read", async () => {
     server.use(http.get("/api/settings", () => HttpResponse.json({}, { status: 500 })));
 
-    await renderApp({ route: "/ui/settings" });
+    await renderApp({ route: "/settings" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Error 500");
     expect(screen.getByRole("button", { name: "Torna-ho a provar" })).toBeVisible();

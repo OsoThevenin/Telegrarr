@@ -23,7 +23,7 @@ test("the tabs sit above the list and mark the open one, on a phone too", async 
   await page.setViewportSize({ width: 375, height: 760 });
   await addDownload(page, { file_name: WAITING, file_size: 1_000_000_000, status: "queued" });
 
-  await page.goto("/ui/downloads");
+  await page.goto("/downloads");
   await expect(row(page, WAITING)).toBeVisible();
 
   const tabs = await page.getByRole("tablist").boundingBox();
@@ -47,7 +47,7 @@ test("the Downloads screen: filter, live progress, Stop, Retry and Pause all", a
   });
   await addDownload(page, { file_name: WAITING, file_size: 1_000_000_000, status: "queued" });
 
-  await page.goto("/ui/downloads");
+  await page.goto("/downloads");
   await expect(row(page, RUNNING)).toContainText("10%");
   await expect(row(page, WAITING)).toBeVisible();
 

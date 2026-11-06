@@ -38,7 +38,7 @@ function serveAccount({ dialogs = [MERLI, AMICS] as unknown[], existing = [] as 
   return { posted };
 }
 
-const openDialog = async (route = "/ui/channels?add=true") => {
+const openDialog = async (route = "/channels?add=true") => {
   const app = await renderApp({ route });
   const dialog = await screen.findByRole("dialog", { name: DIALOG_NAME });
   return { ...app, dialog };
@@ -49,7 +49,7 @@ const save = (dialog: HTMLElement) => within(dialog).getByRole("button", { name:
 describe("opening Add channel", () => {
   it("opens from the top bar on the Channels screen", async () => {
     serveAccount({ existing: [channel({ id: 1 })] });
-    const { user } = await renderApp({ route: "/ui/channels" });
+    const { user } = await renderApp({ route: "/channels" });
 
     await user.click(await screen.findByRole("button", { name: DIALOG_NAME }));
 
@@ -59,7 +59,7 @@ describe("opening Add channel", () => {
   it("is only in the top bar of the Channels screen", async () => {
     serveAccount();
 
-    await renderApp({ route: "/ui/review" });
+    await renderApp({ route: "/review" });
 
     expect(await screen.findByRole("heading", { level: 1 })).toBeVisible();
     expect(screen.queryByRole("button", { name: DIALOG_NAME })).not.toBeInTheDocument();
@@ -67,7 +67,7 @@ describe("opening Add channel", () => {
 
   it("is offered by an empty list", async () => {
     serveAccount();
-    const { user } = await renderApp({ route: "/ui/channels" });
+    const { user } = await renderApp({ route: "/channels" });
     const emptyState = (await screen.findByRole("heading", { level: 2, name: /cap canal/ })).parentElement;
 
     await user.click(within(emptyState as HTMLElement).getByRole("button", { name: DIALOG_NAME }));
@@ -77,7 +77,7 @@ describe("opening Add channel", () => {
 
   it("closes without adding, back on what opened it and with a clean URL", async () => {
     const { posted } = serveAccount({ existing: [channel({ id: 1 })] });
-    const { user, router } = await renderApp({ route: "/ui/channels" });
+    const { user, router } = await renderApp({ route: "/channels" });
     await screen.findByRole("tablist");
     const opener = screen.getByRole("button", { name: DIALOG_NAME });
     await user.click(opener);

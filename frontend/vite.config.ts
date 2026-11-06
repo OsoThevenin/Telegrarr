@@ -7,12 +7,11 @@ import { defineConfig } from "vitest/config";
 
 const BACKEND = process.env.TELEGRARR_BACKEND ?? "http://127.0.0.1:8790";
 const BACKEND_PATHS = ["/api", "/login", "/logout", "/static"];
-const BASE_PATH = "/ui/";
+const APP_ROOT = "/";
 const PAGES_CACHE = "telegrarr-pages";
 const HTTP_OK = 200;
 
 export default defineConfig({
-  base: BASE_PATH,
   plugins: [
     react(),
     tailwindcss(),
@@ -25,9 +24,10 @@ export default defineConfig({
         name: "Telegrarr",
         short_name: "Telegrarr",
         description: "Bring Telegram into your *arr stack — auto-download channel media into a Plex-ready library.",
-        start_url: BASE_PATH,
-        scope: BASE_PATH,
-        id: BASE_PATH,
+        // The old UI's manifest had this id too, so an installed app stays the same app.
+        start_url: APP_ROOT,
+        scope: APP_ROOT,
+        id: APP_ROOT,
         display: "standalone",
         background_color: "#f5f5f7",
         theme_color: "#ffffff",
@@ -41,10 +41,18 @@ export default defineConfig({
         // Not the index: it sits behind the login check and carries the saved language.
         globPatterns: ["assets/**/*.{js,css,woff2}"],
         navigateFallback: null,
+        // The plugin only implies these two with injectRegister "auto". Without them a new
+        // worker, this one over the old UI's included, waits for every tab to close.
+        skipWaiting: true,
+        clientsClaim: true,
+        importScripts: ["retire-old-shell.js"],
         runtimeCaching: [
           {
-            // The network first, so an expired session still ends at the login page.
-            urlPattern: ({ request }) => request.mode === "navigate",
+            // The network first, so an expired session still ends at the login page. Only the
+            // app's own pages: the worker sees every navigation here, a backup download included.
+            // Inlined because this function is copied into the worker, away from this file.
+            urlPattern: ({ request, url }) =>
+              request.mode === "navigate" && !/^\/(api|sabnzbd|static|login|logout|healthz)(\/|$)/.test(url.pathname),
             handler: "NetworkFirst",
             options: { cacheName: PAGES_CACHE, cacheableResponse: { statuses: [HTTP_OK] } },
           },
