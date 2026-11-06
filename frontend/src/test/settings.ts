@@ -26,6 +26,20 @@ export const FRESH_SETTINGS: Settings = {
   sonarr_key_set: false,
   radarr_url: "",
   radarr_key_set: false,
+  sonarr_external_url: "",
+  radarr_external_url: "",
+  tmdb_key_env_locked: false,
+  prowlarr_url_env_locked: false,
+  prowlarr_key_env_locked: false,
+  sonarr_url_env_locked: false,
+  sonarr_key_env_locked: false,
+  radarr_url_env_locked: false,
+  radarr_key_env_locked: false,
+  tg_api_id_env_locked: false,
+  tg_api_hash_env_locked: false,
+  plex_url_env_locked: false,
+  plex_token_env_locked: false,
+  tg_proxy_env_locked: false,
 };
 
 export function settingsResponse(overrides: Partial<Settings> = {}): SettingsResponse {

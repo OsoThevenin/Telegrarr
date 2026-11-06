@@ -80,9 +80,17 @@ def clear_database() -> None:
 
 @app.post("/__e2e__/reset", status_code=204, include_in_schema=False)
 def reset() -> None:
+    for name in settings.ENV_VARS.values():
+        os.environ.pop(name, None)
     clear_database()
     install_fakes()
     seed()
+
+
+@app.post("/__e2e__/env", status_code=204, include_in_schema=False)
+def set_env(values: dict[str, str]) -> None:
+    """Provision settings as a deployment would. Env is read on every lookup; reset() undoes it."""
+    os.environ.update(values)
 
 
 def main() -> None:

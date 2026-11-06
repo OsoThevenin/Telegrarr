@@ -121,6 +121,7 @@ To add a screen, or replace a placeholder:
 5. Test critical flows in `frontend/e2e/<name>.spec.ts`, importing `test` from
    `./fixtures`. Each test starts from a reset backend; `signedInPage` is signed in.
    Put the data a screen needs in `seed()` in `tests/e2e_server.py`.
+   `setBackendEnv` provisions environment variables until the next test.
 
 ## Coding style
 

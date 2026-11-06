@@ -6,9 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n/use-i18n";
+import { isEnvLocked, type Settings } from "@/lib/settings";
 
 /** What the backend says about a secret. It never sends the value itself. */
-export type SecretState = { kind: "empty" } | { kind: "saved"; preview?: string };
+export type SecretState =
+  | { kind: "empty" }
+  | { kind: "saved"; preview?: string }
+  /** Provided by an environment variable, so nothing here can change it. */
+  | { kind: "locked"; preview?: string };
 
 const MASK = "••••";
 
@@ -35,9 +40,33 @@ export function SecretField({ label, state, draft, onDraftChange, ...rest }: Pro
       ) : (
         <SecretInput label={label} draft={draft} onDraftChange={onDraftChange} isReplacing {...rest} />
       );
+    case "locked":
+      return <LockedSecret label={label} preview={state.preview} hint={rest.hint} />;
     default:
       return state satisfies never;
   }
+}
+
+type LockedSecretProps = Pick<Props, "label" | "hint"> & {
+  preview?: string | undefined;
+};
+
+/** A value an environment variable provides: its origin can be read, and nothing else. */
+export function LockedSecret({ label, preview, hint }: LockedSecretProps) {
+  const { t } = useI18n();
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-sm font-medium">{label}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <Badge variant="secondary" className="h-auto max-w-full whitespace-normal">
+          {t("secret.env_locked")}
+        </Badge>
+        {preview && <span className="min-w-0 font-mono text-xs break-all text-muted-foreground">{preview}</span>}
+      </div>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
 }
 
 type SavedSecretProps = Pick<Props, "label" | "onClear" | "hint"> & {
@@ -120,6 +149,12 @@ function SecretInput({ label, draft, onDraftChange, placeholder, hint, isReplaci
       )}
     </div>
   );
+}
+
+/** The state of the secret `key`, however it is reported as saved. */
+export function secretState(settings: Settings, key: string, isSaved: boolean, preview?: string): SecretState {
+  if (isEnvLocked(settings, key)) return { kind: "locked", preview };
+  return isSaved ? { kind: "saved", preview } : { kind: "empty" };
 }
 
 /** What a form sends for a secret: a blank draft keeps the saved value instead of clearing it. */
