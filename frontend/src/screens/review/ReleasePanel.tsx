@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/use-i18n";
-import { cn } from "@/lib/utils";
 
 import { FilmSearch } from "./FilmSearch";
 import {
@@ -14,7 +13,6 @@ import {
   type FilmChoice,
   type PendingRelease,
 } from "./review-api";
-import { DESTRUCTIVE_TEXT } from "./tone";
 
 type Props = {
   id: string;
@@ -87,13 +85,13 @@ export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Pro
           size="lg"
           disabled={isBusy}
           onClick={() => discard.mutate()}
-          className={cn("h-11 sm:h-9", DESTRUCTIVE_TEXT)}
+          className="h-11 sm:h-9"
         >
           {discard.isPending ? t("review.discarding") : t("review.discard")}
         </Button>
       </div>
       {failure && (
-        <p role="alert" className={cn("text-sm", DESTRUCTIVE_TEXT)}>
+        <p role="alert" className="text-sm text-destructive">
           {errorText(failure)}
         </p>
       )}

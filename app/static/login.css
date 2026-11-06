@@ -2,8 +2,8 @@
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7; --surface: #ffffff; --line: #d2d2d7; --line-soft: #e8e8ed;
-  --text: #1d1d1f; --muted: #6e6e73; --accent: #0071e3; --accent-hover: #0077ed;
-  --accent-active: #0066cc; --err: #e0454a;
+  --text: #1d1d1f; --muted: #6e6e73; --accent: #0066cc; --accent-hover: #0071e3;
+  --accent-active: #005bb5; --on-accent: #ffffff; --err: #ad2424;
   --shadow: 0 8px 20px rgba(0,0,0,.06), 0 24px 60px rgba(0,0,0,.10);
   --font: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Inter, sans-serif;
   --display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Inter Tight", Inter, sans-serif;
@@ -12,7 +12,7 @@
   :root {
     --bg: #000000; --surface: #1c1c1e; --line: #38383a; --line-soft: #2a2a2c;
     --text: #f5f5f7; --muted: #a1a1a6; --accent: #2997ff; --accent-hover: #4aa8ff;
-    --accent-active: #1a86ee; --err: #ff453a;
+    --accent-active: #1a86ee; --on-accent: #000000; --err: #ffa299;
     --shadow: 0 10px 30px rgba(0,0,0,.5), 0 30px 80px rgba(0,0,0,.6);
   }
 }
@@ -43,7 +43,7 @@ input:focus {
 }
 button {
   width: 100%; padding: 9px 20px; border: 0; border-radius: 980px; cursor: pointer;
-  background: var(--accent); color: #ffffff; font: 600 14px/1 var(--font);
+  background: var(--accent); color: var(--on-accent); font: 600 14px/1 var(--font);
 }
 button:hover { background: var(--accent-hover); }
 button:active { background: var(--accent-active); transform: scale(.98); }
