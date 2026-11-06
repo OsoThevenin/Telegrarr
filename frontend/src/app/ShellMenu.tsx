@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 
 import { LanguageSwitch } from "@/app/LanguageSwitch";
 import { NAV_ITEMS } from "@/app/navigation";
+import { PauseToggle } from "@/app/PauseToggle";
 import { useI18n } from "@/i18n/use-i18n";
 
 const ROW = "flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium hover:bg-sidebar-accent";
@@ -52,6 +53,7 @@ export function ShellMenu({ onNavigate }: Props) {
         ))}
       </nav>
       <div className="flex flex-col gap-2 px-3 md:px-0">
+        <PauseToggle />
         <LanguageSwitch />
         <a href="/logout" className={`${ROW} -mx-3 text-muted-foreground md:mx-0 md:px-0`}>
           <LogOut className="size-4" aria-hidden="true" />

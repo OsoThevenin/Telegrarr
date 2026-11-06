@@ -106,6 +106,13 @@ To add a screen, or replace a placeholder:
    `src/app/navigation.ts`.
 2. Call the backend through `api` in `src/lib/api.ts`, which sends an expired session
    to the login page, with TanStack Query around it.
+   Don't open your own stream: the shell's `useLiveUpdates` keeps the caches current.
+   Read `statusQuery` from `src/lib/status.ts` for the counters, pause, budget and disk.
+   A list of downloads uses a query key starting with `DOWNLOADS_KEY` and holds an
+   array: progress is patched in, and the list is fetched again when the counters move.
+   The list of channels, under `["channels"]`, is fetched again the same way. Any other
+   list that should follow the queue goes in `LIVE_LIST_KEYS`, in `use-live-updates.ts`.
+   Pause and resume with `useQueuePause`, and raise toasts with `toast` from `sonner`.
 3. Add strings to both `app/static/i18n/ca.json` and `en.json`, and read them with
    `useI18n()`. `tests/test_i18n.py` checks the keys you use, so write them as literals.
 4. Test the screen in `src/screens/<name>/<Name>.test.tsx`: `renderApp({ route })` from

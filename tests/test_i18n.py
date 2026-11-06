@@ -38,7 +38,7 @@ JS_DIR = I18N_DIR.parent / "js"
 JS_KEY = re.compile(r"\b(t|tn|tOr)\(\s*[\"`]([\w.-]+)[\"`]")
 FRONTEND_SRC = I18N_DIR.parents[2] / "frontend" / "src"
 # The frontend's navigation and routes name a screen's title by key, in these fields.
-KEY_FIELD = re.compile(r"\b(?:labelKey|titleKey):\s*\"([\w.-]+)\"")
+KEY_FIELD = re.compile(r"\b(?:labelKey|titleKey|messageKey):\s*\"([\w.-]+)\"")
 
 
 def _keys_missing_from_dictionary(paths, en):

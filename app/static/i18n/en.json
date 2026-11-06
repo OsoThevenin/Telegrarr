@@ -161,6 +161,7 @@
  "shell.tg_offline": "Telegram offline",
  "shell.resume": "Resume downloads",
  "shell.pause": "Pause downloads",
+ "shell.notifications": "Notifications",
  "banner.tg_offline": "Telegram isn’t connected — Telegrarr can’t download until you sign in.",
  "banner.connect_telegram": "Connect Telegram",
  "budget.banner": "Daily download budget of {limit} GB reached — downloads resume at {at}.",

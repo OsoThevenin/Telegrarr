@@ -161,6 +161,7 @@
  "shell.tg_offline": "Telegram desconnectat",
  "shell.resume": "Reprèn les baixades",
  "shell.pause": "Posa en pausa les baixades",
+ "shell.notifications": "Notificacions",
  "banner.tg_offline": "Telegram no està connectat: Telegrarr no pot baixar res fins que no hi iniciïs la sessió.",
  "banner.connect_telegram": "Connecta Telegram",
  "budget.banner": "S’ha arribat al límit diari de {limit} GB: les baixades es reprendran a les {at}.",
