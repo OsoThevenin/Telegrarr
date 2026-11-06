@@ -152,6 +152,14 @@ def set_progress(download_id: int, progress: float) -> None:
         c.execute("UPDATE downloads SET progress = ? WHERE id = ?", (progress, download_id))
 
 
+@app.post("/__e2e__/downloads/{download_id}/message", status_code=204, include_in_schema=False)
+def post_message(download_id: int) -> None:
+    """The Telegram message behind a row, which Resume and Retry ask for."""
+    with db.conn() as c:
+        row = c.execute("SELECT message_id, file_name FROM downloads WHERE id = ?", (download_id,)).fetchone()
+    tg._client.post(CHAT_ID, text=row["file_name"], file_name=row["file_name"], message_id=row["message_id"])
+
+
 def main() -> None:
     db.init()  # the seed needs the tables, and the lifespan only starts with uvicorn
     install_fakes()
