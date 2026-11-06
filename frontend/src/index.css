@@ -1,6 +1,16 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* The registry's radix-nova components style Radix states with these short names.
+   shadcn ships them in its CLI package, which is too much to install for them. */
+@custom-variant data-open (&[data-state="open"]);
+@custom-variant data-closed (&[data-state="closed"]);
+@custom-variant data-checked (&[data-state="checked"]);
+@custom-variant data-unchecked (&[data-state="unchecked"]);
+@custom-variant data-active (&[data-state="active"]);
+@custom-variant data-horizontal (&[data-orientation="horizontal"]);
+@custom-variant data-vertical (&[data-orientation="vertical"]);
+
 /* The same choice as the old UI: data-theme overrides the system preference, and
    both UIs read it from localStorage. */
 @custom-variant dark {
