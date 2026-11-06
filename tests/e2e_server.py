@@ -74,7 +74,7 @@ def seed() -> None:
     movies = channels.upsert(CHAT_ID, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
     # Chats the account is in but Telegrarr does not read yet, for Add channel.
-    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat").photo = CHANNEL_PHOTO
+    tg._client.add_channel(-1001234567892, "Merlí 1080p", username="merlicat")
     tg._client.add_group(-1001234567893, "Amics del cinema")
     tg._client.add_forum(-1001234567894, "Anime en català", topics=("Sèries HD", "Pel·lícules HD"))
     tg._client.add_channel(-1001234567895, "Canal Secret", username="canalsecret")

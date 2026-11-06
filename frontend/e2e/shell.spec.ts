@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { expect, submitLoginForm, test } from "./fixtures";
+import { expect, submitLoginForm, test, watchErrors } from "./fixtures";
 
 const SCREENS = [
   ["Tauler", "/"],
@@ -18,11 +18,7 @@ const screenHeading = (page: Page, name: string) => page.getByRole("heading", { 
 
 test.describe("signed in", () => {
   test("every screen is reachable from the sidebar, with no browser errors", async ({ signedInPage: page }) => {
-    const errors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
+    const errors = watchErrors(page);
 
     await page.goto("/");
 

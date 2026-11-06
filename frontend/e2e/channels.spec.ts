@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { expect, test } from "./fixtures";
+import { expect, test, watchErrors } from "./fixtures";
 
 const PHONE = { width: 390, height: 844 };
 
@@ -19,11 +19,7 @@ test.describe("channels", () => {
   test("browses, inspects, edits and removes a channel, by mouse and keyboard, with no browser errors", async ({
     signedInPage: page,
   }) => {
-    const errors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
+    const errors = watchErrors(page);
 
     await openChannels(page);
     await expect(tab(page, /^Sèries\s*1$/)).toBeVisible();
