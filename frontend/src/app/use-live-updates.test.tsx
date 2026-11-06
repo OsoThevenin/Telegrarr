@@ -13,6 +13,7 @@ import { server } from "@/test/server";
 
 const STREAM_GONE_QUIET_MS = 12000;
 const RECONNECT_MS = 5000;
+const STATUS_POLL_MS = 6000;
 
 function row(overrides: Partial<Download> = {}): Download {
   return {
@@ -112,6 +113,30 @@ describe("live updates", () => {
     emitSnapshot({ stats: counts({ completed: 4 }), speed: 2.5 });
 
     expect(await screen.findByText("completed: 4")).toBeVisible();
+    expect(screen.getByText("speed: 2.5")).toBeVisible();
+  });
+
+  it("keeps the last speed through a status poll, which knows none", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval", "setTimeout", "Date"] });
+    serveDownloads([]);
+    server.use(
+      http.get("/api/status", () =>
+        HttpResponse.json({
+          stats: counts({ completed: 9 }),
+          paused: false,
+          budget: EMPTY_SNAPSHOT.budget,
+          disk: EMPTY_SNAPSHOT.disk,
+        }),
+      ),
+    );
+    renderLiveScreen();
+    await screen.findByText("completed: 9");
+    emitSnapshot({ stats: counts({ completed: 4 }), speed: 2.5 });
+    await screen.findByText("speed: 2.5");
+
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_MS);
+
+    expect(await screen.findByText("completed: 9")).toBeVisible();
     expect(screen.getByText("speed: 2.5")).toBeVisible();
   });
 

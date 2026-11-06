@@ -53,6 +53,10 @@ export const STATUS_KEY = ["status"] as const;
 
 export const statusQuery = queryOptions({
   queryKey: STATUS_KEY,
-  queryFn: () => api.get<Status>("/api/status"),
+  queryFn: async ({ client }): Promise<Status> => {
+    const status = await api.get<Status>("/api/status");
+    // The poll knows no speed: without this, the figure would blink out until the next snapshot.
+    return { ...status, speed: client.getQueryData<Status>(STATUS_KEY)?.speed };
+  },
   refetchInterval: STATUS_POLL_MS,
 });
