@@ -7,7 +7,7 @@ type Params = Record<string, unknown>;
 
 type I18n = {
   language: Language;
-  /** The BCP 47 tag to format dates and numbers with. */
+  /** The BCP 47 tag for dates and numbers in that language. */
   locale: string;
   /** Looks up a key; an unknown key renders as itself. */
   t: (key: string, params?: Params) => string;

@@ -1,4 +1,4 @@
-import type { Download } from "@/lib/downloads";
+import { downloadName, downloadSource, type Download } from "@/lib/downloads";
 
 export type DownloadStatus = Download["status"];
 
@@ -32,17 +32,6 @@ export const isInTransfer = ({ status }: Download): boolean => ACTIVE_TAB.status
 /** The rows Retry can act on; the server enforces the same rule. */
 export const isRetryable = ({ status }: Download): boolean => RETRYABLE.includes(status);
 
-const baseName = (path: string | null | undefined): string => (path ?? "").split("/").pop() ?? "";
-
-/** What a row is called: its file in the library, once it has one. */
-export const displayName = ({ save_path, file_name }: Download): string => baseName(save_path) || file_name || "";
-
-/** The channel a row came from, with its forum topic. */
-export function sourceTitle({ channel_title, topic_title }: Download): string {
-  const title = channel_title ?? "";
-  return topic_title ? `${title} › ${topic_title}` : title;
-}
-
 export const rowsOfTab = (rows: readonly Download[], { statuses }: DownloadTab): Download[] =>
   rows.filter(({ status }) => statuses.includes(status));
 
@@ -50,7 +39,7 @@ const SHOW_FOLDER = /\/([^/]+)\/Season\s[^/]*\/[^/]*$/i;
 
 /** The show a finished file belongs to: its library folder, else where it came from. */
 export const showName = (download: Download): string =>
-  download.save_path?.match(SHOW_FOLDER)?.[1] ?? sourceTitle(download);
+  download.save_path?.match(SHOW_FOLDER)?.[1] ?? downloadSource(download);
 
 export type DownloadGroup = {
   name: string;
@@ -66,7 +55,7 @@ export function groupByShow(rows: readonly Download[], unknownName: string): Dow
 
 export function matchesFilter(download: Download, filter: string): boolean {
   const wanted = filter.trim().toLowerCase();
-  return [displayName(download), sourceTitle(download)].some((text) => text.toLowerCase().includes(wanted));
+  return [downloadName(download), downloadSource(download)].some((text) => text.toLowerCase().includes(wanted));
 }
 
 const newestFirst = (a: Download, b: Download): number => moment(b) - moment(a);
@@ -79,7 +68,7 @@ export const SORT_ORDERS = [
   {
     id: "name",
     labelKey: "dl.sort.name",
-    compare: (a: Download, b: Download) => displayName(a).localeCompare(displayName(b)),
+    compare: (a: Download, b: Download) => downloadName(a).localeCompare(downloadName(b)),
   },
 ] as const;
 

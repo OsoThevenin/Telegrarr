@@ -15,12 +15,12 @@ export type Download = {
   /** From 0 to 1. */
   progress: number;
   speed_mbs: number;
+  save_path: string | null;
+  finished_at: number | null;
   channel_title: string | null;
   topic_title: string | null;
-  save_path?: string | null;
   /** In seconds since the epoch. */
   created_at?: number;
-  finished_at?: number | null;
   /** Legacy rows keep plain text here; newer ones say why in `error_msg`. */
   error?: string | null;
   error_msg?: ServerMessage | null;
@@ -38,3 +38,14 @@ export const downloadsQuery = queryOptions({
   queryKey: [...DOWNLOADS_KEY, { limit: MAX_DOWNLOADS }],
   queryFn: () => api.get<Download[]>(`/api/downloads?limit=${MAX_DOWNLOADS}`),
 });
+
+/** The name a person knows a download by: the file as saved, once it has a place. */
+export function downloadName({ save_path: savePath, file_name: fileName }: Download): string {
+  return savePath?.split("/").pop() || fileName || "";
+}
+
+/** The Channel a download came from, with its topic in a forum group. */
+export function downloadSource({ channel_title: channelTitle, topic_title: topic }: Download): string {
+  const title = channelTitle ?? "";
+  return topic ? `${title} › ${topic}` : title;
+}

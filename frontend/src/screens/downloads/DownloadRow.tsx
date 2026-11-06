@@ -1,11 +1,11 @@
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useI18n } from "@/i18n/use-i18n";
-import type { Download } from "@/lib/downloads";
+import { downloadName, downloadSource, type Download } from "@/lib/downloads";
 import { cn } from "@/lib/utils";
 import { DownloadActions } from "@/screens/downloads/DownloadActions";
 import { DownloadNotes } from "@/screens/downloads/DownloadNotes";
-import { displayName, isInTransfer, sourceTitle } from "@/screens/downloads/download-list";
+import { isInTransfer } from "@/screens/downloads/download-list";
 import { formatSize, percent, timeRemaining } from "@/screens/downloads/format";
 
 type Props = {
@@ -27,7 +27,7 @@ function useRowDetails(download: Download): string {
   const finishedDetails = () => [finished_at ? new Date(finished_at * 1000).toLocaleDateString(locale) : null];
 
   return [
-    sourceTitle(download) || "—",
+    downloadSource(download) || "—",
     file_size ? formatSize(file_size) : "—",
     ...(isInTransfer(download) ? transferDetails() : finishedDetails()),
   ]
@@ -37,7 +37,7 @@ function useRowDetails(download: Download): string {
 
 export function DownloadRow({ download, isDense }: Props) {
   const { t } = useI18n();
-  const name = displayName(download);
+  const name = downloadName(download);
   const details = useRowDetails(download);
 
   return (
