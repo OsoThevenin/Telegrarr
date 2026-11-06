@@ -1,16 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loginUrl, pathFromOldHash } from "@/lib/browser";
-
-describe("loginUrl", () => {
-  it("goes straight to the login page from the root", () => {
-    expect(loginUrl("/")).toBe("/login");
-  });
-
-  it("remembers any other page, with its query", () => {
-    expect(loginUrl("/downloads?tab=failed")).toBe("/login?next=%2Fdownloads%3Ftab%3Dfailed");
-  });
-});
+import { pathFromOldHash } from "@/lib/browser";
 
 describe("pathFromOldHash", () => {
   it("reads a screen of the old app", () => {

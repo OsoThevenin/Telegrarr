@@ -133,25 +133,21 @@ test.describe("old addresses", () => {
 });
 
 test.describe("signed out", () => {
-  for (const [url, login] of [
-    ["/", "/login"],
-    ["/channels", "/login?next=%2Fchannels"],
-    ["/no-such-screen", "/login?next=%2Fno-such-screen"],
-  ]) {
+  for (const url of ["/", "/channels", "/no-such-screen"]) {
     test(`${url} ends at the login page`, async ({ page }) => {
       await page.goto(url);
 
-      await expect(page).toHaveURL(login);
+      await expect(page).toHaveURL("/login");
     });
   }
 
-  test("signing in returns to the page that was asked for", async ({ page }) => {
+  test("signing in from a deep link lands on the Dashboard", async ({ page }) => {
     await page.goto("/downloads?tab=failed");
 
     await submitLoginForm(page);
 
-    await expect(page).toHaveURL("/downloads?tab=failed");
-    await expect(page.getByRole("tab", { name: /^Fallides/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL("/");
+    await expect(screenHeading(page, "Tauler")).toBeVisible();
   });
 
   test("signing in from the login page opens the app", async ({ page }) => {

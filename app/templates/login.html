@@ -18,7 +18,6 @@
     </div>
     <p class="login-sub">{{ t('login.tagline') }}</p>
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
-    {% if return_to %}<input type="hidden" name="next" value="{{ return_to }}">{% endif %}
     <input name="username" placeholder="{{ t('login.username') }}" autocomplete="username" required autofocus>
     <input name="password" type="password" placeholder="{{ t('login.password') }}" autocomplete="current-password" required>
     <button type="submit">{{ t('login.submit') }}</button>

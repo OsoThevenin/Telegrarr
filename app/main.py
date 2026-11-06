@@ -4,9 +4,8 @@ import json
 import asyncio
 import logging
 import contextlib
-from urllib.parse import urlencode
 
-from fastapi import FastAPI, Request, Form, Depends, HTTPException, Query
+from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
                                Response, StreamingResponse, FileResponse)
 from fastapi.staticfiles import StaticFiles
@@ -108,13 +107,11 @@ _LOGIN_ERRORS = {"invalid": "login.err.invalid", "throttled": "login.err.throttl
 
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = "", wait: int = 0,
-                     return_to: str = Query("", alias="next")):
+async def login_page(request: Request, error: str = "", wait: int = 0):
     lang = i18n.ui_lang()
     key = _LOGIN_ERRORS.get(error)
     text = i18n.translate(key, lang, wait=wait) if key else ""
-    return templates.TemplateResponse(request, "login.html",
-                                      _page_ctx(lang, error=text, return_to=return_to))
+    return templates.TemplateResponse(request, "login.html", _page_ctx(lang, error=text))
 
 
 def _is_secure(request: Request) -> bool:
@@ -125,26 +122,23 @@ def _is_secure(request: Request) -> bool:
 
 
 @app.post("/login")
-async def do_login(request: Request, username: str = Form(...), password: str = Form(...),
-                   return_to: str = Form("", alias="next")):
+async def do_login(request: Request, username: str = Form(...), password: str = Form(...)):
     key = auth.client_key(request)
-    return_to = auth.local_path(return_to)
-    remembered = "" if return_to == "/" else f"&{urlencode({'next': return_to})}"
 
     wait = auth.throttle_retry_after(key)
     if wait:
         db.log("WARN", i18n.message("event.login_locked", client=key, seconds=wait))
         return RedirectResponse(
-            f"/login?error=throttled&wait={wait}{remembered}",
+            f"/login?error=throttled&wait={wait}",
             status_code=303)
 
     if not auth.verify(username, password):
         auth.record_failure(key)
         db.log("WARN", i18n.message("event.login_failed", user=username, client=key))
-        return RedirectResponse(f"/login?error=invalid{remembered}", status_code=303)
+        return RedirectResponse("/login?error=invalid", status_code=303)
 
     auth.record_success(key)
-    r = RedirectResponse(return_to, status_code=303)
+    r = RedirectResponse("/", status_code=303)
     # secure=True only when the request actually arrived over TLS, so the
     # cookie still works for the common plain-HTTP LAN deployment.
     r.set_cookie("telearr_sess", auth.make_cookie(username),

@@ -1,6 +1,6 @@
 """The React app at /: FastAPI serves the build, deep links get its index, the login
 guards it, old /ui/ paths redirect, and API, Newznab and SAB paths are not affected."""
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -177,18 +177,12 @@ async def test_the_index_file_is_behind_the_login_too(fresh_db, ui_build, logged
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("path, target", [
-    ("/channels", "/channels"),
-    ("/settings/account", "/settings/account"),
-    ("/downloads?tab=failed", "/downloads?tab=failed"),
-])
-async def test_a_logged_out_deep_link_is_remembered_for_after_login(fresh_db, ui_build, logged_out, path, target):
+@pytest.mark.parametrize("path", ["/channels", "/settings/account", "/downloads?tab=failed"])
+async def test_a_logged_out_deep_link_is_sent_to_login(fresh_db, ui_build, logged_out, path):
     r = await logged_out.get(path)
 
     assert r.status_code == 303
-    location = urlsplit(r.headers["location"])
-    assert location.path == "/login"
-    assert parse_qs(location.query) == {"next": [target]}
+    assert r.headers["location"] == "/login"
 
 
 @pytest.mark.asyncio
@@ -199,7 +193,7 @@ async def test_logged_out_a_built_asset_is_public_like_static(fresh_db, ui_build
     assert r.status_code == 200
 
 
-# ── coming back after the login ──────────────────────────────────────
+# ── signing in ───────────────────────────────────────────────────────
 async def _submit_login(http, password=PASSWORD, **fields):
     form = {"username": "admin", "password": password, **fields}
     return await http.post("/login", data=form, follow_redirects=False)
@@ -212,20 +206,6 @@ def admin_account(fresh_db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_login_form_carries_the_remembered_page(fresh_db, logged_out):
-    page = (await logged_out.get("/login", params={"next": "/downloads?tab=failed&x=1"})).text
-
-    assert '<input type="hidden" name="next" value="/downloads?tab=failed&amp;x=1">' in page
-
-
-@pytest.mark.asyncio
-async def test_the_login_form_escapes_the_remembered_page(fresh_db, logged_out):
-    page = (await logged_out.get("/login", params={"next": '/"><script>alert(1)</script>'})).text
-
-    assert "<script>alert(1)" not in page
-
-
-@pytest.mark.asyncio
 async def test_signing_in_lands_on_the_app(admin_account, logged_out):
     r = await _submit_login(logged_out)
 
@@ -234,33 +214,26 @@ async def test_signing_in_lands_on_the_app(admin_account, logged_out):
 
 
 @pytest.mark.asyncio
-async def test_signing_in_returns_to_the_remembered_page(admin_account, logged_out):
-    r = await _submit_login(logged_out, next="/downloads?tab=failed")
+async def test_the_login_page_has_no_return_address(fresh_db, logged_out):
+    page = (await logged_out.get("/login", params={"next": "/channels"})).text
 
-    assert r.status_code == 303
-    assert r.headers["location"] == "/downloads?tab=failed"
+    assert 'name="next"' not in page
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", [
-    "https://evil.example/", "//evil.example", "/\\evil.example", "/\t/evil.example", "evil.example", "",
-])
-async def test_signing_in_never_leaves_this_host(admin_account, logged_out, target):
-    r = await _submit_login(logged_out, next=target)
+async def test_signing_in_ignores_a_return_address(admin_account, logged_out):
+    r = await _submit_login(logged_out, next="/downloads?tab=failed")
 
     assert r.headers["location"] == "/"
 
 
 @pytest.mark.asyncio
-async def test_a_failed_login_keeps_the_remembered_page(admin_account, logged_out):
+async def test_a_failed_login_stays_on_the_login_page(admin_account, logged_out):
     r = await _submit_login(logged_out, password="wrong", next="/channels")
 
-    location = urlsplit(r.headers["location"])
-    assert location.path == "/login"
-    assert parse_qs(location.query) == {"error": ["invalid"], "next": ["/channels"]}
+    assert r.headers["location"] == "/login?error=invalid"
 
 
-# ── everything else keeps its route ──────────────────────────────────
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/login", "/healthz"])
 async def test_pages_of_the_backend_keep_precedence(arr_app, ui_build, path):

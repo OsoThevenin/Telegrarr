@@ -7,7 +7,7 @@
 # Vite content-hashes everything in assets/; the rest of the build keeps its URL, as
 # /sw.js has to, and is revalidated.
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -42,18 +42,9 @@ def _built_file(path: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _login_redirect(request: Request) -> RedirectResponse:
-    """To the login page, which brings the visitor back here afterwards."""
-    target = request.scope["path"]
-    if request.url.query:
-        target = f"{target}?{request.url.query}"
-    url = "/login" if target == "/" else f"/login?{urlencode({'next': target})}"
-    return RedirectResponse(url, status_code=303)
-
-
 def _index(request: Request) -> Response:
     if not auth.cookie_user(request):
-        return _login_redirect(request)
+        return RedirectResponse("/login", status_code=303)
     index = Path(UI_DIST) / INDEX
     if not index.is_file():
         raise HTTPException(SERVICE_UNAVAILABLE, "The UI is not built: run pnpm build in frontend/")

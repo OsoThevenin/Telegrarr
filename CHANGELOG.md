@@ -6,7 +6,6 @@
 - The web interface is new, and it is now the one at `/`. Every screen is rebuilt, with
   a command palette on ⌘K / Ctrl+K, a phone drawer, live updates, and addresses for
   each screen and Downloads tab. API, Newznab and SAB paths are unchanged.
-- Signing in returns to the page that was asked for.
 
 ### Removed
 - The old interface. Old `/ui/...` addresses and `#/channels` bookmarks open the same
