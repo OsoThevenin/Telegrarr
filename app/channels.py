@@ -1,6 +1,4 @@
 # app/channels.py — source-channel rows: creation and series-id mapping.
-# Shared by the channel API and the directory mass import so both create and map
-# channels the same way.
 import time
 
 from . import db, release_titles, series_titles, settings, tmdb
@@ -73,14 +71,6 @@ def series_title(imdb_id: str) -> str:
     with db.conn() as c:
         row = c.execute("SELECT imdb_title FROM channels WHERE imdb_id=? LIMIT 1", (imdb_id,)).fetchone()
     return (row["imdb_title"] if row else "") or ""
-
-
-def existing_chat_ids() -> dict[int, int]:
-    """chat_id -> channel id of every whole-chat source already added (topic sources
-    don't count: adding one topic of a group doesn't add the group)."""
-    with db.conn() as c:
-        return {r["chat_id"]: r["id"]
-                for r in c.execute("SELECT id, chat_id FROM channels WHERE topic_id IS NULL")}
 
 
 def _source_id(c, chat_id: int, topic_id: int | None) -> int | None:

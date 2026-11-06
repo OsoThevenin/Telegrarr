@@ -254,18 +254,6 @@ async def authorized_client():
 _ready = authorized_client
 
 
-def source_messages(c, chat_id: int, *, limit: int | None = None, topic_id: int | None = None):
-    """A source's messages on client `c`, newest first, as directory scans read
-    them; scans and history batches use `read_messages`, with the same rules.
-
-    `topic_id` restricts the read to one forum topic (Telethon's `reply_to`
-    filter); None reads the whole chat, as for a channel. Telegram refuses that
-    filter for the General topic, so General reads the whole group and keeps
-    the messages of no named topic (`limit` then counts messages read, not kept)."""
-    raw = _chat_messages(c, chat_id, topic_id, limit=limit)
-    return _general_messages(raw) if topic_id == GENERAL_TOPIC_ID else raw
-
-
 def _chat_messages(c, chat_id: int, topic_id: int | None, **window):
     """What Telegram is asked for a source: General reads its whole group."""
     if topic_id in (None, GENERAL_TOPIC_ID):
@@ -284,13 +272,6 @@ def _in_general(msg) -> bool:
     """Whether `msg` is a General topic post of its forum group (service messages
     such as topic creations are not)."""
     return not _in_named_topic(msg) and not getattr(msg, "action", None)
-
-
-async def _general_messages(messages):
-    """The General topic's posts among a forum group's `messages`."""
-    async for msg in messages:
-        if _in_general(msg):
-            yield msg
 
 
 @dataclass(frozen=True)

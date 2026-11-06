@@ -38,9 +38,6 @@ reaches Jellyfin through the existing *arr import pipeline with no manual steps.
 - **Movie channel**: one channel with many films. Each message's title and year are parsed and
   looked up on TMDB (language `ca-ES`, fallback `en-US`). No confident match → **Pending review**
   queue in the UI where the user picks the film or discards the message.
-- **Directory channel** (last milestone): a channel that posts links to per-show channels.
-  Telegrarr scans it, lists linked channels with an auto-suggested TMDB match, and imports the
-  ticked ones in one go.
 - Out of scope: one channel with many different series.
 
 ### 3.3 Identity mapping
@@ -118,6 +115,6 @@ Bazarr, Lidarr/music, multi-user, standalone library mode and Plex refresh, many
 | M7 | Connect page | One-click registration (3.7) | Fresh Prowlarr/Sonarr/Radarr register in one click |
 | M8 | Catalan UI | i18n dictionaries, default `ca` (3.8) | No English string visible in `ca` mode |
 | M9 | Rollout | Compose, NPM, registrations, Jellyfin connections (3.10) | A Catalan episode appears in Jellyfin end to end |
-| M10 | Directory channels | Scan + mass import (3.2) | Import of a linked-channel list works; may slip to v1.1 |
+| M10 | Directory channels | **Dropped**: shipped in v1.1.0, then removed (see `.out-of-scope/directory-import.md`) | — |
 
-M9 marks v1.0.0 feature-complete; M10 ships in v1.0.0 only if it lands without delaying M9.
+M9 marks v1.0.0 feature-complete.
