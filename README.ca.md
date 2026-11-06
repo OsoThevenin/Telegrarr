@@ -249,7 +249,7 @@ prioritat sobre el valor desat i la interfície i l’API no deixen canviar aque
 
 | Variable | Funció | Per defecte |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram; tenen prioritat sobre l’assistent de configuració | obligatòries aquí o a l’assistent |
+| `TG_API_ID` / `TG_API_HASH` | Credencials de l'API de Telegram; tenen prioritat sobre els valors desats | obligatòries |
 | `TELEARR_SECRET_KEY` | Clau de signatura de la galeta de sessió | posa-hi un valor aleatori llarg |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Usuari administrador inicial (primera execució) | — |
 | `PATH_TO_DOWNLOADS` | Carpeta de l'amfitrió muntada a `/downloads` | `./downloads` |

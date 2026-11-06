@@ -237,7 +237,7 @@ the value `.env.example` ships, counts as not set.
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials; win over the setup wizard | required here or in the wizard |
+| `TG_API_ID` / `TG_API_HASH` | Telegram API credentials; win over saved values | required |
 | `TELEARR_SECRET_KEY` | Session-cookie signing key | set a strong random value |
 | `TELEARR_ADMIN_USER` / `TELEARR_ADMIN_PASS` | Seed admin login (first run) | — |
 | `PATH_TO_DOWNLOADS` | Host folder mounted at `/downloads` | `./downloads` |
