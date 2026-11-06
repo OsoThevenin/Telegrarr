@@ -61,28 +61,40 @@ function useTestEndpoint(path: string) {
   });
 }
 
-const NO_FIELDS = [] as const;
+type SaveSecret = (secrets: Record<string, unknown>) => Promise<boolean>;
 
-function TmdbCard({ settings }: Props) {
-  const { t } = useI18n();
-  const form = useSettingsForm(settings, NO_FIELDS);
-  const save = useSaveSettings();
-  const test = useTestEndpoint("/api/integrations/tmdb/test");
+/** A secret field whose save goes on to test the integration it unlocks. */
+function useTestedSecret(key: string, testPath: string, save: SaveSecret) {
+  const clear = useSaveSettings();
+  const test = useTestEndpoint(testPath);
   const [draft, setDraft] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!(await form.submit(secretPatch("tmdb_key", draft)))) return;
+    if (!(await save(secretPatch(key, draft)))) return;
     setDraft(null);
     test.mutate();
   }
 
   async function handleClear() {
-    await save.mutateAsync({ tmdb_key: "" });
+    await clear.mutateAsync({ [key]: "" });
     setDraft(null);
     test.reset();
   }
 
+  return { draft, setDraft, test, handleSubmit, handleClear };
+}
+
+const NO_FIELDS = [] as const;
+
+function TmdbCard({ settings }: Props) {
+  const { t } = useI18n();
+  const form = useSettingsForm(settings, NO_FIELDS);
+  const { draft, setDraft, test, handleSubmit, handleClear } = useTestedSecret(
+    "tmdb_key",
+    "/api/integrations/tmdb/test",
+    form.submit,
+  );
   const canSubmit = settings.tmdb_key_set || Boolean(draft?.trim());
 
   return (
@@ -122,22 +134,11 @@ const PLEX_KEYS = ["plex_url"] as const;
 function PlexCard({ settings }: Props) {
   const { t } = useI18n();
   const { form, setField, isSaving, outcome, submit } = useSettingsForm(settings, PLEX_KEYS);
-  const save = useSaveSettings();
-  const test = useTestEndpoint("/api/integrations/plex/test");
-  const [draft, setDraft] = useState<string | null>(null);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!(await submit(secretPatch("plex_token", draft)))) return;
-    setDraft(null);
-    test.mutate();
-  }
-
-  async function handleClear() {
-    await save.mutateAsync({ plex_token: "" });
-    setDraft(null);
-    test.reset();
-  }
+  const { draft, setDraft, test, handleSubmit, handleClear } = useTestedSecret(
+    "plex_token",
+    "/api/integrations/plex/test",
+    submit,
+  );
 
   return (
     <Card>
