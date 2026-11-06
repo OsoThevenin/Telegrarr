@@ -100,11 +100,11 @@ test.describe("signed in", () => {
       await page.goto("/settings");
       await expect(screenHeading(page, "Configuració")).toBeVisible();
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-
-      expect(overflow).toBe(0);
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+        )
+        .toBe(0);
     });
   });
 });
