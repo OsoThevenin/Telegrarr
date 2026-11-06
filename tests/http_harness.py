@@ -22,7 +22,7 @@ import httpx
 from telethon import utils
 from telethon.errors import ChannelForumMissingError, ChannelPrivateError, FloodWaitError, MsgIdInvalidError
 from telethon.tl import types
-from telethon.tl.functions.messages import CheckChatInviteRequest, GetForumTopicsRequest
+from telethon.tl.functions.messages import GetForumTopicsRequest
 
 BASE_URL = "http://telegrarr.test"
 POLL_INTERVAL_S = 0.02
@@ -55,8 +55,6 @@ class FakeMessage:
     message: str
     document: FakeDocument | None
     video: None = None
-    entities: tuple = ()
-    reply_markup: Any = None
     reply_to: Any = None        # MessageReplyHeader(forum_topic=True, ...) inside a named topic
     action: Any = None          # set on service messages (forum creation, topic creation)
 
@@ -150,7 +148,6 @@ class FakeTelegram:
     def __init__(self) -> None:
         self.channels: dict[int, FakeChannel] = {}
         self.downloaded: list[tuple[int, int]] = []   # (chat_id, message_id) served
-        self.invites: dict[str, int | str] = {}      # invite hash -> member chat_id | title (not a member)
         self.requests: list[Any] = []                # raw TL requests sent via client(...)
         self.lookups: list[int | str] = []           # every get_entity() query, in order
         self.history_reads: list[int] = []           # chat ids whose messages were iterated
@@ -314,24 +311,14 @@ class FakeTelegram:
         channel.payloads[mid] = content
         return msg
 
-    def post_text(self, chat_id: int, text: str, *, urls: tuple[str, ...] = (),
-                  buttons: tuple[str, ...] = (), topic: int | None = None) -> FakeMessage:
-        """Post a text-only message (in forum ``topic``, as for :meth:`post`).
-        ``urls`` become hidden text-link entities and ``buttons`` inline URL
-        buttons, the two other places Telegram carries links."""
+    def post_text(self, chat_id: int, text: str, *, topic: int | None = None) -> FakeMessage:
+        """Post a text-only message (in forum ``topic``, as for :meth:`post`)."""
         channel = self.channels[chat_id]
         mid = channel.next_message_id()
-        entities = tuple(types.MessageEntityTextUrl(offset=0, length=1, url=u) for u in urls)
-        markup = types.ReplyInlineMarkup(rows=[types.KeyboardButtonRow(
-            buttons=[types.KeyboardButtonUrl(text="open", url=u) for u in buttons])]) if buttons else None
         msg = FakeMessage(id=mid, chat_id=chat_id, message=text, document=None,
-                          entities=entities, reply_markup=markup, reply_to=channel.topic_header(topic))
+                          reply_to=channel.topic_header(topic))
         channel.messages[mid] = msg
         return msg
-
-    def add_invite(self, invite_hash: str, *, chat_id: int | None = None, title: str = "") -> None:
-        """An invite link: to ``chat_id`` if the account is a member, else only a title."""
-        self.invites[invite_hash] = chat_id if chat_id is not None else title
 
     def _entity(self, channel: FakeChannel) -> types.Channel:
         bare_id, _ = utils.resolve_id(channel.chat_id)
@@ -375,15 +362,7 @@ class FakeTelegram:
         self.requests.append(request)
         if isinstance(request, GetForumTopicsRequest):
             return self._forum_topics(request)
-        if not isinstance(request, CheckChatInviteRequest):
-            raise AssertionError(f"unexpected Telegram request {type(request).__name__}")
-        self._lookup(request.hash)
-        target = self.invites.get(request.hash)
-        if target is None:
-            raise ValueError("INVITE_HASH_INVALID")
-        if isinstance(target, str):
-            return types.ChatInvite(title=target, photo=types.PhotoEmpty(id=0), participants_count=0, color=0)
-        return types.ChatInviteAlready(chat=self._entity(self.channels[target]))
+        raise AssertionError(f"unexpected Telegram request {type(request).__name__}")
 
     def _forum_topics(self, request: GetForumTopicsRequest) -> types.messages.ForumTopics:
         """Answer the forum-topics request: General first, then named topics in

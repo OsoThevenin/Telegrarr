@@ -150,23 +150,6 @@ canal pel seu compte**: uneix-t'hi primer des de l'aplicació de Telegram.
 
 La clau de TMDB va a *Configuració → Integracions → Imatges (TMDB)*.
 
-### Importació des d'un canal directori
-
-Alguns canals només publiquen enllaços a un canal per sèrie. **Canals → Importa un
-directori** llegeix aquest canal, llista els canals enllaçats amb una coincidència de
-TMDB suggerida i afegeix de cop els que marquis. Límits, per protegir el compte:
-
-- Telegrarr **no s'uneix** a res: els enllaços d'invitació privats a canals dels
-  quals no ets membre es mostren, però no es poden importar fins que t'hi uneixis des
-  de Telegram.
-- Només es llegeixen els **300 missatges més recents** del directori.
-- Com a màxim es resolen **60 enllaços per escaneig**; la resta s'indiquen i es
-  resolen en un escaneig posterior.
-- Un directori es llegeix de Telegram com a màxim un cop cada **15 minuts**; si el
-  tornes a escanejar abans, es reutilitza el resultat desat.
-- Els canals sense coincidència a TMDB s'importen **sense assignar**; els pots
-  assignar després des del diàleg del canal.
-
 ## Interpretació de noms en català
 
 Telegrarr llegeix el número de capítol del nom del fitxer o del text del missatge.

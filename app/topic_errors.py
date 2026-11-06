@@ -1,6 +1,5 @@
 """Why a topic source can't be read: its topic was deleted, or the account lost
-access to its forum group. Turned into keyed event-log messages (#29) and keyed
-directory-scan errors (#28)."""
+access to its forum group. Turned into keyed event-log messages (#29)."""
 from telethon.errors import (ChannelBannedError, ChannelInvalidError, ChannelPrivateError,
                              ChatForbiddenError, MsgIdInvalidError, TopicDeletedError,
                              UserBannedInChannelError)

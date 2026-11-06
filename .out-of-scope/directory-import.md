@@ -4,8 +4,8 @@ Telegrarr does not import channels in bulk from a "directory" channel or group,
 and does not follow the links a directory posts to find them.
 
 The feature (scan a directory, list the channels it links to with a TMDB
-suggestion, import the ticked ones as series channels) shipped in v1.1.0 and is
-being removed.
+suggestion, import the ticked ones as series channels) shipped in v1.1.0 and was
+removed in #103.
 
 ## Why this is out of scope
 

@@ -26,10 +26,10 @@
   restarts the file from the beginning under the same download id.
 - A scanning switch per Channel, on by default (`scanning`, set with `PATCH
   /api/channels/{id}`). With it off, Telegrarr doesn't read the Channel from Telegram:
-  polls skip it, and a manual Scan, a history fetch or a directory scan of it is
-  refused. Its Releases stay on offer to Sonarr and Radarr, and Grabs of them still
-  transfer. Failed transfers of the Channel are not retried automatically while it is
-  off; a manual Retry still works.
+  polls skip it, and a manual Scan or a history fetch of it is refused. Its Releases
+  stay on offer to Sonarr and Radarr, and Grabs of them still transfer. Failed
+  transfers of the Channel are not retried automatically while it is off; a manual
+  Retry still works.
 - Why not grabbed? `POST /api/channels/{id}/catalog/{tmdb_id}/why-not-grabbed` asks
   Radarr, on the operator's request only, what it thinks of a Catalog film's Releases
   and shows its rejections word for word. A film Radarr would take but is waiting on,
@@ -78,6 +78,12 @@
 - Scans respect the flood gate: while it is closed polls read nothing and catch up once
   it opens, and a manual Scan or Scan-all is refused with a 429. A FloodWait met during a
   scan closes the gate for every other Telegram read.
+
+### Removed
+- Directory import: the **Import directory** button and command,
+  `POST /api/directory/scan` and `POST /api/directory/import`. Real directories link to
+  posts inside themselves, so a scan found no channels (#57). See
+  `.out-of-scope/directory-import.md`.
 
 ### Fixed
 - `PLEX_URL` and `PLEX_TOKEN` reach Plex. Only values saved in the UI used to.

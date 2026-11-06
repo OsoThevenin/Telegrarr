@@ -174,6 +174,29 @@ async def test_a_topic_source_cannot_read_a_chat_whose_whole_chat_source_is_off(
 
 
 @pytest.mark.asyncio
+async def test_a_whole_chat_source_cannot_read_while_one_of_its_topics_is_off(arr_app):
+    forum = arr_app.telegram.add_forum(CHAT, "Forum", topics=("Films",))
+    forum.photo = PHOTO
+    whole = await arr_app.add_channel(CHAT)
+    topic = await arr_app.add_channel(CHAT, topic_id=forum.topic_id("Films"))
+    await _set_scanning(arr_app, topic, False)
+
+    assert _is_no_photo(await _photo(arr_app, whole))
+    assert arr_app.telegram.photo_reads == []
+
+
+@pytest.mark.asyncio
+async def test_a_topic_source_still_reads_while_a_sibling_topic_is_off(arr_app):
+    forum = arr_app.telegram.add_forum(CHAT, "Forum", topics=("Quiet", "Open"))
+    forum.photo = PHOTO
+    quiet = await arr_app.add_channel(CHAT, topic_id=forum.topic_id("Quiet"))
+    open_topic = await arr_app.add_channel(CHAT, topic_id=forum.topic_id("Open"))
+    await _set_scanning(arr_app, quiet, False)
+
+    assert (await _photo(arr_app, open_topic)).content == PHOTO
+
+
+@pytest.mark.asyncio
 async def test_a_closed_flood_gate_holds_the_read(arr_app, closed_gate_reset):
     source = await _source(arr_app)
     await closed_gate_reset.trip(600)

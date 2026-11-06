@@ -144,22 +144,6 @@ them in the Telegram app first.
 
 The TMDB key goes in *Settings → Integrations → Artwork (TMDB)*.
 
-### Import from a directory channel
-
-Some channels just post links to one channel per series. **Channels → Import
-directory** reads such a channel, lists the linked channels with a suggested TMDB
-match, and adds the ticked ones in one go. Limits, to keep the account safe:
-
-- Telegrarr does **not join** anything: private invite links to channels you are not
-  a member of are listed but cannot be imported until you join them in Telegram.
-- Only the **newest 300 messages** of the directory are read.
-- At most **60 links are resolved per scan**; the rest are reported and resolved on
-  a later scan.
-- A directory is read from Telegram at most once every **15 minutes**; scanning again
-  sooner reuses the cached result.
-- Channels without a TMDB match are imported **unmapped**; map them afterwards from
-  the channel dialog.
-
 ## Catalan parsing
 
 Telegrarr reads episode numbers from the file name or the caption. Underscores count

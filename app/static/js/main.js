@@ -7,7 +7,6 @@ import { viewSystem } from "./system.js";
 import { openTelegramConnect } from "./telegram-connect.js";
 import { initPalette, openCommandPalette } from "./palette.js";
 import { viewConnect } from "./connect.js";
-import { openDirectoryImport } from "./directory.js";
 import { viewReview } from "./review.js";
 
 const NAV = [
@@ -90,8 +89,7 @@ function syncNav() {
   document.title = active === "dashboard" ? "Telegrarr" : `${TITLE[active]} · Telegrarr`;
   const ca = qs("#ctx-actions");
   if (ca) mount(ca, active === "channels"
-    ? [h("button", { class: "btn ghost", onClick: () => openDirectoryImport(ctx) }, h("span", { html: icon("link") }), t("shell.import_directory")),
-      h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), t("shell.add_channel"))]
+    ? h("button", { class: "btn primary", onClick: () => openChannelModal(ctx, null) }, h("span", { html: icon("plus") }), t("shell.add_channel"))
     : []);
 }
 function syncThemeBtn() { const b = qs("#theme-toggle"); if (b) mount(b, h("span", { html: icon(getTheme() === "dark" ? "moon" : getTheme() === "light" ? "sun" : "wifi") })); }
@@ -170,7 +168,6 @@ function getCommands() {
   const cmds = NAV.map((n) => ({ label: t("cmd.go_to", { view: n.label }), icon: n.icon, hint: t("cmd.hint_view"), run: () => go(n.id) }));
   const paused = DATA.status && DATA.status.paused;
   cmds.push({ label: t("shell.add_channel"), icon: "plus", run: () => openChannelModal(ctx, null) });
-  cmds.push({ label: t("cmd.import_directory"), icon: "link", run: () => openDirectoryImport(ctx) });
   cmds.push({ label: paused ? t("shell.resume") : t("shell.pause"), icon: paused ? "play" : "pause", run: togglePause });
   cmds.push({ label: t("cmd.scan_all"), icon: "scan", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/scan`, { method: "POST" }); } });
   cmds.push({ label: t("cmd.backfill_all"), icon: "refresh", run: async () => { const ch = (await api("/api/channels")) || []; for (const c of ch) await api(`/api/channels/${c.id}/backfill`, { method: "POST" }); } });
