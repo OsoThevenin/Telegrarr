@@ -41,7 +41,7 @@ export function Downloads() {
         onDensityToggle={handleDensityToggle}
       />
       <Tabs value={openTab} onValueChange={setOpenTab}>
-        <TabsList className="h-auto max-w-full flex-wrap justify-start">
+        <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
           {DOWNLOAD_TABS.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="flex-none">
               {t(tab.labelKey)}{" "}

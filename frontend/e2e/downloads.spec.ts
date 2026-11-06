@@ -27,7 +27,9 @@ test("the tabs sit above the list and mark the open one, on a phone too", async 
   await expect(row(page, WAITING)).toBeVisible();
 
   const tabs = await page.getByRole("tablist").boundingBox();
+  const lastTab = await page.getByRole("tab", { name: /^Cancel·lades/ }).boundingBox();
   const firstRow = await row(page, WAITING).boundingBox();
+  expect(lastTab!.y + lastTab!.height).toBeLessThanOrEqual(tabs!.y + tabs!.height);
   expect(tabs!.y + tabs!.height).toBeLessThanOrEqual(firstRow!.y);
 
   const background = (name: RegExp) =>
