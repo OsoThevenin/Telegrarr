@@ -16,6 +16,12 @@ export async function signIn(request: APIRequestContext): Promise<void> {
   expect(response.headers().location).toBe("/");
 }
 
+/** Sets environment variables on the backend, as a deployment would, until the next reset. */
+export async function setBackendEnv(request: APIRequestContext, values: Record<string, string>): Promise<void> {
+  const response = await request.post("/__e2e__/env", { data: values });
+  expect(response.ok()).toBe(true);
+}
+
 export const test = base.extend<Fixtures>({
   resetBackend: [
     async ({ request }, use) => {
