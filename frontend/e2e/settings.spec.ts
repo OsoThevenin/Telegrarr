@@ -24,9 +24,14 @@ test("fits a phone without sideways scrolling, with its tabs above the content",
   expect(tabs!.y + tabs!.height).toBeLessThanOrEqual(content!.y);
 });
 
-test("a secret shows as saved, never comes back, and can be cleared",async ({ signedInPage: page }) => {
+test("a secret shows as saved, can be cleared, and never comes back", async ({ signedInPage: page }) => {
   await openTab(page, "Integracions");
   const tmdb = page.locator('[data-slot="card"]', { hasText: "Imatges (TMDB)" });
+  await expect(tmdb.getByText("Desat ••••")).toBeVisible();
+
+  await tmdb.getByRole("button", { name: /^Esborra/ }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: /Esborra/ }).click();
+  await expect(tmdb.getByText("Desat ••••")).toHaveCount(0);
 
   await tmdb.getByLabel("Clau de l’API").fill("tmdb-e2e-key");
   await tmdb.getByRole("button", { name: "Desa i prova" }).click();
@@ -35,12 +40,6 @@ test("a secret shows as saved, never comes back, and can be cleared",async ({ si
   await openTab(page, "Integracions");
   await expect(tmdb.getByText("Desat ••••")).toBeVisible();
   await expect(page.getByText("tmdb-e2e-key")).toHaveCount(0);
-
-  await tmdb.getByRole("button", { name: /^Esborra/ }).click();
-  await page.getByRole("alertdialog").getByRole("button", { name: /Esborra/ }).click();
-
-  await expect(tmdb.getByText("Desat ••••")).toHaveCount(0);
-  await expect(tmdb.getByLabel("Clau de l’API")).toBeVisible();
 });
 
 test("autonomous mode only changes once its dialog is confirmed", async ({ signedInPage: page }) => {
