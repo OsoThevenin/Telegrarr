@@ -6,9 +6,8 @@ import { SecretField, secretState } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
-import { ApiError } from "@/lib/api";
 import { isEnvLocked, isEnvRefusal, type Settings } from "@/lib/settings";
-import { telegramPost, useRefreshTelegram, useTelegramProxy } from "@/screens/settings/telegram-api";
+import { TelegramFailure, telegramPost, useRefreshTelegram, useTelegramProxy } from "@/screens/settings/telegram-api";
 
 type ProxyResult = { proxy?: string };
 
@@ -25,7 +24,7 @@ export function ProxySection({ settings }: { settings: Settings }) {
     // An env refusal arrives the same way, but nothing was saved, so the draft stays.
     onSettled: async (_result, error) => {
       await refresh();
-      const wasSaved = !error || (error instanceof ApiError && error.status === 200 && !isEnvRefusal(error));
+      const wasSaved = !error || (error instanceof TelegramFailure && !isEnvRefusal(error));
       if (wasSaved) setDraft(null);
     },
   });
