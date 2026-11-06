@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
 import { ChannelMenu } from "@/screens/channels/ChannelMenu";
 import { ChannelPoster } from "@/screens/channels/ChannelPoster";
-import { kindLabel, scheduleLabel, showTitle, type Show } from "@/screens/channels/channel";
+import { kindLabel, scheduleLabel, showImages, showTitle, type Show } from "@/screens/channels/channel";
 import type { ChannelControls } from "@/screens/channels/channel-controls";
 import { useShowPoster } from "@/screens/channels/queries";
 
@@ -24,6 +24,7 @@ export function ChannelCard({ show, controls }: Props) {
   const { lead, sources } = show;
   const isGroup = sources.length > 1;
   const isOff = !sources.some(({ enabled }) => enabled);
+  const isScanningStopped = !sources.some(({ scanning }) => scanning);
   const meta = isGroup ? kindLabel(lead.kind, t) : `${kindLabel(lead.kind, t)} · ${scheduleLabel(lead, t)}`;
 
   return (
@@ -34,11 +35,11 @@ export function ChannelCard({ show, controls }: Props) {
         className="flex flex-1 flex-col text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
         onClick={() => controls.openShow(show, openButton.current)}
       >
-        <ChannelPoster title={title} url={poster}>
-          {/* The slot for #70's scanning-stopped badge. */}
+        <ChannelPoster title={title} urls={showImages(show, poster)}>
           <span className="absolute top-2 left-2 flex flex-wrap gap-1">
             {isGroup && <Badge variant="secondary">{tn("ch.sources", sources.length)}</Badge>}
             {isOff && <Badge variant="secondary">{t("common.disabled")}</Badge>}
+            {isScanningStopped && <Badge variant="secondary">{t("ch.scanning_stopped")}</Badge>}
           </span>
         </ChannelPoster>
         <span className="flex min-w-0 flex-col gap-0.5 px-3 pt-2">

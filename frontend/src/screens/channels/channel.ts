@@ -62,6 +62,9 @@ export const sourceLabel = (channel: Channel) =>
 
 export const showTitle = ({ lead }: Show) => lead.imdb_title || sourceLabel(lead);
 
+/** Whether the channel's history is still changing by itself. */
+export const hasHistoryBatchComing = ({ history }: Channel) => history.next_batch_at !== null;
+
 export const isWholeForum = (channel: Channel) => Boolean(channel.forum) && channel.topic_id == null;
 
 /** The ids a series mapping holds, as the mapping line spells them; empty when unmapped. */
@@ -71,6 +74,15 @@ export const mappingIds = ({ tvdb_id, tmdb_id, imdb_id }: Channel) =>
     .join(" · ");
 
 type Translate = (key: string, params?: Record<string, unknown>) => string;
+
+/** Answers 404 for a chat with no photo, which reaches an image as a load error. */
+const photoUrl = ({ id }: Channel) => `/api/channels/${id}/photo`;
+
+/** The images of a show, the preferred one first: its Telegram photo, then its TMDB poster. */
+export const showImages = ({ lead }: Show, poster: string | null) => [
+  photoUrl(lead),
+  ...(poster ? [poster] : []),
+];
 
 /** A kind this release does not know is shown as it stands. */
 export function kindLabel(kind: string, t: Translate): string {

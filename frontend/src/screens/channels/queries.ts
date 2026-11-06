@@ -2,13 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { DOWNLOADS_KEY, type Download } from "@/lib/downloads";
-import { isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
+import { hasHistoryBatchComing, isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
 import type { ChannelSettings } from "@/screens/channels/channel-settings";
 
 export const CHANNELS_KEY = ["channels"] as const;
 
 /** TMDB art barely changes, and each lookup costs the backend a TMDB call. */
 export const ART_STALE_MS = 60 * 60 * 1000;
+/** The stream signals no history batch, and reading the list costs only the database. */
+export const HISTORY_REFRESH_MS = 15_000;
 /** How much of a Catalog is searched for a card's poster; most rows are identified. */
 const CATALOG_SAMPLE = 8;
 
@@ -31,7 +33,11 @@ export type CompletedDownload = Pick<Download, "id" | "channel_id" | "file_name"
 };
 
 export const useChannels = () =>
-  useQuery({ queryKey: CHANNELS_KEY, queryFn: () => api.get<Channel[]>("/api/channels") });
+  useQuery({
+    queryKey: CHANNELS_KEY,
+    queryFn: () => api.get<Channel[]>("/api/channels"),
+    refetchInterval: ({ state }) => (state.data?.some(hasHistoryBatchComing) ? HISTORY_REFRESH_MS : false),
+  });
 
 export function useUpdateChannel() {
   const queryClient = useQueryClient();

@@ -1,9 +1,13 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import { Trash2Icon } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/use-i18n";
+import { HistoryProgress } from "@/screens/channels/HistoryProgress";
 import { isWholeForum, scheduleLabel, sourceLabel, type Channel } from "@/screens/channels/channel";
 import type { ChannelControls } from "@/screens/channels/channel-controls";
 
@@ -13,7 +17,40 @@ type Props = {
   controls: ChannelControls;
 };
 
-/** One source of a show. #70 adds its scanning switch and history progress here. */
+type ScanningSwitchProps = {
+  source: Channel;
+  /** The element that names the source. */
+  describedBy: string;
+  controls: ChannelControls;
+};
+
+/** Shows the change at once, and goes back to what the server says once that has settled. */
+function ScanningSwitch({ source, describedBy, controls }: ScanningSwitchProps) {
+  const { t } = useI18n();
+  const switchId = useId();
+  const [requested, setRequested] = useState<boolean | null>(null);
+
+  const change = async (isScanning: boolean) => {
+    if (requested !== null) return;
+    setRequested(isScanning);
+    await controls.actions.setScanning(source, isScanning);
+    setRequested(null);
+  };
+
+  return (
+    <div className="flex basis-full items-center justify-between gap-2 border-t pt-2">
+      <Label htmlFor={switchId}>{t("ch.scanning")}</Label>
+      <Switch
+        id={switchId}
+        aria-describedby={describedBy}
+        checked={requested ?? Boolean(source.scanning)}
+        onCheckedChange={(isScanning) => void change(isScanning)}
+      />
+    </div>
+  );
+}
+
+/** One source of a show. */
 export function SourceRow({ source, isOnlySource, controls }: Props) {
   const { t } = useI18n();
   const labelId = useId();
@@ -32,6 +69,11 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
           {label}
         </span>
         <span className="block truncate text-xs text-muted-foreground">{detail.join(" · ")}</span>
+        {!source.scanning && (
+          <Badge variant="secondary" className="mt-1">
+            {t("ch.scanning_stopped")}
+          </Badge>
+        )}
       </span>
       <div className="flex items-center">
         <Button
@@ -58,6 +100,8 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
           <Trash2Icon />
         </Button>
       </div>
+      <ScanningSwitch source={source} describedBy={labelId} controls={controls} />
+      <HistoryProgress history={source.history} />
     </li>
   );
 }
