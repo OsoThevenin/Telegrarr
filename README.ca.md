@@ -218,8 +218,25 @@ Es manté un únic fitxer de sessió persistent a `/data`.
 ## Idioma de la interfície
 
 La interfície és **en català per defecte**. Per passar a l'anglès, ves a
-*Configuració → Compte → Aparença* (*Settings → Account → Appearance*). L'opció
-s'aplica a la interfície, als missatges d'error i a les notificacions.
+*Configuració → Compte → Aparença* (*Settings → Account → Appearance*) o fes servir
+el selector d'idioma de la barra lateral. L'opció s'aplica a la interfície, als
+missatges d'error i a les notificacions.
+
+## Ús de la interfície
+
+La barra lateral conté les vuit pantalles: **Tauler**, **Canals**, **Baixades**,
+**Activitat**, **Revisió**, **Connexió**, **Sistema** i **Configuració**.
+
+- **Paleta d'ordres:** prem <kbd>⌘K</kbd> o <kbd>Ctrl+K</kbd> per anar a qualsevol
+  pantalla o executar una ordre, com ara afegir un canal o canviar el tema.
+- **Actualització en directe:** el progrés de les baixades, la cua i la Revisió
+  s'actualitzen sols, sense recarregar.
+- **Detalls del canal:** selecciona un canal per obrir-ne els detalls. En un canal de
+  pel·lícules inclouen el **Catàleg**, on pots cercar-ne les pel·lícules i baixar-les.
+- **Mòbils:** la barra lateral es converteix en un menú que s'obre des de la barra
+  superior.
+- **Tema:** *Configuració → Compte → Aparença* ofereix Automàtic, Clar i Fosc.
+  Automàtic segueix el sistema.
 
 ## Referència de configuració
 
@@ -276,6 +293,14 @@ L'aplicació llegeix `X-Forwarded-Proto` i marca la galeta de sessió com a `Sec
 | Baixades | Configuració |
 | --- | --- |
 | ![Baixades](docs/screenshots/downloads.png) | ![Configuració](docs/screenshots/settings.png) |
+
+| Detalls del canal | Paleta d'ordres |
+| --- | --- |
+| ![Detalls del canal](docs/screenshots/channel-drawer.png) | ![Paleta d'ordres](docs/screenshots/command-palette.png) |
+
+| Activitat | Sistema |
+| --- | --- |
+| ![Activitat](docs/screenshots/activity.png) | ![Sistema](docs/screenshots/system.png) |
 
 ## Seguretat
 

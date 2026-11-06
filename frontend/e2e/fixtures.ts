@@ -1,0 +1,66 @@
+import { test as base, expect, type APIRequestContext, type ConsoleMessage, type Page } from "@playwright/test";
+
+import { E2E_PASSWORD, E2E_USER } from "./credentials";
+
+type Fixtures = {
+  resetBackend: void;
+  /** A page whose browser context has signed in through the real login form. */
+  signedInPage: Page;
+};
+
+export async function signIn(request: APIRequestContext): Promise<void> {
+  const response = await request.post("/login", {
+    form: { username: E2E_USER, password: E2E_PASSWORD },
+    maxRedirects: 0,
+  });
+  expect(response.headers().location).toBe("/");
+}
+
+/** Signs in as a visitor does, from an open login page. */
+export async function submitLoginForm(page: Page): Promise<void> {
+  await page.getByPlaceholder("Nom d’usuari").fill(E2E_USER);
+  await page.getByPlaceholder("Contrasenya").fill(E2E_PASSWORD);
+  await page.getByRole("button", { name: "Inicia la sessió" }).click();
+}
+
+/** Sets environment variables on the backend, as a deployment would, until the next reset. */
+export async function setBackendEnv(request: APIRequestContext, values: Record<string, string>): Promise<void> {
+  const response = await request.post("/__e2e__/env", { data: values });
+  expect(response.ok()).toBe(true);
+}
+
+// The API's documented answer for a Channel with no photo. The browser logs it, and the card
+// shows its initials instead.
+const NO_PHOTO = /\/api\/channels\/\d+\/photo$/;
+
+function isExpectedError(message: ConsoleMessage): boolean {
+  return message.text().includes("404") && NO_PHOTO.test(message.location().url);
+}
+
+/** Collects what goes wrong in the browser, for a test to expect none of it. */
+export function watchErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && !isExpectedError(message)) errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
+
+export const test = base.extend<Fixtures>({
+  resetBackend: [
+    async ({ request }, use) => {
+      const response = await request.post("/__e2e__/reset");
+      expect(response.ok()).toBe(true);
+      await use();
+    },
+    { auto: true },
+  ],
+
+  signedInPage: async ({ page }, use) => {
+    await signIn(page.request);
+    await use(page);
+  },
+});
+
+export { expect };

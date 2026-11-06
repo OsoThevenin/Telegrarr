@@ -4,12 +4,10 @@ downloading row is left untouched, singly or in bulk (#31).
 Driven over HTTP (``arr_app``): Sonarr grabs through the SABnzbd shim, the UI
 retries through ``/api/downloads``.
 """
-import json
 
 import pytest
 
 from http_harness import eventually
-from js_module import needs_node, run_module
 
 CHAT = -1001000000031
 FILE_1 = "The.Show.S01E01.mkv"
@@ -106,22 +104,6 @@ async def test_retrying_a_cancelled_row_re_queues_it(arr_app):
     assert (await arr_app.download(FILE_1))["status"] in ("queued", "downloading")
     arr_app.telegram.release_downloads()
     await eventually(lambda: _status(arr_app, FILE_1, "completed"))
-
-
-# ── the Downloads view's bulk Retry ──────────────────────────────────
-@pytest.mark.asyncio
-@needs_node
-async def test_bulk_retry_in_the_ui_sends_only_failed_or_cancelled_ids(arr_app):
-    module = (await arr_app.http.get("/static/js/retry.js")).raise_for_status().text
-    views = (await arr_app.http.get("/static/js/views.js")).raise_for_status().text
-    selection = [{"id": 1, "status": "failed"}, {"id": 2, "status": "downloading"},
-                 {"id": 3, "status": "cancelled"}, {"id": 4, "status": "queued"},
-                 {"id": 5, "status": "completed"}]
-
-    ids = run_module(module, f"m.retryableIds({json.dumps(selection)})")
-
-    assert ids == [1, 3]
-    assert 'from "./retry.js"' in views
 
 
 @pytest.mark.asyncio

@@ -110,13 +110,6 @@ async def test_login_page_restores_english(arr_app):
 
 
 @pytest.mark.asyncio
-async def test_spa_shell_declares_the_language(arr_app):
-    assert '<html lang="ca"' in (await arr_app.http.get("/")).text
-    await _set_lang(arr_app, "en")
-    assert '<html lang="en"' in (await arr_app.http.get("/")).text
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("lang, text", [("ca", "Notificació de prova"), ("en", "test notification")])
 async def test_notifications_are_sent_in_the_chosen_language(arr_app, lang, text):
     await arr_app.http.patch("/api/settings", json={"notify_telegram": True, "ui_lang": lang})

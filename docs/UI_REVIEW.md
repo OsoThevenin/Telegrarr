@@ -1,5 +1,8 @@
 # Telearr Web UI — UX / Accessibility / Front-end Review (v2.1 overhaul)
 
+A record of the first web UI, since replaced by the React app in `frontend/`. The files
+it reviews no longer exist.
+
 Reviewer: senior UX + front-end architect
 Scope: `app/static/js/{main,core,views,icons}.js`, `app/static/app.css`,
 `app/templates/{index,login}.html`. Buildless ES-module SPA.

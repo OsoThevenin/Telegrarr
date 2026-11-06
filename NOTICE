@@ -36,8 +36,7 @@ All of the above are permissive licenses compatible with GPL-3.0.
 
 Design & assets
 ---------------
-  UI icons .............. Modeled on the Lucide (ISC) and Feather (MIT) open
-                          icon sets; inlined as SVG (app/static/js/icons.js).
+  UI icons .............. Lucide (ISC), through the lucide-react package.
   Design tokens ......... Colour roles, radii, and type scale adapted from the
                           Open Design project's reference design systems
                           (github.com/nexu-io/open-design), Apache-2.0.

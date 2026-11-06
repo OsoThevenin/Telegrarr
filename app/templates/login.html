@@ -7,10 +7,10 @@
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <title>Telegrarr — {{ t('login.title') }}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="manifest" href="/static/manifest.json">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/login.css">
 </head>
-<body class="login">
+<body>
   <form class="card" method="post" action="/login">
     <div class="login-brand">
       <span class="login-logo"><svg viewBox="0 0 64 64" width="44" height="44" aria-hidden="true"><rect width="64" height="64" rx="14" fill="#0071e3"/><g fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"><path d="M32 15 V35"/><path d="M23 27 L32 36 L41 27"/><path d="M17 40 V45 A4 4 0 0 0 21 49 H43 A4 4 0 0 0 47 45 V40"/></g></svg></span>
@@ -20,7 +20,7 @@
     {% if error %}<p class="err">{{ error }}</p>{% endif %}
     <input name="username" placeholder="{{ t('login.username') }}" autocomplete="username" required autofocus>
     <input name="password" type="password" placeholder="{{ t('login.password') }}" autocomplete="current-password" required>
-    <button type="submit" class="btn primary block">{{ t('login.submit') }}</button>
+    <button type="submit">{{ t('login.submit') }}</button>
   </form>
 </body>
 </html>

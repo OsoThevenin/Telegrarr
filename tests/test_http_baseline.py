@@ -1,11 +1,15 @@
 """HTTP-level checks for the Telegrarr baseline (ticket #14): session cookie
 flags, page branding. Drives the real FastAPI app through httpx's ASGI
 transport (lifespan is not run, so no Telegram client is started)."""
+import shutil
+from pathlib import Path
+
 import httpx
 import pytest
 
 ADMIN = "admin"
 ADMIN_PASS = "correct-horse-battery"
+FRONTEND_INDEX = Path(__file__).resolve().parents[1] / "frontend" / "index.html"
 
 
 @pytest.fixture()
@@ -64,7 +68,11 @@ async def test_login_page_is_branded_telegrarr(fresh_db):
 
 
 @pytest.mark.asyncio
-async def test_app_shell_is_branded_telegrarr(admin):
+async def test_app_shell_is_branded_telegrarr(admin, tmp_path, monkeypatch):
+    from app.routes import spa
+    shutil.copy(FRONTEND_INDEX, tmp_path / spa.INDEX)   # the page Vite builds on
+    monkeypatch.setattr(spa, "UI_DIST", tmp_path)
+
     async with _client(cookie=admin) as c:
         r = await c.get("/")
     assert r.status_code == 200

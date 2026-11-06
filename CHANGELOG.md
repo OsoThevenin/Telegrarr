@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- The web interface is new, and it is now the one at `/`. Every screen is rebuilt, with
+  a command palette on ⌘K / Ctrl+K, a phone drawer, live updates, and addresses for
+  each screen and Downloads tab. API, Newznab and SAB paths are unchanged.
+
+### Removed
+- The old interface. Old `/ui/...` addresses and `#/channels` bookmarks open the same
+  screen, and an installed app moves over by itself and drops the old offline files.
+
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 
 ### Added
