@@ -38,7 +38,7 @@ export function ChannelMenu({ show, controls }: Props) {
         <DropdownMenuItem onSelect={() => actions.scan(sources)}>{t("common.scan")}</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => actions.backfill(sources)}>{t("ch.backfill")}</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => actions.setEnabled(sources, !anyEnabled)}>
-          {t(anyEnabled ? "common.disable" : "common.enable")}
+          {anyEnabled ? t("common.disable") : t("common.enable")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {sources.length > 1 ? (

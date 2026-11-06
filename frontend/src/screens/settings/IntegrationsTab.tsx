@@ -50,7 +50,7 @@ function ConfiguredBadge({ isConfigured }: { isConfigured: boolean }) {
 
   return (
     <Badge variant={isConfigured ? "secondary" : "outline"}>
-      {t(isConfigured ? "set.status.configured" : "set.status.not_configured")}
+      {isConfigured ? t("set.status.configured") : t("set.status.not_configured")}
     </Badge>
   );
 }
@@ -191,7 +191,7 @@ function NotificationsCard({ settings }: Props) {
     void submit();
   }
 
-  const dmState = t(settings.notify_telegram ? "set.tg_dm_on" : "set.tg_dm_off");
+  const dmState = settings.notify_telegram ? t("set.tg_dm_on") : t("set.tg_dm_off");
 
   return (
     <Card>

@@ -45,7 +45,7 @@ function ModeCard({ mode }: { mode: Settings["operating_mode"] }) {
           {t("set.mode")}
           {experimental}
         </CardTitle>
-        <CardDescription>{t(isAutonomous ? "set.autonomous.state_on" : "set.autonomous.state_off")}</CardDescription>
+        <CardDescription>{isAutonomous ? t("set.autonomous.state_on") : t("set.autonomous.state_off")}</CardDescription>
       </CardHeader>
       <CardContent className="flex items-center justify-between gap-3">
         <Label htmlFor="settings-autonomous">{t("set.standalone")}</Label>
@@ -55,10 +55,10 @@ function ModeCard({ mode }: { mode: Settings["operating_mode"] }) {
       <ConfirmDialog
         isOpen={isConfirming}
         onOpenChange={setIsConfirming}
-        title={t(isAutonomous ? "set.autonomous.title_off" : "set.autonomous.title_on")}
+        title={isAutonomous ? t("set.autonomous.title_off") : t("set.autonomous.title_on")}
         badge={experimental}
-        description={t(isAutonomous ? "set.autonomous.body_off" : "set.autonomous.body_on")}
-        confirmLabel={t(isAutonomous ? "common.disable" : "common.enable")}
+        description={isAutonomous ? t("set.autonomous.body_off") : t("set.autonomous.body_on")}
+        confirmLabel={isAutonomous ? t("common.disable") : t("common.enable")}
         onConfirm={async () => {
           await save.mutateAsync({ operating_mode: isAutonomous ? "arr" : "standalone" });
         }}

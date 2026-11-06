@@ -23,7 +23,7 @@ export function TopicPicker({ topics, ticks, onChange }: Props) {
   return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className="pb-1.5 font-medium">{t("chm.topics.title")}</legend>
-      <p className="text-muted-foreground">{t(topics.length > 0 ? "chm.topics.hint" : "chm.topics.empty")}</p>
+      <p className="text-muted-foreground">{topics.length > 0 ? t("chm.topics.hint") : t("chm.topics.empty")}</p>
       {topics.map(({ topic_id, title }) => {
         const kind = ticks[topic_id];
 

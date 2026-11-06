@@ -46,7 +46,7 @@ export function usePaletteCommands(): readonly PaletteCommand[] {
   const pause: PaletteCommand[] =
     isPaused === undefined
       ? []
-      : [{ label: t(isPaused ? "shell.resume" : "shell.pause"), icon: isPaused ? Play : Pause, run: toggle }];
+      : [{ label: isPaused ? t("shell.resume") : t("shell.pause"), icon: isPaused ? Play : Pause, run: toggle }];
 
   return [
     ...screens,

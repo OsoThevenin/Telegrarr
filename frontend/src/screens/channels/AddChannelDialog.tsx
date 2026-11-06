@@ -143,7 +143,7 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
           </Button>
         </DialogClose>
         <Button type="submit" disabled={add.isPending || topicList.isFetching}>
-          {t(add.isPending ? "common.saving" : "common.save")}
+          {add.isPending ? t("common.saving") : t("common.save")}
         </Button>
       </DialogFooter>
     </form>

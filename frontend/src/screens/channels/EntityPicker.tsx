@@ -29,7 +29,7 @@ const matches = ({ title, username }: TelegramChat, query: string) =>
 function ChatItem({ chat, isSelected, onSelect }: { chat: TelegramChat; isSelected: boolean; onSelect: () => void }) {
   const { t } = useI18n();
   const Icon = chat.kind === "channel" ? Megaphone : Users;
-  const kind = t(`chm.dialog.${chat.kind}`);
+  const kind = chat.kind === "channel" ? t("chm.dialog.channel") : t("chm.dialog.group");
 
   return (
     <CommandItem value={String(chat.chat_id)} data-checked={isSelected} onSelect={onSelect}>
@@ -54,9 +54,9 @@ export function EntityPicker({ selected, onSelect }: Props) {
   const typed = query.trim();
   const needle = typed.toLowerCase();
   const listed = (dialogs.data ?? []).filter((chat) => matches(chat, needle)).slice(0, MAX_LISTED_CHATS);
-  const emptyKey = (() => {
-    if (dialogs.isPending) return "chm.loading_chats";
-    return needle ? "chm.no_matches" : "chm.no_chats";
+  const emptyText = (() => {
+    if (dialogs.isPending) return t("chm.loading_chats");
+    return needle ? t("chm.no_matches") : t("chm.no_chats");
   })();
 
   const changeQuery = (next: string) => {
@@ -87,7 +87,7 @@ export function EntityPicker({ selected, onSelect }: Props) {
       <Command shouldFilter={false} label={t("chm.tg_channel")} className="size-auto rounded-lg! border">
         <CommandInput value={query} onValueChange={changeQuery} placeholder={t("chm.chan_search_placeholder")} />
         <CommandList className="max-h-48">
-          <CommandEmpty className="px-2">{dialogs.isError ? null : t(emptyKey)}</CommandEmpty>
+          <CommandEmpty className="px-2">{dialogs.isError ? null : emptyText}</CommandEmpty>
           {LINK_PATTERN.test(typed) && (
             <CommandItem value={RESOLVE_ITEM} disabled={resolver.isPending} onSelect={resolve}>
               <LinkIcon aria-hidden />

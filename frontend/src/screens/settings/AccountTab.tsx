@@ -24,12 +24,6 @@ import { chooseTheme, currentTheme, subscribeToTheme, THEMES, type Theme } from 
 // The backend's auth.MIN_PASSWORD_LEN, for the hint; the server enforces it.
 const MIN_PASSWORD_LENGTH = 12;
 
-const THEME_LABEL_KEYS: Record<Theme, string> = {
-  auto: "set.theme.auto",
-  light: "set.theme.light",
-  dark: "set.theme.dark",
-};
-
 type OpenDialog = "username" | "password" | null;
 
 export function AccountTab({ username }: { username: string }) {
@@ -86,6 +80,11 @@ export function AccountTab({ username }: { username: string }) {
 function AppearanceCard() {
   const { t } = useI18n();
   const theme = useSyncExternalStore(subscribeToTheme, currentTheme);
+  const themeLabels: Record<Theme, string> = {
+    auto: t("set.theme.auto"),
+    light: t("set.theme.light"),
+    dark: t("set.theme.dark"),
+  };
 
   return (
     <Card>
@@ -100,7 +99,7 @@ function AppearanceCard() {
         >
           {THEMES.map((option) => (
             <option key={option} value={option}>
-              {t(THEME_LABEL_KEYS[option])}
+              {themeLabels[option]}
             </option>
           ))}
         </SelectField>

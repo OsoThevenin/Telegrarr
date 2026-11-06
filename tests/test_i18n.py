@@ -36,8 +36,14 @@ def test_no_translation_is_empty():
 # t("key"), tn("key", n) and tOr("key", …) with a literal key; template keys are dynamic and skipped.
 JS_KEY = re.compile(r"\b(t|tn|tOr)\(\s*[\"`]([\w.-]+)[\"`]")
 FRONTEND_SRC = I18N_DIR.parents[2] / "frontend" / "src"
-# The frontend's navigation and routes name a screen's title by key, in these fields.
-KEY_FIELD = re.compile(r"\b(?:labelKey|titleKey|messageKey):\s*\"([\w.-]+)\"")
+# A key can also travel as data: in a field or prop named like labelKey, or in a *_KEYS map.
+KEY_FIELD = re.compile(r"\b\w+Key(?::\s*|=)\"([\w-]+\.[\w.-]+)\"")
+KEY_MAP = re.compile(r"\b[A-Z_]+_KEYS\b[^=\n]*=\s*\{(.*?)\n\}", re.DOTALL)
+KEY_MAP_VALUE = re.compile(r":\s*\"([\w.-]+)\"")
+# A key computed in the call, which no scan can read: `t(a ? "x" : "y")`, t(`x.${y}`).
+COMPUTED_KEY = re.compile(r"\b(?:t|tn|tOr)\(\s*(?:`[^`]*\$\{|[^\"`()]*\?)")
+# tn() builds a plural's key from the literal it was given.
+BUILDS_PLURAL_KEYS = "use-i18n.ts"
 
 
 def _keys_missing_from_dictionary(paths, en):
@@ -47,8 +53,13 @@ def _keys_missing_from_dictionary(paths, en):
         for fn, key in JS_KEY.findall(text):
             wanted = [f"{key}.one", f"{key}.other"] if fn == "tn" else [key]
             missing |= {f"{path.name}: {k}" for k in wanted if k not in en}
-        missing |= {f"{path.name}: {k}" for k in KEY_FIELD.findall(text) if k not in en}
+        missing |= {f"{path.name}: {k}" for k in _keys_held_as_data(text) if k not in en}
     return missing
+
+
+def _keys_held_as_data(text):
+    in_maps = [key for body in KEY_MAP.findall(text) for key in KEY_MAP_VALUE.findall(body)]
+    return [*KEY_FIELD.findall(text), *in_maps]
 
 
 def _frontend_sources():
@@ -69,6 +80,20 @@ def test_the_key_scan_reads_the_frontend():
 
     assert "route.tsx: nav.dashboard" in found  # a screen title
     assert "PauseToggle.tsx: shell.pause" in found  # a t() call
+    assert "AccountTab.tsx: set.theme.auto" in found  # a choice of label
+    assert "TelegramSignInDialog.tsx: tgw.phone_intro" in found  # a step's copy
+    assert "DownloadRow.tsx: status.queued" in found  # a server value's label
+    assert any(key.startswith("StatusPanel.tsx: ") for key in found)  # a *_KEYS map
+
+
+def test_the_frontend_does_not_compute_its_keys():
+    computed = {
+        f"{path.name}: {call}"
+        for path in _frontend_sources() if path.name != BUILDS_PLURAL_KEYS
+        for call in COMPUTED_KEY.findall(path.read_text(encoding="utf-8"))
+    }
+
+    assert computed == set()
 
 
 def test_translate_fills_placeholders_in_the_requested_language():

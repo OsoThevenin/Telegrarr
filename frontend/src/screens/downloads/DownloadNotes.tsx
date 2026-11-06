@@ -20,10 +20,14 @@ function useEpisodeNote({ episode, parsed_episode, episode_source }: Download): 
   const ep = episodeTag(episode);
   if (episode_source === CHANNEL_NUMBERING) return { text: t("ep.kept", { ep }), title: t("ep.kept_title") };
 
-  const via = t(`ep.source.${episode_source}`);
-  const shownVia = via === `ep.source.${episode_source}` ? episode_source : via;
-  if (parsed_episode === episode) return { text: t("ep.checked", { ep, via: shownVia }) };
-  return { text: t("ep.resolved", { from: episodeTag(parsed_episode), to: ep, via: shownVia }) };
+  const names: Record<string, string> = {
+    "tmdb-ca": t("ep.source.tmdb-ca"),
+    "tmdb-en": t("ep.source.tmdb-en"),
+    sonarr: t("ep.source.sonarr"),
+  };
+  const via = names[episode_source] ?? episode_source;
+  if (parsed_episode === episode) return { text: t("ep.checked", { ep, via }) };
+  return { text: t("ep.resolved", { from: episodeTag(parsed_episode), to: ep, via }) };
 }
 
 type Props = {

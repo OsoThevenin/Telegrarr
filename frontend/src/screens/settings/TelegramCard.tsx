@@ -35,10 +35,10 @@ export function TelegramCard({ settings }: { settings: Settings }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("set.tg_account")}</CardTitle>
-        <CardDescription>{t(isAuthorized ? "set.tg_connected" : "set.tg_not_connected")}</CardDescription>
+        <CardDescription>{isAuthorized ? t("set.tg_connected") : t("set.tg_not_connected")}</CardDescription>
         <CardAction>
           <Badge variant={isAuthorized ? "secondary" : "outline"}>
-            {t(isAuthorized ? "set.status.connected" : "set.status.not_connected")}
+            {isAuthorized ? t("set.status.connected") : t("set.status.not_connected")}
           </Badge>
         </CardAction>
       </CardHeader>
