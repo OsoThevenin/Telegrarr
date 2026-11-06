@@ -11,8 +11,8 @@ export type ToastDecision = {
   kind: "ok" | "err";
 };
 
-type CancelAnswer = { ok?: boolean };
-type RetryAnswer = { ok?: boolean; reason?: string | null };
+export type CancelAnswer = { ok?: boolean };
+export type RetryAnswer = { ok?: boolean; reason?: string | null };
 type BulkRetryAnswer = { count?: number };
 
 /** Stop answers `ok: false` when the row had already finished. */
