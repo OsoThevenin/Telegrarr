@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { isMovieChannel, type Channel, type Show } from "@/screens/channels/channel";
+import type { ChannelSettings } from "@/screens/channels/channel-settings";
 
 export const CHANNELS_KEY = ["channels"] as const;
 
@@ -34,6 +35,16 @@ export type CompletedDownload = {
 
 export const useChannels = () =>
   useQuery({ queryKey: CHANNELS_KEY, queryFn: () => api.get<Channel[]>("/api/channels") });
+
+export function useUpdateChannel() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, fields }: { id: number; fields: ChannelSettings }) =>
+      api.patch(`/api/channels/${id}`, fields),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: CHANNELS_KEY }),
+  });
+}
 
 /** The endpoint has no channel filter and caps at 1000, newest first, across every channel. */
 export const useCompletedDownloads = () =>

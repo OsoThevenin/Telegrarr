@@ -508,6 +508,146 @@ describe("Sheet", () => {
   });
 });
 
+describe("edit dialog", () => {
+  const ACTIONS = "Accions de Cinema Club";
+
+  const servePatch = (reply: () => Response = () => HttpResponse.json({ ok: true })) => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.patch("/api/channels/:id", async ({ request }) => {
+        bodies.push(await request.json());
+        return reply();
+      }),
+    );
+    return bodies;
+  };
+
+  const openEdit = async () => {
+    const app = await openChannels();
+    await app.user.click(screen.getByRole("button", { name: ACTIONS }));
+    await app.user.click(await screen.findByRole("menuitem", { name: "Edita" }));
+    return { ...app, dialog: await screen.findByRole("dialog", { name: "Edita el canal" }) };
+  };
+
+  const saveButton = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "Desa" });
+
+  it("shows the channel's current settings", async () => {
+    serveChannels([
+      channel({
+        id: 1,
+        title: "Cinema Club",
+        language: "es",
+        fallback_quality: "720p",
+        weekdays: "0,6",
+        poll_minutes: 45,
+      }),
+    ]);
+
+    const { dialog } = await openEdit();
+
+    expect(within(dialog).getByLabelText("Canal de Telegram")).toHaveValue("Cinema Club");
+    expect(within(dialog).getByLabelText("Canal de Telegram")).toBeDisabled();
+    expect(within(dialog).getByLabelText("Tipus")).toHaveValue("tv");
+    expect(within(dialog).getByLabelText("Idioma de l’àudio")).toHaveValue("es");
+    expect(within(dialog).getByLabelText(/^Qualitat per defecte/)).toHaveValue("720p");
+    expect(within(dialog).getByLabelText("Interval de consulta (minuts)")).toHaveValue(45);
+    expect(within(dialog).getByRole("button", { name: "Dl" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(dialog).getByRole("button", { name: "Dt" })).toHaveAttribute("aria-pressed", "false");
+    expect(within(dialog).getByRole("button", { name: "Dg" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("saves the changes, says so and goes back to the menu button", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club", weekdays: "0,1" })]);
+    const bodies = servePatch();
+
+    const { user, dialog } = await openEdit();
+    await user.selectOptions(within(dialog).getByLabelText("Idioma de l’àudio"), "en");
+    await user.selectOptions(within(dialog).getByLabelText("Tipus"), "movie");
+    await user.click(within(dialog).getByRole("button", { name: "Dt" }));
+    await user.click(within(dialog).getByRole("button", { name: "Dv" }));
+    await user.clear(within(dialog).getByLabelText("Interval de consulta (minuts)"));
+    await user.type(within(dialog).getByLabelText("Interval de consulta (minuts)"), "60");
+    await user.click(saveButton(dialog));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(bodies).toEqual([
+      { kind: "movie", language: "en", fallback_quality: "1080p", weekdays: "0,4", poll_minutes: 60 },
+    ]);
+    expect(await screen.findByRole("status")).toHaveTextContent("S’ha actualitzat el canal");
+    await waitFor(() => expect(screen.getByRole("button", { name: ACTIONS })).toHaveFocus());
+  });
+
+  it("reads a channel with every day turned off as every day", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club", weekdays: "2" })]);
+    const bodies = servePatch();
+
+    const { user, dialog } = await openEdit();
+    await user.click(within(dialog).getByRole("button", { name: "Dc" }));
+    await user.click(saveButton(dialog));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ weekdays: "0,1,2,3,4,5,6" });
+  });
+
+  it("keeps a kind this release does not know", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club", kind: "other" })]);
+    const bodies = servePatch();
+
+    const { user, dialog } = await openEdit();
+    await user.click(saveButton(dialog));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ kind: "other" });
+  });
+
+  it("stays open with the reason when saving fails", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+    servePatch(() => HttpResponse.json({ detail: "boom" }, { status: 500 }));
+
+    const { user, dialog } = await openEdit();
+    await user.click(saveButton(dialog));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("boom");
+    expect(screen.getByRole("dialog", { name: "Edita el canal" })).toBeVisible();
+  });
+
+  it("sends nothing on cancel and goes back to the menu button", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+    const bodies = servePatch();
+
+    const { user, dialog } = await openEdit();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel·la" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: ACTIONS })).toHaveFocus());
+    expect(bodies).toEqual([]);
+  });
+
+  it("edits one source from the Sheet and goes back to it", async () => {
+    const DARK = { imdb_id: "tt1", imdb_title: "Dark" };
+    serveChannels([channel({ id: 1, title: "Font A", ...DARK }), channel({ id: 2, title: "Font B", ...DARK })]);
+    server.use(
+      http.get("/api/art", () => HttpResponse.json({})),
+      http.get("/api/downloads", () => HttpResponse.json([])),
+    );
+    const bodies = servePatch();
+
+    const { user } = await openChannels();
+    await user.click(cardButton("Dark"));
+    const sheet = await screen.findByRole("dialog");
+    const secondEdit = within(sheet).getAllByRole("button", { name: "Edita" })[1];
+    await user.click(secondEdit);
+    const dialog = await screen.findByRole("dialog", { name: "Edita el canal" });
+    expect(within(dialog).getByLabelText("Canal de Telegram")).toHaveValue("Font B");
+    await user.click(saveButton(dialog));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    await waitFor(() => expect(secondEdit).toHaveFocus());
+    expect(screen.getByRole("dialog", { name: /Dark/ })).toBeVisible();
+    expect(await within(sheet).findByRole("status")).toHaveTextContent("S’ha actualitzat el canal");
+  });
+});
+
 describe("channel list", () => {
   it("explains an empty list", async () => {
     serveChannels([]);

@@ -1,14 +1,15 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type RefObject } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n/use-i18n";
 import { ChannelCard } from "@/screens/channels/ChannelCard";
+import { ChannelEditDialog } from "@/screens/channels/ChannelEditDialog";
 import { ChannelSheet } from "@/screens/channels/ChannelSheet";
 import { NoticeLine } from "@/screens/channels/NoticeLine";
 import { RemoveDialog, type Removal } from "@/screens/channels/RemoveDialog";
 import { groupIntoShows, tabOf, type Channel, type ChannelTab, type Show } from "@/screens/channels/channel";
-import { useChannelActions, useNotice } from "@/screens/channels/channel-actions";
+import { useChannelActions, useNotice, type Notify } from "@/screens/channels/channel-actions";
 import type { ChannelControls } from "@/screens/channels/channel-controls";
 import { useChannels } from "@/screens/channels/queries";
 import { useOverlay } from "@/screens/channels/use-overlay";
@@ -27,23 +28,18 @@ export function ChannelsScreen() {
   return <ChannelBrowser channels={channels.data} />;
 }
 
-function ChannelBrowser({ channels }: { channels: Channel[] }) {
+/** What can be open over the grid, and the controls that open it. */
+function useChannelOverlays(page: RefObject<HTMLElement | null>, notify: Notify) {
   const { t } = useI18n();
-  const [tab, setTab] = useState<ChannelTab>("series");
-  const [notice, notify] = useNotice();
-  const page = useRef<HTMLDivElement>(null);
   const sheet = useOverlay<Show["key"]>(page);
   const removal = useOverlay<Removal>(page);
+  const editing = useOverlay<Channel>(page);
   const actions = useChannelActions(notify);
-
-  const shows = { series: showsOn("series", channels), movies: showsOn("movies", channels) };
-  // Looked up on every render, so the Sheet follows the list as its sources change.
-  const sheetShow = shows[tab].find(({ key }) => key === sheet.target);
 
   const controls: ChannelControls = {
     actions,
     openShow: (show, opener) => sheet.open(show.key, opener),
-    editSource: () => {},
+    editSource: editing.open,
     askToRemove: removal.open,
   };
 
@@ -51,6 +47,25 @@ function ChannelBrowser({ channels }: { channels: Channel[] }) {
     const isRemoved = await actions.remove(source, t(isWholeShow ? "ch.removed" : "ch.source_removed"));
     if (isRemoved && isWholeShow) sheet.close();
   };
+
+  const confirmSaved = () => {
+    notify({ tone: "ok", text: t("chm.updated") });
+    editing.close();
+  };
+
+  return { sheet, removal, editing, controls, confirmRemoval, confirmSaved };
+}
+
+function ChannelBrowser({ channels }: { channels: Channel[] }) {
+  const [tab, setTab] = useState<ChannelTab>("series");
+  const [notice, notify] = useNotice();
+  const page = useRef<HTMLDivElement>(null);
+  const { sheet, removal, editing, controls, confirmRemoval, confirmSaved } = useChannelOverlays(page, notify);
+
+  const shows = { series: showsOn("series", channels), movies: showsOn("movies", channels) };
+  // Looked up on every render, so the Sheet follows the list as its sources change.
+  const sheetShow = shows[tab].find(({ key }) => key === sheet.target);
+  const removing = removal.target;
 
   return (
     <div ref={page} tabIndex={-1} className="outline-none">
@@ -66,11 +81,20 @@ function ChannelBrowser({ channels }: { channels: Channel[] }) {
           onCloseAutoFocus={sheet.onCloseAutoFocus}
         />
       )}
-      {removal.target && (
+      {editing.target && (
+        <ChannelEditDialog
+          source={editing.target}
+          isOpen={editing.isOpen}
+          onSaved={confirmSaved}
+          onClose={editing.close}
+          onCloseAutoFocus={editing.onCloseAutoFocus}
+        />
+      )}
+      {removing && (
         <RemoveDialog
-          removal={removal.target}
+          removal={removing}
           isOpen={removal.isOpen}
-          onConfirm={() => confirmRemoval(removal.target as Removal)}
+          onConfirm={() => confirmRemoval(removing)}
           onClose={removal.close}
           onCloseAutoFocus={removal.onCloseAutoFocus}
         />
