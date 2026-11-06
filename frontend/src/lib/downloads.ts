@@ -16,3 +16,13 @@ export type Download = {
 
 /** The prefix of every query that holds a list of downloads. */
 export const DOWNLOADS_KEY = ["downloads"] as const;
+
+/** The name a person knows a download by: the file as saved, once it has a place. */
+export function downloadName({ save_path: savePath, file_name: fileName }: Download): string {
+  return savePath?.split("/").pop() || fileName || "";
+}
+
+/** The Channel a download came from, with its topic in a forum group. */
+export function downloadSource({ channel_title: title, topic_title: topic }: Download): string {
+  return topic ? `${title} › ${topic}` : (title ?? "");
+}

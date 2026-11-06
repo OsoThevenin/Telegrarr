@@ -9,6 +9,8 @@ const NO_VALUE = "—";
 type Format = {
   /** A date and time in full, for tooltips and for what is days away. */
   dateTime: (ts: number) => string;
+  /** The hour and minute of a moment. */
+  time: (ts: number) => string;
   /** A moment relative to now: "2m ago", "in 3h". */
   when: (ts: number | null | undefined) => string;
   /** A span of time: "2d 3h". */
@@ -22,6 +24,9 @@ export function useFormat(): Format {
   const { t, locale } = useI18n();
 
   const dateTime: Format["dateTime"] = (ts) => new Date(ts * 1000).toLocaleString(locale);
+
+  const time: Format["time"] = (ts) =>
+    new Date(ts * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
 
   const when: Format["when"] = (ts) => {
     if (!ts) return NO_VALUE;
@@ -56,5 +61,5 @@ export function useFormat(): Format {
     return days.map((day) => names[day]).join(" ");
   };
 
-  return { dateTime, when, duration, weekdays };
+  return { dateTime, time, when, duration, weekdays };
 }
