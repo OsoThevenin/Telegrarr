@@ -31,7 +31,7 @@ from fake_arr import PROWLARR_KEY, RADARR_KEY, SONARR_KEY, make_stack  # noqa: E
 from fake_tmdb import FakeTMDB  # noqa: E402
 from http_harness import FakeTelegram  # noqa: E402
 
-from app import connect, db, tg, tmdb  # noqa: E402
+from app import channels, connect, db, tg, tmdb  # noqa: E402
 from app.main import app  # noqa: E402
 
 KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
@@ -40,6 +40,9 @@ KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
 def seed() -> None:
     """The world every browser test starts from. Add what a screen needs here."""
     tg._client.add_channel(-1001234567890, "Cinema Club", username="cinemaclub")
+    tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
+    channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
+    channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
 
 
 def install_fakes() -> None:
@@ -65,6 +68,7 @@ def reset() -> None:
 
 
 def main() -> None:
+    db.init()  # the seed needs the tables, and the lifespan only starts with uvicorn
     install_fakes()
     seed()
     uvicorn.run(app, host=LOOPBACK, port=int(os.getenv("E2E_PORT", str(DEFAULT_PORT))))
