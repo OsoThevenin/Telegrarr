@@ -21,7 +21,7 @@ function row(overrides: Partial<Download> = {}): Download {
     file_name: "film.mkv",
     file_size: 1000,
     status: "downloading",
-    progress: 10,
+    progress: 0.1,
     save_path: null,
     finished_at: null,
     speed_mbs: 1,
@@ -47,7 +47,7 @@ function LiveScreen() {
       <ul>
         {rows.map(({ id, file_name, progress }) => (
           <li key={id}>
-            {file_name} at {progress}%
+            {file_name} at {Math.round(progress * 100)}%
           </li>
         ))}
       </ul>
@@ -88,7 +88,7 @@ describe("live updates", () => {
     renderLiveScreen();
     await screen.findByText("film.mkv at 10%");
 
-    emitSnapshot({ active: [row({ progress: 55 })] });
+    emitSnapshot({ active: [row({ progress: 0.55 })] });
 
     expect(await screen.findByText("film.mkv at 55%")).toBeVisible();
     expect(requests.count).toBe(1);
@@ -99,7 +99,7 @@ describe("live updates", () => {
     renderLiveScreen();
     await screen.findByText("kept.mkv at 10%");
 
-    emitSnapshot({ active: [{ id: 7, progress: 80 } as Download] });
+    emitSnapshot({ active: [{ id: 7, progress: 0.8 } as Download] });
 
     expect(await screen.findByText("kept.mkv at 80%")).toBeVisible();
   });
@@ -145,14 +145,14 @@ describe("live updates", () => {
 
     emitRaw("{cut sho");
     emitRaw("null");
-    emitSnapshot({ active: [row({ progress: 20 })] });
+    emitSnapshot({ active: [row({ progress: 0.2 })] });
 
     expect(await screen.findByText("film.mkv at 20%")).toBeVisible();
   });
 
   it("falls back to fetching while the stream is silent", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval", "setTimeout", "Date"] });
-    serveDownloads([row()], [row({ progress: 33 })]);
+    serveDownloads([row()], [row({ progress: 0.33 })]);
     renderLiveScreen();
     await screen.findByText("film.mkv at 10%");
 
