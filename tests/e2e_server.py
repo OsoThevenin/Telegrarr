@@ -4,9 +4,11 @@ Telegram, TMDB and the *arrs replaced by the same fakes the HTTP tests use.
 frontend/playwright.config.ts starts it, and it serves the built UI from
 frontend/dist. Each test begins with POST /__e2e__/reset, which only exists here.
 """
+import itertools
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +38,7 @@ from app import channels, connect, db, settings, tg, tmdb  # noqa: E402
 from app.main import app  # noqa: E402
 
 KEPT_TABLES = ("users",)  # so the signed-in session survives a reset
+CHAT_ID = -1001234567890
 PENDING_FILES = ("Avatar.2009.1080p.mkv", "Els.Pirates.CAT.mkv", "La.Mosca.1986.mkv")
 CATALOG_GIB = 1024 ** 3
 CATALOG_FIRST_TMDB = 9001
@@ -55,12 +58,14 @@ def seed_catalog(channel_id: int) -> None:
               f"tt{CATALOG_FIRST_TMDB + index}", title)
              for index, (title, quality) in enumerate(films)])
 
+_message_ids = itertools.count(1)
+
 
 def seed() -> None:
     """The world every browser test starts from. Add what a screen needs here."""
-    tg._client.add_channel(-1001234567890, "Cinema Club", username="cinemaclub")
+    tg._client.add_channel(CHAT_ID, "Cinema Club", username="cinemaclub")
     tg._client.add_channel(-1001234567891, "Sèries CAT", username="seriescat")
-    movies = channels.upsert(-1001234567890, "Cinema Club", kind="movie", poll_minutes=30)
+    movies = channels.upsert(CHAT_ID, "Cinema Club", kind="movie", poll_minutes=30)
     channels.upsert(-1001234567891, "Sèries CAT", kind="tv", poll_minutes=30)
     seed_review(movies["id"])
     seed_catalog(movies["id"])
@@ -104,6 +109,34 @@ def reset() -> None:
     clear_database()
     install_fakes()
     seed()
+
+
+@app.post("/__e2e__/downloads", status_code=201, include_in_schema=False)
+def add_download(fields: dict) -> dict[str, int]:
+    """A row in any state with no transfer behind it, which is why it isn't in seed():
+    every other screen starts from an empty list, and the boot would resume queued rows."""
+    with db.conn() as c:
+        channel = c.execute("SELECT id FROM channels WHERE chat_id = ?", (CHAT_ID,)).fetchone()
+        row = {
+            "channel_id": channel["id"],
+            "message_id": next(_message_ids),
+            "created_at": int(time.time()),
+            **fields,
+        }
+        columns = ", ".join(row)
+        marks = ", ".join("?" for _ in row)
+        created = c.execute(
+            f"INSERT INTO downloads ({columns}) VALUES ({marks}) RETURNING id",
+            tuple(row.values()),
+        ).fetchone()
+    return {"id": created["id"]}
+
+
+@app.post("/__e2e__/downloads/{download_id}/progress", status_code=204, include_in_schema=False)
+def set_progress(download_id: int, progress: float) -> None:
+    """What a running transfer writes as it goes, for the live stream to pick up."""
+    with db.conn() as c:
+        c.execute("UPDATE downloads SET progress = ? WHERE id = ?", (progress, download_id))
 
 
 def main() -> None:

@@ -14,6 +14,9 @@
 - Review in the new interface: search and filter pending releases by channel and reason,
   expand a compact row to assign or discard it, and discard several at once. Any release
   that fails to discard is named and stays selected.
+- The Downloads screen of the new interface: filters that narrow every list, a
+  Queued / Active tab next to Completed, Failed and Cancelled, Pause all / Resume all,
+  live progress, and Stop, Retry, Delete and Clear on each list.
 
 ## 1.2.0 — History fetch, per-transfer pause, and env-based deployment (2026-11-06)
 
