@@ -460,6 +460,37 @@ describe("bulk Discard", () => {
     expect(screen.queryByRole("button", { name: "Descarta les seleccionades" })).not.toBeInTheDocument();
   });
 
+  it("hands focus to Select all when the bulk action goes away", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+
+    await waitFor(() => expect(shownNames()).not.toContain("fly.mkv"));
+    expect(screen.getByRole("checkbox", { name: "Selecciona totes les visibles" })).toHaveFocus();
+  });
+
+  it("leaves focus alone if it moved on during a bulk Discard", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+    const otherRow = screen.getByRole("checkbox", { name: "Selecciona Avatar.2022.1080p.mkv" });
+    otherRow.focus();
+
+    await waitFor(() => expect(shownNames()).not.toContain("fly.mkv"));
+    expect(otherRow).toHaveFocus();
+  });
+
+  it("hands focus to the empty queue's message when nothing is left", async () => {
+    const { user } = await renderQueue([MOSCA]);
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+
+    expect(await screen.findByText("No hi ha res per revisar")).toHaveFocus();
+  });
+
   it("clears the selection", async () => {
     const { user } = await renderQueue();
 
