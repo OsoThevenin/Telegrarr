@@ -27,16 +27,16 @@ type Props = {
 
 export function RemoveDialog({ removal, isOpen, onConfirm, onClose, onCloseAutoFocus }: Props) {
   const { t } = useI18n();
-  const { source, isWholeShow } = removal;
+  const { source } = removal;
 
   return (
     <AlertDialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t(isWholeShow ? "ch.remove_aria" : "ch.remove_source")}</AlertDialogTitle>
+          <AlertDialogTitle>{t("ch.remove_aria")}</AlertDialogTitle>
           <AlertDialogDescription>
             <span className="block font-medium text-foreground">{sourceLabel(source)}</span>
-            {t(isWholeShow ? "ch.remove_confirm" : "ch.remove_source_confirm")}
+            {t("ch.remove_confirm")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

@@ -34,6 +34,9 @@ export type BulkOutcome = {
 
 export const PENDING_KEY = ["review"];
 
+/** The stream doesn't signal new releases, and reading the queue costs only the database. */
+export const PENDING_REFRESH_MS = 30_000;
+
 const releasePath = (release: PendingRelease): string =>
   `/api/review/${release.channel_id}/${release.message_id}`;
 

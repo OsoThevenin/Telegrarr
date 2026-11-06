@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   chipStates,
   filmAction,
-  formatBytes,
   pageCount,
   pageNumbers,
   pageUrl,
@@ -150,16 +149,5 @@ describe("shownRange", () => {
   it("names the rows of the current page", () => {
     expect(shownRange(2, 25)).toBe("26–50");
     expect(shownRange(3, 10)).toBe("51–60");
-  });
-});
-
-describe("formatBytes", () => {
-  it.each([
-    [0, "0 B"],
-    [512, "512 B"],
-    [1536, "1.5 KB"],
-    [1610612736, "1.5 GB"],
-  ])("writes %i bytes as %s", (bytes, text) => {
-    expect(formatBytes(bytes)).toBe(text);
   });
 });

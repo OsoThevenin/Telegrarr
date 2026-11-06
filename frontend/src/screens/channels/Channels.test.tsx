@@ -56,7 +56,7 @@ describe("tabs", () => {
 
     expect(tab(/^Sèries\s*1$/)).toBeVisible();
     const card = cardButton("Dark");
-    expect(within(card).getByText("2 fonts")).toBeVisible();
+    expect(within(card).getByText("2 canals")).toBeVisible();
   });
 
   it("keeps a channel of an unknown kind reachable, on the series tab", async () => {
@@ -203,7 +203,7 @@ describe("card actions", () => {
     const { user } = await openChannels();
     await user.click(screen.getByRole("button", { name: "Escaneja Dark" }));
 
-    expect(await screen.findByText("S’estan escanejant 2 fonts")).toBeVisible();
+    expect(await screen.findByText("S’estan escanejant 2 canals")).toBeVisible();
     expect(scanned).toEqual(["1", "2"]);
   });
 
@@ -249,7 +249,7 @@ describe("card actions", () => {
     await user.click(screen.getByRole("button", { name: "Accions de Dark" }));
 
     expect(await screen.findAllByRole("menuitem")).toHaveLength(4);
-    expect(menuItems()).toEqual(["Escaneja", "Recupera l’historial", "Desactiva", "Fonts"]);
+    expect(menuItems()).toEqual(["Escaneja", "Recupera l’historial", "Desactiva", "Canals"]);
   });
 
   it("starts a history backfill from the menu", async () => {
@@ -351,7 +351,7 @@ describe("Sheet", () => {
 
     expect(within(sheet).getByRole("heading", { name: "Dark" })).toBeVisible();
     expect(await within(sheet).findByText("Una ciutat alemanya.")).toBeVisible();
-    expect(within(sheet).getByText(/2017 · sèrie · ★ 8.7 · tt1/)).toBeVisible();
+    expect(within(sheet).getByText(/2017 · Sèrie · ★ 8.7 · tt1/)).toBeVisible();
     expect(within(sheet).getByText("Actual: Dark (TVDB 334824 · TMDB 70523 · IMDb tt1)")).toBeVisible();
     expect(within(sheet).getByRole("listitem")).toHaveTextContent("Font A");
   });
@@ -413,7 +413,7 @@ describe("Sheet", () => {
     const { user } = await openChannels();
     const trigger = screen.getByRole("button", { name: "Accions de Dark" });
     await user.click(trigger);
-    await user.click(await screen.findByRole("menuitem", { name: "Fonts" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Canals" }));
     await screen.findByRole("dialog");
     await user.keyboard("{Escape}");
 
@@ -475,7 +475,7 @@ describe("Sheet", () => {
     const { user, sheet } = await openSheet("Cinema Club");
     await user.click(within(sheet).getByRole("button", { name: "Escaneja" }));
 
-    expect(await screen.findByText("S’està escanejant 1 font")).toBeVisible();
+    expect(await screen.findByText("S’està escanejant 1 canal")).toBeVisible();
   });
 
   it("turns one source off without touching the others", async () => {
@@ -725,13 +725,13 @@ describe("Sheet", () => {
 
     const { user, sheet } = await openSheet("Dark");
     const row = within(sheet).getByText("Font B").closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Elimina la font" }));
+    await user.click(within(row).getByRole("button", { name: "Elimina el canal" }));
 
     const dialog = await screen.findByRole("alertdialog");
-    expect(dialog).toHaveTextContent("Vols eliminar aquest canal font?");
+    expect(dialog).toHaveTextContent("Vols eliminar aquest canal?");
     await user.click(within(dialog).getByRole("button", { name: "Elimina" }));
 
-    expect(await screen.findByText("S’ha eliminat la font")).toBeVisible();
+    expect(await screen.findByText("S’ha eliminat el canal")).toBeVisible();
     await waitFor(() => expect(within(sheet).queryByText("Font B")).not.toBeInTheDocument());
     expect(screen.getByRole("dialog")).toBeVisible();
   });

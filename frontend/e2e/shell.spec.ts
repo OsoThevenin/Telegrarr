@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { expect, submitLoginForm, test } from "./fixtures";
+import { expect, submitLoginForm, test, watchErrors } from "./fixtures";
 
 const SCREENS = [
   ["Tauler", "/"],
@@ -18,11 +18,7 @@ const screenHeading = (page: Page, name: string) => page.getByRole("heading", { 
 
 test.describe("signed in", () => {
   test("every screen is reachable from the sidebar, with no browser errors", async ({ signedInPage: page }) => {
-    const errors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
+    const errors = watchErrors(page);
 
     await page.goto("/");
 
@@ -100,11 +96,11 @@ test.describe("signed in", () => {
       await page.goto("/settings");
       await expect(screenHeading(page, "Configuració")).toBeVisible();
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-
-      expect(overflow).toBe(0);
+      await expect
+        .poll(() =>
+          page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+        )
+        .toBe(0);
     });
   });
 });
@@ -133,25 +129,21 @@ test.describe("old addresses", () => {
 });
 
 test.describe("signed out", () => {
-  for (const [url, login] of [
-    ["/", "/login"],
-    ["/channels", "/login?next=%2Fchannels"],
-    ["/no-such-screen", "/login?next=%2Fno-such-screen"],
-  ]) {
+  for (const url of ["/", "/channels", "/no-such-screen"]) {
     test(`${url} ends at the login page`, async ({ page }) => {
       await page.goto(url);
 
-      await expect(page).toHaveURL(login);
+      await expect(page).toHaveURL("/login");
     });
   }
 
-  test("signing in returns to the page that was asked for", async ({ page }) => {
+  test("signing in from a deep link lands on the Dashboard", async ({ page }) => {
     await page.goto("/downloads?tab=failed");
 
     await submitLoginForm(page);
 
-    await expect(page).toHaveURL("/downloads?tab=failed");
-    await expect(page.getByRole("tab", { name: /^Fallides/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page).toHaveURL("/");
+    await expect(screenHeading(page, "Tauler")).toBeVisible();
   });
 
   test("signing in from the login page opens the app", async ({ page }) => {

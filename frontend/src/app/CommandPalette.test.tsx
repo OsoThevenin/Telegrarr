@@ -41,7 +41,7 @@ function servePosts(...paths: string[]) {
 }
 
 const serveChannels = (...ids: number[]) =>
-  server.use(http.get("/api/channels", () => HttpResponse.json(ids.map((id) => ({ id })))));
+  server.use(http.get("/api/channels", () => HttpResponse.json(ids.map((id) => ({ id, scanning: 1 })))));
 
 describe("command palette", () => {
   afterEach(() => {
@@ -207,6 +207,27 @@ describe("command palette", () => {
     expect(await screen.findByText("Canal perdut")).toBeVisible();
     expect(posted).toEqual(["/api/channels/2/backfill"]);
     expect(screen.queryByText("S’ha començat a recuperar l’historial")).not.toBeInTheDocument();
+  });
+
+  it("leaves out channels with scanning off, which would refuse", async () => {
+    server.use(
+      http.get("/api/channels", () =>
+        HttpResponse.json([
+          { id: 1, scanning: 0 },
+          { id: 2, scanning: 1 },
+        ]),
+      ),
+      http.post("/api/channels/1/backfill", () =>
+        HttpResponse.json({ detail: "L’escaneig està aturat" }, { status: 409 }),
+      ),
+    );
+    const posted = servePosts("/api/channels/2/backfill");
+    const { user } = await renderApp();
+
+    await runCommand(user, "Recupera l’historial de tots els canals");
+
+    expect(await screen.findByText("S’ha començat a recuperar l’historial")).toBeVisible();
+    expect(posted).toEqual(["/api/channels/2/backfill"]);
   });
 
   it("toggles the theme", async () => {

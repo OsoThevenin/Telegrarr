@@ -3,10 +3,8 @@ import { useEffect, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/use-i18n";
-import { cn } from "@/lib/utils";
 
 import { searchFilms, type FilmHit } from "./review-api";
-import { DESTRUCTIVE_TEXT } from "./tone";
 
 const SEARCH_DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 2;
@@ -55,7 +53,7 @@ export function FilmSearch({ initialQuery, shouldFocus, isDisabled, onPick }: Pr
       />
       {films.isFetching && <p className="text-sm text-muted-foreground">{t("review.searching")}</p>}
       {films.isError && (
-        <p role="alert" className={cn("text-sm", DESTRUCTIVE_TEXT)}>
+        <p role="alert" className="text-sm text-destructive">
           {errorText(films.error)}
         </p>
       )}

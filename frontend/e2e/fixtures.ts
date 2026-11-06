@@ -1,4 +1,4 @@
-import { test as base, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { test as base, expect, type APIRequestContext, type ConsoleMessage, type Page } from "@playwright/test";
 
 import { E2E_PASSWORD, E2E_USER } from "./credentials";
 
@@ -27,6 +27,24 @@ export async function submitLoginForm(page: Page): Promise<void> {
 export async function setBackendEnv(request: APIRequestContext, values: Record<string, string>): Promise<void> {
   const response = await request.post("/__e2e__/env", { data: values });
   expect(response.ok()).toBe(true);
+}
+
+// The API's documented answer for a Channel with no photo. The browser logs it, and the card
+// shows its initials instead.
+const NO_PHOTO = /\/api\/channels\/\d+\/photo$/;
+
+function isExpectedError(message: ConsoleMessage): boolean {
+  return message.text().includes("404") && NO_PHOTO.test(message.location().url);
+}
+
+/** Collects what goes wrong in the browser, for a test to expect none of it. */
+export function watchErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && !isExpectedError(message)) errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
 }
 
 export const test = base.extend<Fixtures>({

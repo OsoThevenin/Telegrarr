@@ -1,14 +1,9 @@
 const OLD_HASH_PATH = /^#\/([\w-]+)$/;
 const OLD_DASHBOARD = "dashboard";
 
-/** The login page, which brings the visitor back to `path` afterwards. */
-export function loginUrl(path: string): string {
-  return path === "/" ? "/login" : `/login?${new URLSearchParams({ next: path })}`;
-}
-
 /** Hands over to the backend's login page, which sits outside this app. */
 export function goToLogin(): void {
-  window.location.assign(loginUrl(window.location.pathname + window.location.search));
+  window.location.assign("/login");
 }
 
 /** Ends the session; the backend answers with its login page. */

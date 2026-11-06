@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 
-import { expect, test } from "./fixtures";
+import { expect, test, watchErrors } from "./fixtures";
 
 const PHONE = { width: 390, height: 844 };
 const DIALOG_NAME = "Afegeix un canal";
@@ -19,15 +19,6 @@ const openDialog = async (page: Page) => {
 const search = (dialog: Locator) => dialog.getByRole("combobox", { name: "Canal de Telegram" });
 const save = (dialog: Locator) => dialog.getByRole("button", { name: "Desa" }).click();
 const card = (page: Page, title: string) => page.getByRole("article").filter({ hasText: title });
-
-const watchErrors = (page: Page) => {
-  const errors: string[] = [];
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-  });
-  page.on("pageerror", (error) => errors.push(error.message));
-  return errors;
-};
 
 test.describe("adding a channel", () => {
   test("picks a chat by keyboard and adds it, with no browser errors", async ({ signedInPage: page }) => {
@@ -76,7 +67,7 @@ test.describe("adding a channel", () => {
     await save(dialog);
 
     await expect(dialog).toBeHidden();
-    await expect(page.getByText("S’han afegit 2 fonts de tema")).toBeVisible();
+    await expect(page.getByText("S’han afegit 2 canals de tema")).toBeVisible();
     await expect(card(page, "Sèries HD")).toBeVisible();
     await page.getByRole("tab", { name: /^Pel·lícules/ }).click();
     await expect(card(page, "Pel·lícules HD")).toBeVisible();
@@ -98,6 +89,7 @@ test.describe("adding a channel", () => {
 
   test("the palette opens the form ready to search, and it closes cleanly", async ({ signedInPage: page }) => {
     await page.goto("/downloads");
+    await expect(page.getByRole("heading", { level: 1, name: "Baixades" })).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
     await page.keyboard.type(DIALOG_NAME);
     await page.keyboard.press("Enter");

@@ -1,11 +1,10 @@
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 
 import { shellRoute } from "@/app/shell-route";
-import { Dashboard } from "@/screens/dashboard/Dashboard";
 
 export const dashboardRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/",
   staticData: { titleKey: "nav.dashboard", hasOwnStatusLine: true },
-  component: Dashboard,
+  component: lazyRouteComponent(() => import("@/screens/dashboard/Dashboard"), "Dashboard"),
 });

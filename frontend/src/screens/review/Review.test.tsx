@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PENDING_REFRESH_MS } from "@/screens/review/review-api";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -459,6 +460,58 @@ describe("bulk Discard", () => {
     expect(screen.queryByRole("button", { name: "Descarta les seleccionades" })).not.toBeInTheDocument();
   });
 
+  it("hands focus to Select all when the bulk action goes away", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+
+    await waitFor(() => expect(shownNames()).not.toContain("fly.mkv"));
+    expect(screen.getByRole("checkbox", { name: "Selecciona totes les visibles" })).toHaveFocus();
+  });
+
+  it("hands focus to Select all when Clear selection goes away", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await user.click(screen.getByRole("button", { name: "Treu la selecció" }));
+
+    expect(screen.queryByRole("button", { name: "Treu la selecció" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Selecciona totes les visibles" })).toHaveFocus();
+  });
+
+  it("hands focus to Clear filters when Clear selection goes away and no row is shown", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await user.type(screen.getByRole("searchbox"), "zzz");
+    await user.click(screen.getByRole("button", { name: "Treu la selecció" }));
+
+    expect(screen.queryByRole("button", { name: "Treu la selecció" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Treu els filtres" })).toHaveFocus();
+  });
+
+  it("leaves focus alone if it moved on during a bulk Discard", async () => {
+    const { user } = await renderQueue();
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+    const otherRow = screen.getByRole("checkbox", { name: "Selecciona Avatar.2022.1080p.mkv" });
+    otherRow.focus();
+
+    await waitFor(() => expect(shownNames()).not.toContain("fly.mkv"));
+    expect(otherRow).toHaveFocus();
+  });
+
+  it("hands focus to the empty queue's message when nothing is left", async () => {
+    const { user } = await renderQueue([MOSCA]);
+
+    await select(user, "fly.mkv");
+    await confirm(user, await bulkDiscard(user));
+
+    expect(await screen.findByText("No hi ha res per revisar")).toHaveFocus();
+  });
+
   it("clears the selection", async () => {
     const { user } = await renderQueue();
 
@@ -551,5 +604,23 @@ describe("bulk Discard", () => {
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(isSelected("Els.Pirates.CAT.mkv")).toBe(true);
+  });
+});
+
+describe("while the screen is open", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows a release that arrives, without reloading", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    serveReleases([AVATAR]);
+    await renderApp({ route: "/review" });
+    await screen.findByText("Avatar.2022.1080p.mkv");
+
+    server.use(http.get("/api/review", () => HttpResponse.json([AVATAR, PIRATES])));
+    await act(() => vi.advanceTimersByTimeAsync(PENDING_REFRESH_MS));
+
+    expect(await screen.findByText("Els.Pirates.CAT.mkv")).toBeVisible();
   });
 });

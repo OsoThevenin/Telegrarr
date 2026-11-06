@@ -35,7 +35,7 @@ function TelegramState() {
         aria-hidden="true"
         className={cn("size-2 rounded-full", status.authorized ? "bg-primary" : "bg-destructive")}
       />
-      {t(status.authorized ? "shell.tg_connected" : "shell.tg_offline")}
+      {status.authorized ? t("shell.tg_connected") : t("shell.tg_offline")}
     </p>
   );
 }

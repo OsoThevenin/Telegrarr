@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/i18n/use-i18n";
+import { formatBytes } from "@/lib/format";
 import {
   fileSummary,
   filmAction,
-  formatBytes,
   type FilmRow as Film,
   type FilmStatus,
   type UnidentifiedRow as Unidentified,

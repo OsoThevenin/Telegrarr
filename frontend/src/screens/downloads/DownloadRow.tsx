@@ -45,7 +45,15 @@ function useRowDetails(download: Download): string {
 /** Held by hand, so it reads apart from the states the queue moves through by itself. */
 function StatusBadge({ download }: Pick<Props, "download">) {
   const { t } = useI18n();
-  const label = t(`status.${download.status}`);
+  const labels: Record<Download["status"], string> = {
+    queued: t("status.queued"),
+    downloading: t("status.downloading"),
+    paused: t("status.paused"),
+    completed: t("status.completed"),
+    failed: t("status.failed"),
+    cancelled: t("status.cancelled"),
+  };
+  const label = labels[download.status];
 
   if (!isPaused(download)) return <Badge variant="secondary">{label}</Badge>;
   return (

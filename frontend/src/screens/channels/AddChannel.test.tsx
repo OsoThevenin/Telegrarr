@@ -271,7 +271,7 @@ describe("forum groups", () => {
       expect.objectContaining({ chat_id: AMICS.chat_id, kind: "tv", topic_id: 11, topic_title: "Sèries HD" }),
       expect.objectContaining({ chat_id: AMICS.chat_id, kind: "movie", topic_id: 12, topic_title: "Pel·lícules HD" }),
     ]);
-    expect(await screen.findByText("S’han afegit 2 fonts de tema")).toBeVisible();
+    expect(await screen.findByText("S’han afegit 2 canals de tema")).toBeVisible();
   });
 
   it("asks for a topic before saving", async () => {
@@ -313,7 +313,7 @@ describe("forum groups", () => {
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Sèries HD: Límit assolit");
     expect(posted).toEqual([expect.objectContaining({ topic_id: 12 })]);
-    expect(await screen.findByText("S’ha afegit 1 font de tema")).toBeVisible();
+    expect(await screen.findByText("S’ha afegit 1 canal de tema")).toBeVisible();
   });
 
   it("forgets the ticks when another chat is picked", async () => {

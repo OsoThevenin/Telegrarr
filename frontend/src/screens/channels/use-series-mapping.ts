@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
 import type { Channel } from "@/screens/channels/channel";
 import {
   exactHit,
@@ -19,39 +20,23 @@ export type SeriesPayload = { tmdb_id: number | null; tvdb_id: string | null; ti
 
 type SeriesChoice = { tmdb_id: number; title: string };
 type SeriesSearch = { term: string; digitsAsId: boolean };
-type SettingsReply = { settings: { tmdb_key_set: boolean } };
 
-const useHasTmdbKey = () =>
-  useQuery({
-    queryKey: ["settings"],
-    queryFn: () => api.get<SettingsReply>("/api/settings"),
-    select: ({ settings }) => settings.tmdb_key_set,
-  });
+function payloadOf(choice: SeriesChoice | null, tvdb: { value: string; isEdited: boolean }): SeriesPayload | null {
+  const typedTvdb = tvdb.value.trim();
+  const editedTvdb = tvdb.isEdited && typedTvdb ? typedTvdb : null;
+  if (!choice && !editedTvdb) return null;
+  return { tmdb_id: choice?.tmdb_id ?? null, tvdb_id: editedTvdb, title: choice?.title ?? "" };
+}
 
-/** The series block's state. It lives above the block, so hiding the block keeps the choice. */
-export function useSeriesMapping(source?: Channel) {
-  const [query, setQuery] = useState(source?.imdb_title ?? "");
-  const [isQueryTouched, setIsQueryTouched] = useState(false);
-  const [choice, setChoice] = useState<SeriesChoice | null>(null);
-  const [tvdb, setTvdb] = useState({ value: source?.tvdb_id ? String(source.tvdb_id) : "", isEdited: false });
+function useSeriesSearch(onExactHit: (hit: SeriesHit) => void) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const hasTmdbKey = useHasTmdbKey();
   const search = useMutation({
     mutationFn: ({ term, digitsAsId }: SeriesSearch) => api.get<SeriesHit[]>(seriesSearchUrl(term, digitsAsId)),
   });
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const choose = ({ tmdb_id, title, year }: SeriesHit) => {
-    clearTimeout(timer.current);
-    search.reset();
-    setChoice({ tmdb_id, title: year ? `${title} (${year})` : title });
-    setQuery(title);
-    setIsQueryTouched(true);
-    setTvdb((current) => (current.isEdited ? current : { value: "", isEdited: false }));
-  };
-
-  const runSearch = (typed: string, digitsAsId: boolean) => {
+  const run = (typed: string, digitsAsId: boolean) => {
     const term = typed.trim();
     if (term.length < MIN_QUERY_LENGTH) {
       search.reset();
@@ -63,24 +48,53 @@ export function useSeriesMapping(source?: Channel) {
       {
         onSuccess: (hits) => {
           const exact = exactHit(hits);
-          if (exact) choose(exact);
+          if (exact) onExactHit(exact);
         },
       },
     );
   };
 
+  return {
+    search,
+    run,
+    cancel: () => {
+      clearTimeout(timer.current);
+      search.reset();
+    },
+    runAfterPause: (typed: string) => {
+      clearTimeout(timer.current);
+      if (search.isPending) search.reset();
+      timer.current = setTimeout(() => run(typed, false), SEARCH_DEBOUNCE_MS);
+    },
+    /** Enter is the one place plain digits read as a TMDB id. */
+    runNow: (typed: string) => {
+      clearTimeout(timer.current);
+      run(typed, true);
+    },
+  };
+}
+
+/** The series block's state. It lives above the block, so hiding the block keeps the choice. */
+export function useSeriesMapping(source?: Channel) {
+  const [query, setQuery] = useState(source?.imdb_title ?? "");
+  const [isQueryTouched, setIsQueryTouched] = useState(false);
+  const [choice, setChoice] = useState<SeriesChoice | null>(null);
+  const [tvdb, setTvdb] = useState({ value: source?.tvdb_id ? String(source.tvdb_id) : "", isEdited: false });
+  const hasTmdbKey = useSettings().data?.settings.tmdb_key_set;
+  const { search, run, cancel, runAfterPause, runNow } = useSeriesSearch(choose);
+
+  function choose({ tmdb_id, title, year }: SeriesHit) {
+    cancel();
+    setChoice({ tmdb_id, title: year ? `${title} (${year})` : title });
+    setQuery(title);
+    setIsQueryTouched(true);
+    setTvdb((current) => (current.isEdited ? current : { value: "", isEdited: false }));
+  }
+
   const changeQuery = (value: string) => {
-    clearTimeout(timer.current);
-    if (search.isPending) search.reset();
     setQuery(value);
     setIsQueryTouched(true);
-    timer.current = setTimeout(() => runSearch(value, false), SEARCH_DEBOUNCE_MS);
-  };
-
-  /** Enter is the one place plain digits read as a TMDB id. */
-  const searchNow = () => {
-    clearTimeout(timer.current);
-    runSearch(query, true);
+    runAfterPause(value);
   };
 
   /** Starts from a chat's name, unless the search is already the person's own. */
@@ -89,28 +103,21 @@ export function useSeriesMapping(source?: Channel) {
 
     const term = seriesQuery(chatTitle);
     setQuery(term);
-    if (hasTmdbKey.data !== false) runSearch(term, false);
+    if (hasTmdbKey !== false) run(term, false);
   };
-
-  const typedTvdb = tvdb.value.trim();
-  const editedTvdb = tvdb.isEdited && typedTvdb ? typedTvdb : null;
-  const payload: SeriesPayload | null =
-    choice || editedTvdb
-      ? { tmdb_id: choice?.tmdb_id ?? null, tvdb_id: editedTvdb, title: choice?.title ?? "" }
-      : null;
 
   return {
     query,
     changeQuery,
-    searchNow,
+    searchNow: () => runNow(query),
     prefill,
     choose,
     choice,
     tvdb: tvdb.value,
     changeTvdb: (value: string) => setTvdb({ value, isEdited: true }),
     search,
-    isTmdbKeyMissing: hasTmdbKey.data === false,
-    payload,
+    isTmdbKeyMissing: hasTmdbKey === false,
+    payload: payloadOf(choice, tvdb),
   };
 }
 

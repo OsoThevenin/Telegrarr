@@ -1,9 +1,19 @@
+import { withTopic } from "@/lib/format";
+
+export const MOVIE_KIND = "movie";
+const SERIES_KIND = "tv";
+
+type KnownKind = typeof SERIES_KIND | typeof MOVIE_KIND;
+
+/** The database keeps kinds as free text, so a row can hold one this release does not know. */
+export type ChannelKind = KnownKind | (string & {});
+
 /** A row of GET /api/channels: one source, which is a chat or one topic of a forum group. */
 export type Channel = {
   id: number;
   chat_id: number;
   title: string;
-  kind: string;
+  kind: ChannelKind;
   /** SQLite flags: 0 or 1. */
   enabled: number;
   scanning: number;
@@ -38,12 +48,10 @@ export type Show = {
 
 export type ChannelTab = "series" | "movies";
 
-export const MOVIE_KIND = "movie";
-
 export const isMovieChannel = (channel: Channel) => channel.kind === MOVIE_KIND;
 
 /** The one kind a series mapping applies to. */
-export const isSeriesKind = (kind: string) => kind === "tv";
+export const isSeriesKind = (kind: ChannelKind) => kind === SERIES_KIND;
 
 /** Every kind but movie lands on the series tab, so no channel falls out of the grid. */
 export const tabOf = (channel: Channel): ChannelTab => (isMovieChannel(channel) ? "movies" : "series");
@@ -63,7 +71,7 @@ export function groupIntoShows(channels: Channel[]): Show[] {
 
 /** How a source is named: its chat, plus the topic for a topic source. */
 export const sourceLabel = (channel: Channel) =>
-  channel.topic_title ? `${channel.title} › ${channel.topic_title}` : channel.title;
+  withTopic(channel.title, channel.topic_title);
 
 export const showTitle = ({ lead }: Show) => lead.imdb_title || sourceLabel(lead);
 
@@ -90,16 +98,14 @@ export const showImages = ({ lead }: Show, poster: string | null) => [
 ];
 
 /** A kind this release does not know is shown as it stands. */
-export function kindLabel(kind: string, t: Translate): string {
-  if (kind === "tv") return t("kind.tv");
-  return kind === "movie" ? t("kind.movie") : kind;
-}
+const labelOf = (kind: ChannelKind, labels: Record<KnownKind, string>) => labels[kind as KnownKind] ?? kind;
+
+export const kindLabel = (kind: ChannelKind, t: Translate) =>
+  labelOf(kind, { [SERIES_KIND]: t("kind.tv"), [MOVIE_KIND]: t("kind.movie") });
 
 /** A kind as a choice on a form. */
-export function kindChoiceLabel(kind: string, t: Translate): string {
-  if (kind === "tv") return t("chm.kind.tv");
-  return kind === "movie" ? t("chm.kind.movie") : kind;
-}
+export const kindChoiceLabel = (kind: ChannelKind, t: Translate) =>
+  labelOf(kind, { [SERIES_KIND]: t("chm.kind.tv"), [MOVIE_KIND]: t("chm.kind.movie") });
 
 function weekdaysLabel(weekdays: string, t: Translate): string {
   const names = t("common.weekdays_short").split(" ");

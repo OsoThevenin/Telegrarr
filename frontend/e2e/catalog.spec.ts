@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 
-import { expect, test } from "./fixtures";
+import { expect, test, watchErrors } from "./fixtures";
 
 const PHONE = { width: 390, height: 844 };
 
@@ -25,11 +25,7 @@ const openCatalog = async (page: Page) => {
 
 test.describe("Catalog", () => {
   test("searches, pages, expands and downloads a film, with no browser errors", async ({ signedInPage: page }) => {
-    const errors: string[] = [];
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    page.on("pageerror", (error) => errors.push(error.message));
+    const errors = watchErrors(page);
     await connectRadarr(page);
 
     const sheet = await openCatalog(page);

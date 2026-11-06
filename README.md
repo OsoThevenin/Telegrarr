@@ -208,8 +208,23 @@ One persistent session file is kept in `/data`.
 ## Interface language
 
 The UI is in **Catalan by default**. Switch to English in *Settings → Account →
-Appearance* (*Configuració → Compte → Aparença*). The choice covers the UI, error
-messages and notifications.
+Appearance* (*Configuració → Compte → Aparença*) or with the language picker in the
+sidebar. The choice covers the UI, error messages and notifications.
+
+## Using the interface
+
+The sidebar holds the eight screens: **Dashboard**, **Channels**, **Downloads**,
+**Activity**, **Review**, **Connect**, **System** and **Settings**.
+
+- **Command palette:** press <kbd>⌘K</kbd> or <kbd>Ctrl+K</kbd> to jump to any screen
+  or run a command such as adding a channel or toggling the theme.
+- **Live updates:** download progress, the queue and Review refresh on their own, with
+  no reload.
+- **Channel details:** select a channel to open its details. On a movie channel they
+  include the **Catalog**, where you can search the channel's films and download them.
+- **Phones:** the sidebar becomes a menu you open from the top bar.
+- **Theme:** *Settings → Account → Appearance* offers Auto, Light and Dark. Auto
+  follows your system.
 
 ## Configuration reference
 
@@ -263,6 +278,14 @@ Serve…). The app reads `X-Forwarded-Proto` and marks the session cookie `Secur
 | Downloads | Settings |
 | --- | --- |
 | ![Downloads](docs/screenshots/downloads.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Channel details | Command palette |
+| --- | --- |
+| ![Channel details](docs/screenshots/channel-drawer.png) | ![Command palette](docs/screenshots/command-palette.png) |
+
+| Activity | System |
+| --- | --- |
+| ![Activity](docs/screenshots/activity.png) | ![System](docs/screenshots/system.png) |
 
 ## Security
 

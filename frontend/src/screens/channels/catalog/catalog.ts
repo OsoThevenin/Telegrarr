@@ -180,20 +180,10 @@ export function shownRange(page: number, rowsOnPage: number): string {
   return `${first}–${first + rowsOnPage - 1}`;
 }
 
-const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"];
-const BYTES_PER_UNIT = 1024;
-const BYTES_PER_GB = BYTES_PER_UNIT ** 3;
+const BYTES_PER_GB = 1024 ** 3;
 
 export const formatGb = (bytes: number) => `${(bytes / BYTES_PER_GB).toFixed(1)} GB`;
 
 /** A file's quality and size, for a collapsed row. */
 export const fileSummary = ({ quality, size }: RadarrFile) =>
   [quality, size ? formatGb(size) : null].filter(Boolean).join(" · ");
-
-export function formatBytes(bytes: number): string {
-  if (!bytes) return "0 B";
-  const exponent = Math.floor(Math.log(bytes) / Math.log(BYTES_PER_UNIT));
-  const unit = Math.min(BYTE_UNITS.length - 1, exponent);
-
-  return `${(bytes / BYTES_PER_UNIT ** unit).toFixed(unit ? 1 : 0)} ${BYTE_UNITS[unit]}`;
-}

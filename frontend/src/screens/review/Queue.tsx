@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -42,12 +42,17 @@ function updateSelection(
   return new Set([...selection].filter((key) => !keys.includes(key)));
 }
 
-function NoMatches({ onClear }: { onClear: () => void }) {
+type NoMatchesProps = {
+  onClear: () => void;
+  clearRef: RefObject<HTMLButtonElement | null>;
+};
+
+function NoMatches({ onClear, clearRef }: NoMatchesProps) {
   const { t } = useI18n();
   return (
     <div className="flex flex-col items-start gap-2 py-6">
       <p className="text-sm">{t("review.no_matches")}</p>
-      <Button type="button" variant="outline" size="sm" onClick={onClear}>
+      <Button ref={clearRef} type="button" variant="outline" size="sm" onClick={onClear}>
         {t("review.clear_filters")}
       </Button>
     </div>
@@ -59,17 +64,26 @@ type ToolbarProps = {
   shownSelectedCount: number;
   totalCount: number;
   onToggleAllShown: (isSelected: boolean) => void;
+  selectAllRef: RefObject<HTMLButtonElement | null>;
   children: ReactNode;
 };
 
 /** Stays under the shell's header, so the bulk action is at hand anywhere in a long queue. */
-function Toolbar({ shownCount, shownSelectedCount, totalCount, onToggleAllShown, children }: ToolbarProps) {
+function Toolbar({
+  shownCount,
+  shownSelectedCount,
+  totalCount,
+  onToggleAllShown,
+  selectAllRef,
+  children,
+}: ToolbarProps) {
   const { t } = useI18n();
   const isAllSelected = shownCount > 0 && shownSelectedCount === shownCount;
   return (
     <div className="sticky top-14 z-5 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-background py-1 pl-3">
       <span className="flex items-center gap-3 text-sm text-muted-foreground tabular-nums">
         <Checkbox
+          ref={selectAllRef}
           aria-label={t("review.select_all")}
           checked={isAllSelected || (shownSelectedCount > 0 && "indeterminate")}
           disabled={shownCount === 0}
@@ -140,6 +154,9 @@ function useDropFromQueue() {
   };
 }
 
+/** True when focus sits nowhere, or on a control about to go: a disabled one has already lost it. */
+const hasLostFocus = (): boolean => document.activeElement?.matches("body, :disabled") ?? true;
+
 function bulkNotice({ discarded, gone }: BulkOutcome, tn: (key: string, count: number) => string) {
   const notices = [
     discarded.length > 0 ? tn("review.bulk_discarded", discarded.length) : "",
@@ -159,9 +176,21 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
   const [open, setOpen] = useState<OpenRow | null>(null);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [failures, setFailures] = useState<BulkFailure[]>([]);
+  const selectAllRef = useRef<HTMLButtonElement>(null);
+  const clearFiltersRef = useRef<HTMLButtonElement>(null);
 
   const selected = releases.filter((release) => selection.has(releaseKey(release)));
   const shownSelected = shown.filter((release) => selection.has(releaseKey(release)));
+
+  // Select all is disabled with no row shown, and a disabled control can't take focus.
+  function focusStableControl() {
+    (shown.length > 0 ? selectAllRef : clearFiltersRef).current?.focus();
+  }
+
+  function handleClearSelection() {
+    setSelection(new Set());
+    focusStableControl();
+  }
 
   function handleResolved(key: string, notice: string) {
     const next = rowAfter(shown, key);
@@ -177,6 +206,8 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
     setFailures(outcome.failures);
     setSelection((current) => updateSelection(current, doneKeys, false));
     dropFromQueue(new Set(doneKeys));
+    // With no selection left, the bulk action is about to unmount.
+    if (outcome.failures.length === 0 && hasLostFocus()) focusStableControl();
   }
 
   return (
@@ -186,6 +217,7 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
         shownCount={shown.length}
         shownSelectedCount={shownSelected.length}
         totalCount={releases.length}
+        selectAllRef={selectAllRef}
         onToggleAllShown={(isSelected) =>
           setSelection(updateSelection(selection, shown.map(releaseKey), isSelected))
         }
@@ -194,14 +226,14 @@ function Rows({ releases, shown, onClearFilters }: RowsProps) {
           <BulkDiscard
             selected={selected}
             hiddenCount={selected.length - shownSelected.length}
-            onClear={() => setSelection(new Set())}
+            onClear={handleClearSelection}
             onStart={() => setFailures([])}
             onSettled={handleBulkSettled}
           />
         )}
       </Toolbar>
       {shown.length === 0 ? (
-        <NoMatches onClear={onClearFilters} />
+        <NoMatches onClear={onClearFilters} clearRef={clearFiltersRef} />
       ) : (
         <ReleaseList
           shown={shown}

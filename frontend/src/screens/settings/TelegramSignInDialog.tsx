@@ -20,36 +20,36 @@ type Step = "phone" | "code" | "password" | "done";
 type InputStep = Exclude<Step, "done">;
 
 type StepCopy = {
-  labelKey: string;
-  introKey: string;
-  submitKey: string;
-  pendingKey: string;
+  label: string;
+  intro: string;
+  submit: string;
+  pending: string;
   type: "tel" | "text" | "password";
 };
 
-const STEPS: Record<InputStep, StepCopy> = {
+const stepCopy = (t: ReturnType<typeof useI18n>["t"]): Record<InputStep, StepCopy> => ({
   phone: {
-    labelKey: "tgw.phone",
-    introKey: "tgw.phone_intro",
-    submitKey: "tgw.send_code",
-    pendingKey: "tgw.sending_code",
+    label: t("tgw.phone"),
+    intro: t("tgw.phone_intro"),
+    submit: t("tgw.send_code"),
+    pending: t("tgw.sending_code"),
     type: "tel",
   },
   code: {
-    labelKey: "tgw.code",
-    introKey: "tgw.code_intro",
-    submitKey: "tgw.verify",
-    pendingKey: "tgw.verifying",
+    label: t("tgw.code"),
+    intro: t("tgw.code_intro"),
+    submit: t("tgw.verify"),
+    pending: t("tgw.verifying"),
     type: "text",
   },
   password: {
-    labelKey: "tgw.password",
-    introKey: "tgw.password_intro",
-    submitKey: "tgw.continue",
-    pendingKey: "tgw.signing_in",
+    label: t("tgw.password"),
+    intro: t("tgw.password_intro"),
+    submit: t("tgw.continue"),
+    pending: t("tgw.signing_in"),
     type: "password",
   },
-};
+});
 
 async function nextStep(step: InputStep, value: string): Promise<Step> {
   switch (step) {
@@ -115,7 +115,7 @@ function SignInSteps({ onClose }: { onClose: () => void }) {
     );
   }
 
-  const copy = STEPS[step];
+  const copy = stepCopy(t)[step];
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -132,11 +132,11 @@ function SignInSteps({ onClose }: { onClose: () => void }) {
     <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
       <DialogHeader>
         <DialogTitle>{t("banner.connect_telegram")}</DialogTitle>
-        <DialogDescription>{t(copy.introKey)}</DialogDescription>
+        <DialogDescription>{copy.intro}</DialogDescription>
       </DialogHeader>
       <TextField
         key={step}
-        label={t(copy.labelKey)}
+        label={copy.label}
         type={copy.type}
         autoComplete="off"
         autoFocus
@@ -155,7 +155,7 @@ function SignInSteps({ onClose }: { onClose: () => void }) {
           {t("common.cancel")}
         </Button>
         <Button type="submit" disabled={advance.isPending}>
-          {t(advance.isPending ? copy.pendingKey : copy.submitKey)}
+          {advance.isPending ? copy.pending : copy.submit}
         </Button>
       </DialogFooter>
     </form>

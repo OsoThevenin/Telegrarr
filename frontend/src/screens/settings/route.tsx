@@ -1,11 +1,10 @@
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 
 import { shellRoute } from "@/app/shell-route";
-import { SettingsScreen } from "@/screens/settings/SettingsScreen";
 
 export const settingsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "settings",
   staticData: { titleKey: "nav.settings" },
-  component: SettingsScreen,
+  component: lazyRouteComponent(() => import("@/screens/settings/SettingsScreen"), "SettingsScreen"),
 });

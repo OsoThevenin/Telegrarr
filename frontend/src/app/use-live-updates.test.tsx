@@ -13,6 +13,7 @@ import { server } from "@/test/server";
 
 const STREAM_GONE_QUIET_MS = 12000;
 const RECONNECT_MS = 5000;
+const STATUS_POLL_MS = 6000;
 
 function row(overrides: Partial<Download> = {}): Download {
   return {
@@ -21,7 +22,7 @@ function row(overrides: Partial<Download> = {}): Download {
     file_name: "film.mkv",
     file_size: 1000,
     status: "downloading",
-    progress: 10,
+    progress: 0.1,
     save_path: null,
     finished_at: null,
     speed_mbs: 1,
@@ -47,7 +48,7 @@ function LiveScreen() {
       <ul>
         {rows.map(({ id, file_name, progress }) => (
           <li key={id}>
-            {file_name} at {progress}%
+            {file_name} at {Math.round(progress * 100)}%
           </li>
         ))}
       </ul>
@@ -88,7 +89,7 @@ describe("live updates", () => {
     renderLiveScreen();
     await screen.findByText("film.mkv at 10%");
 
-    emitSnapshot({ active: [row({ progress: 55 })] });
+    emitSnapshot({ active: [row({ progress: 0.55 })] });
 
     expect(await screen.findByText("film.mkv at 55%")).toBeVisible();
     expect(requests.count).toBe(1);
@@ -99,7 +100,7 @@ describe("live updates", () => {
     renderLiveScreen();
     await screen.findByText("kept.mkv at 10%");
 
-    emitSnapshot({ active: [{ id: 7, progress: 80 } as Download] });
+    emitSnapshot({ active: [{ id: 7, progress: 0.8 } as Download] });
 
     expect(await screen.findByText("kept.mkv at 80%")).toBeVisible();
   });
@@ -112,6 +113,30 @@ describe("live updates", () => {
     emitSnapshot({ stats: counts({ completed: 4 }), speed: 2.5 });
 
     expect(await screen.findByText("completed: 4")).toBeVisible();
+    expect(screen.getByText("speed: 2.5")).toBeVisible();
+  });
+
+  it("keeps the last speed through a status poll, which knows none", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval", "setTimeout", "Date"] });
+    serveDownloads([]);
+    server.use(
+      http.get("/api/status", () =>
+        HttpResponse.json({
+          stats: counts({ completed: 9 }),
+          paused: false,
+          budget: EMPTY_SNAPSHOT.budget,
+          disk: EMPTY_SNAPSHOT.disk,
+        }),
+      ),
+    );
+    renderLiveScreen();
+    await screen.findByText("completed: 9");
+    emitSnapshot({ stats: counts({ completed: 4 }), speed: 2.5 });
+    await screen.findByText("speed: 2.5");
+
+    await vi.advanceTimersByTimeAsync(STATUS_POLL_MS);
+
+    expect(await screen.findByText("completed: 9")).toBeVisible();
     expect(screen.getByText("speed: 2.5")).toBeVisible();
   });
 
@@ -145,14 +170,14 @@ describe("live updates", () => {
 
     emitRaw("{cut sho");
     emitRaw("null");
-    emitSnapshot({ active: [row({ progress: 20 })] });
+    emitSnapshot({ active: [row({ progress: 0.2 })] });
 
     expect(await screen.findByText("film.mkv at 20%")).toBeVisible();
   });
 
   it("falls back to fetching while the stream is silent", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setInterval", "setTimeout", "Date"] });
-    serveDownloads([row()], [row({ progress: 33 })]);
+    serveDownloads([row()], [row({ progress: 0.33 })]);
     renderLiveScreen();
     await screen.findByText("film.mkv at 10%");
 

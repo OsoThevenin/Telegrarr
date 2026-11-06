@@ -1,7 +1,6 @@
-import { createRoute } from "@tanstack/react-router";
+import { createRoute, lazyRouteComponent } from "@tanstack/react-router";
 
 import { shellRoute } from "@/app/shell-route";
-import { Downloads } from "@/screens/downloads/Downloads";
 import { tabFromUrl } from "@/screens/downloads/download-list";
 
 export const downloadsRoute = createRoute({
@@ -9,5 +8,5 @@ export const downloadsRoute = createRoute({
   path: "downloads",
   staticData: { titleKey: "nav.downloads" },
   validateSearch: (search: Record<string, unknown>): { tab?: string } => ({ tab: tabFromUrl(search.tab) }),
-  component: Downloads,
+  component: lazyRouteComponent(() => import("@/screens/downloads/Downloads"), "Downloads"),
 });

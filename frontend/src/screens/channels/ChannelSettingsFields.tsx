@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
-import { kindChoiceLabel } from "@/screens/channels/channel";
+import { kindChoiceLabel, type ChannelKind } from "@/screens/channels/channel";
 import { POLL_FLOOR_MINUTES, WEEKDAY_NUMBERS, type SettingsForm } from "@/screens/channels/channel-settings";
 
 const QUALITIES = [
@@ -50,7 +50,7 @@ function SelectField({ label, value, options, onChange }: SelectFieldProps) {
 type Props = {
   form: SettingsForm;
   /** Empty leaves the kind out, for the forum topics that each choose their own. */
-  kinds: string[];
+  kinds: ChannelKind[];
   onChange: (form: SettingsForm) => void;
 };
 

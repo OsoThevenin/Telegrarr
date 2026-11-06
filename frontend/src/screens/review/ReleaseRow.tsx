@@ -3,10 +3,11 @@ import { ChevronDownIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useI18n } from "@/i18n/use-i18n";
+import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { ReleasePanel } from "./ReleasePanel";
-import { channelLabel, formatBytes, parsedLabel, releaseName } from "./release-text";
+import { channelLabel, parsedLabel, releaseName } from "./release-text";
 import { releaseKey, type PendingRelease } from "./review-api";
 
 type Props = {
@@ -67,7 +68,7 @@ export function ReleaseRow({
             </Badge>
             <span className="flex shrink-0 items-center gap-2">
               <span className="text-right text-xs text-muted-foreground tabular-nums sm:w-16">
-                {formatBytes(release.size)}
+                {release.size ? formatBytes(release.size) : null}
               </span>
               <ChevronDownIcon
                 aria-hidden

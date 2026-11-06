@@ -6,8 +6,10 @@
 # and SAB paths behave as if the app weren't there, slash redirects and 405s included.
 # Vite content-hashes everything in assets/; the rest of the build keeps its URL, as
 # /sw.js has to, and is revalidated.
+import asyncio
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from typing import Callable, TypeVar
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -28,6 +30,12 @@ BACKEND_PATHS = frozenset({"api", "sabnzbd", "static"})
 PAGE_METHODS = frozenset({"GET", "HEAD"})
 
 router = APIRouter(include_in_schema=False)
+T = TypeVar("T")
+
+
+async def _off_the_loop(read: Callable[..., T], *args) -> T:
+    """File work, which must not hold up the event loop."""
+    return await asyncio.get_running_loop().run_in_executor(None, read, *args)
 
 
 def _built_file(path: str) -> Path | None:
@@ -42,29 +50,25 @@ def _built_file(path: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def _login_redirect(request: Request) -> RedirectResponse:
-    """To the login page, which brings the visitor back here afterwards."""
-    target = request.scope["path"]
-    if request.url.query:
-        target = f"{target}?{request.url.query}"
-    url = "/login" if target == "/" else f"/login?{urlencode({'next': target})}"
-    return RedirectResponse(url, status_code=303)
-
-
-def _index(request: Request) -> Response:
-    if not auth.cookie_user(request):
-        return _login_redirect(request)
+def _read_index() -> str | None:
     index = Path(UI_DIST) / INDEX
-    if not index.is_file():
+    return index.read_text(encoding="utf-8") if index.is_file() else None
+
+
+async def _index(request: Request) -> Response:
+    if not auth.cookie_user(request):
+        return RedirectResponse("/login", status_code=303)
+    page = await _off_the_loop(_read_index)
+    if page is None:
         raise HTTPException(SERVICE_UNAVAILABLE, "The UI is not built: run pnpm build in frontend/")
     # The saved language in <html lang> lets the app start in it without a request.
-    page = index.read_text(encoding="utf-8").replace(BUILT_LANG, f'<html lang="{i18n.ui_lang()}"', 1)
+    page = page.replace(BUILT_LANG, f'<html lang="{i18n.ui_lang()}"', 1)
     return HTMLResponse(page, headers={"Cache-Control": REVALIDATE})
 
 
 @router.get("/")
 async def root(request: Request) -> Response:
-    return _index(request)
+    return await _index(request)
 
 
 @router.get(OLD_BASE_PATH)
@@ -83,11 +87,11 @@ async def fallback(request: Request, exc: HTTPException) -> Response:
     path = request.scope["path"].lstrip("/")
     if request.method not in PAGE_METHODS or path.split("/", 1)[0] in BACKEND_PATHS:
         return await http_exception_handler(request, exc)
-    built = _built_file(path)
+    built = await _off_the_loop(_built_file, path)
     if built:
         cache = IMMUTABLE if path.startswith(HASHED_ASSETS) else REVALIDATE
         return FileResponse(built, headers={"Cache-Control": cache})
     # A stale tab asking for a chunk of an older build needs a failure, not HTML.
     if path.startswith(HASHED_ASSETS):
         return await http_exception_handler(request, exc)
-    return _index(request)
+    return await _index(request)

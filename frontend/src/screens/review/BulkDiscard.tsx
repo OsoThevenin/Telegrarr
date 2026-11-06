@@ -16,7 +16,6 @@ import { useI18n } from "@/i18n/use-i18n";
 
 import { releaseName } from "./release-text";
 import { discardAll, releaseKey, type BulkOutcome, type PendingRelease } from "./review-api";
-import { DESTRUCTIVE_TEXT } from "./tone";
 
 type Props = {
   selected: PendingRelease[];
@@ -52,7 +51,6 @@ export function BulkDiscard({ selected, hiddenCount, onClear, onStart, onSettled
             variant="destructive"
             size="sm"
             disabled={discard.isPending}
-            className={DESTRUCTIVE_TEXT}
           >
             {discard.isPending ? t("review.discarding") : t("review.bulk_discard")}
           </Button>
@@ -73,7 +71,6 @@ export function BulkDiscard({ selected, hiddenCount, onClear, onStart, onSettled
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              className={DESTRUCTIVE_TEXT}
               onClick={() => discard.mutate()}
             >
               {t("review.discard")}

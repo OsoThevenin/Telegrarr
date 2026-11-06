@@ -57,7 +57,7 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
   const label = sourceLabel(source);
   const isEnabled = Boolean(source.enabled);
   const detail = [
-    t(isEnabled ? "common.enabled" : "common.disabled"),
+    isEnabled ? t("common.enabled") : t("common.disabled"),
     scheduleLabel(source, t),
     isWholeForum(source) && t("ch.forum_whole_short"),
   ].filter(Boolean);
@@ -81,7 +81,7 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
           aria-describedby={labelId}
           onClick={() => controls.actions.setEnabled([source], !isEnabled)}
         >
-          {t(isEnabled ? "common.disable" : "common.enable")}
+          {isEnabled ? t("common.disable") : t("common.enable")}
         </Button>
         <Button
           variant="ghost"
@@ -93,7 +93,7 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label={t(isOnlySource ? "ch.remove_aria" : "ch.remove_source")}
+          aria-label={t("ch.remove_aria")}
           aria-describedby={labelId}
           onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
         >

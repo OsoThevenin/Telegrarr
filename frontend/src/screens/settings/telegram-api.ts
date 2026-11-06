@@ -9,10 +9,17 @@ const PROXY_KEY = ["telegram", "proxy"] as const;
 
 type TelegramAuth = { authorized: boolean; api_ready: boolean };
 
+/** A failure Telegram reported inside a 200 `{ error }`: the server did answer the request. */
+export class TelegramFailure extends ApiError {
+  constructor(detail: ServerMessage) {
+    super(200, detail);
+  }
+}
+
 /** Telegram failures arrive inside a 200 as `{ error }`: this makes them failures. */
 export async function telegramPost<T>(path: string, body?: unknown): Promise<T> {
   const result = await api.post<T & { error?: ServerMessage }>(path, body);
-  if (result.error) throw new ApiError(200, result.error);
+  if (result.error) throw new TelegramFailure(result.error);
   return result;
 }
 

@@ -93,7 +93,7 @@ test("the bulk bar pauses and resumes rows in one request, and Resume all leaves
   page.on("request", (request) => {
     if (request.url().endsWith("/api/downloads/bulk")) bulkRequests.push(request.postDataJSON());
   });
-  const pausedBadge = (name: string) => row(page, name).getByText("en pausa", { exact: true });
+  const pausedBadge = (name: string) => row(page, name).getByText("En pausa", { exact: true });
   const selectBoth = async () => {
     for (const name of names) await page.getByRole("checkbox", { name: `Selecciona ${name}` }).check();
     await expect(page.getByText("2 seleccionades")).toBeVisible();

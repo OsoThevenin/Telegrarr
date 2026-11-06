@@ -2,9 +2,9 @@ import { useId } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
+import { formatBytes } from "@/lib/format";
 import {
   canAskWhyNotGrabbed,
-  formatBytes,
   formatGb,
   type FilmRow,
   type FilmStatus,

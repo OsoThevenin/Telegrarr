@@ -1,11 +1,11 @@
 import { useI18n } from "@/i18n/use-i18n";
 import { FIELD_CLASS } from "@/screens/channels/ChannelSettingsFields";
-import { kindChoiceLabel } from "@/screens/channels/channel";
+import { kindChoiceLabel, type ChannelKind } from "@/screens/channels/channel";
 import { NEW_CHANNEL_FORM, NEW_CHANNEL_KINDS } from "@/screens/channels/channel-settings";
 import type { ForumTopic } from "@/screens/channels/telegram-queries";
 
 /** The ticked topics and the kind each is added as. */
-export type TopicTicks = Record<number, string>;
+export type TopicTicks = Record<number, ChannelKind>;
 
 type Props = {
   topics: ForumTopic[];
@@ -23,7 +23,7 @@ export function TopicPicker({ topics, ticks, onChange }: Props) {
   return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className="pb-1.5 font-medium">{t("chm.topics.title")}</legend>
-      <p className="text-muted-foreground">{t(topics.length > 0 ? "chm.topics.hint" : "chm.topics.empty")}</p>
+      <p className="text-muted-foreground">{topics.length > 0 ? t("chm.topics.hint") : t("chm.topics.empty")}</p>
       {topics.map(({ topic_id, title }) => {
         const kind = ticks[topic_id];
 

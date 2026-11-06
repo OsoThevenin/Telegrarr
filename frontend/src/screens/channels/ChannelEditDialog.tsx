@@ -80,7 +80,7 @@ function EditForm({ source, onSaved }: Pick<Props, "source" | "onSaved">) {
           </Button>
         </DialogClose>
         <Button type="submit" disabled={update.isPending}>
-          {t(update.isPending ? "common.saving" : "common.save")}
+          {update.isPending ? t("common.saving") : t("common.save")}
         </Button>
       </DialogFooter>
     </form>
