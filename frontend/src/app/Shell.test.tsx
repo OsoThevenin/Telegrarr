@@ -1,10 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { goToLogin } from "@/lib/browser";
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
+import { settingsHandlers } from "@/test/settings";
 
 vi.mock("@/lib/browser", () => ({ goToLogin: vi.fn() }));
 
@@ -20,6 +21,8 @@ const SCREENS = [
 ] as const;
 
 describe("navigation", () => {
+  beforeEach(() => server.use(...settingsHandlers()));
+
   it.each(SCREENS)("reaches %s from the sidebar", async (name, url) => {
     const { router, user } = await renderApp({ route: "/ui/review" });
     const sidebar = screen.getByRole("navigation", { name: "Navegació principal" });

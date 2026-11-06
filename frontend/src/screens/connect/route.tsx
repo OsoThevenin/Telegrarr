@@ -1,11 +1,11 @@
 import { createRoute } from "@tanstack/react-router";
 
 import { shellRoute } from "@/app/shell-route";
-import { ScreenPlaceholder } from "@/components/ScreenPlaceholder";
+import { ConnectScreen } from "@/screens/connect/ConnectScreen";
 
 export const connectRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "connect",
   staticData: { titleKey: "nav.connect" },
-  component: ScreenPlaceholder,
+  component: ConnectScreen,
 });
