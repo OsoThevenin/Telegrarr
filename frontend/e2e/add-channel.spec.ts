@@ -89,6 +89,7 @@ test.describe("adding a channel", () => {
 
   test("the palette opens the form ready to search, and it closes cleanly", async ({ signedInPage: page }) => {
     await page.goto("/downloads");
+    await expect(page.getByRole("heading", { level: 1, name: "Baixades" })).toBeVisible();
     await page.keyboard.press("ControlOrMeta+k");
     await page.keyboard.type(DIALOG_NAME);
     await page.keyboard.press("Enter");
