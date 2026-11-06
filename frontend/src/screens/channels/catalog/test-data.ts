@@ -5,6 +5,7 @@ import type {
   FilmRow,
   FilmStatus,
   FilterId,
+  RadarrFile,
   StatusRow,
   UnidentifiedRow,
 } from "@/screens/channels/catalog/catalog";
@@ -24,6 +25,19 @@ export const film = (tmdbId: number, fields: Partial<FilmRow> = {}): FilmRow => 
   quality: "1080p",
   size: 2 * GB,
   language: "CAT",
+  radarr_link: null,
+  ...fields,
+});
+
+/** The file Radarr holds for a film, as app/catalog.py reports it. */
+export const radarrFile = (fields: Partial<RadarrFile> = {}): RadarrFile => ({
+  quality: "Bluray-1080p",
+  resolution: "1920x1080",
+  video_codec: "x265",
+  container: "mkv",
+  audio_languages: ["Català", "English"],
+  subtitle_languages: ["Español"],
+  size: 2.5 * GB,
   ...fields,
 });
 

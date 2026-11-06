@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useI18n } from "@/i18n/use-i18n";
 import {
+  fileSummary,
   filmAction,
   formatBytes,
   type FilmRow as Film,
@@ -125,11 +126,15 @@ function FilmAction({ film, status, isAvailable, isChecking, isDownloading, onDo
 }
 
 type FilmRowProps = ActionProps & {
+  channelId: number;
   poster: string | null;
 };
 
 /** The Download action sits beside the trigger, because a button can't hold a button. */
-export function FilmRow({ film, status, poster, ...action }: FilmRowProps) {
+export function FilmRow({ channelId, film, status, poster, ...action }: FilmRowProps) {
+  const { t } = useI18n();
+  const file = status?.file && fileSummary(status.file);
+
   return (
     <AccordionItem
       asChild
@@ -145,6 +150,9 @@ export function FilmRow({ film, status, poster, ...action }: FilmRowProps) {
               {film.year && <span className="ml-0.5 font-normal text-muted-foreground">{film.year}</span>}
             </span>
             <span className="truncate font-normal text-muted-foreground">{metaLine(film)}</span>{" "}
+            {file && (
+              <span className="truncate font-normal text-muted-foreground">{t("cat.file_summary", { file })}</span>
+            )}{" "}
             <span className="flex flex-wrap gap-1 empty:hidden">
               <StatusBadges status={status} />
             </span>
@@ -152,7 +160,7 @@ export function FilmRow({ film, status, poster, ...action }: FilmRowProps) {
         </AccordionTrigger>
         <FilmAction film={film} status={status} {...action} />
         <AccordionContent>
-          <FilmDetails film={film} status={status} />
+          <FilmDetails channelId={channelId} film={film} status={status} />
         </AccordionContent>
       </li>
     </AccordionItem>

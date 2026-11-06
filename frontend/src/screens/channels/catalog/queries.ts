@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import {
@@ -13,6 +13,7 @@ import {
   type CatalogView,
   type FilmRow,
   type StatusRow,
+  type WhyNotGrabbedAnswer,
 } from "@/screens/channels/catalog/catalog";
 import { ART_STALE_MS } from "@/screens/channels/queries";
 
@@ -84,6 +85,12 @@ export function useCatalogPosters(
 
   return (tmdbId) => statuses.get(tmdbId)?.poster ?? tmdb.data?.posters[tmdbId] ?? null;
 }
+
+/** A mutation because the backend runs a Radarr search, though it keeps the answer a while. */
+export const useWhyNotGrabbed = (channelId: number, tmdbId: number) =>
+  useMutation({
+    mutationFn: () => api.post<WhyNotGrabbedAnswer>(`/api/channels/${channelId}/catalog/${tmdbId}/why-not-grabbed`),
+  });
 
 export type DownloadFailure = {
   film: FilmRow;
