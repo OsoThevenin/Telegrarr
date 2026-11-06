@@ -119,6 +119,8 @@ def clear_database() -> None:
 
 @app.post("/__e2e__/reset", status_code=204, include_in_schema=False)
 def reset() -> None:
+    for name in settings.ENV_VARS.values():
+        os.environ.pop(name, None)
     clear_database()
     install_fakes()
     seed()
@@ -150,6 +152,12 @@ def set_progress(download_id: int, progress: float) -> None:
     """What a running transfer writes as it goes, for the live stream to pick up."""
     with db.conn() as c:
         c.execute("UPDATE downloads SET progress = ? WHERE id = ?", (progress, download_id))
+
+
+@app.post("/__e2e__/env", status_code=204, include_in_schema=False)
+def set_env(values: dict[str, str]) -> None:
+    """Provision settings as a deployment would. Env is read on every lookup; reset() undoes it."""
+    os.environ.update(values)
 
 
 def main() -> None:

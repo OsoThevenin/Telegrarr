@@ -116,7 +116,7 @@ describe("each app", () => {
     const { user } = await openConnect();
     const sonarr = await appCard("Sonarr");
 
-    await user.type(within(sonarr).getByLabelText(/^URL/), "http://sonarr:8989");
+    await user.type(within(sonarr).getByLabelText("URL"), "http://sonarr:8989");
     await user.type(within(sonarr).getByLabelText(/^Clau de l’API/), "  secret  ");
     await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
 
@@ -162,7 +162,7 @@ describe("each app", () => {
     const { user } = await openConnect();
     const sonarr = await appCard("Sonarr");
 
-    await user.type(within(sonarr).getByLabelText(/^URL/), "http://sonarr:8989");
+    await user.type(within(sonarr).getByLabelText("URL"), "http://sonarr:8989");
     await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
 
     expect(await within(sonarr).findByText(/Falta l’URL o la clau/)).toBeVisible();
@@ -183,6 +183,165 @@ describe("each app", () => {
 
     expect(await within(sonarr).findByRole("alert")).toHaveTextContent("SONARR_API_KEY");
     expect(within(sonarr).getByLabelText(/^Clau de l’API/)).toHaveValue("secret");
+  });
+});
+
+/** Answers PATCH /api/settings as the backend would, and records what was sent. */
+function recordPatches(respond: (patch: Record<string, unknown>) => Partial<Settings>) {
+  const patches: Record<string, unknown>[] = [];
+  server.use(
+    http.patch("/api/settings", async ({ request }) => {
+      const patch = (await request.json()) as Record<string, unknown>;
+      patches.push(patch);
+      return HttpResponse.json({ ok: true, settings: settingsResponse(respond(patch)).settings });
+    }),
+  );
+  return patches;
+}
+
+describe("a value set by an environment variable", () => {
+  const URL_LOCKED: Partial<Settings> = { sonarr_url: "http://sonarr.env:8989", sonarr_url_env_locked: true };
+
+  it("shows a locked URL read-only, with its value and where it comes from", async () => {
+    server.use(...settingsHandlers(URL_LOCKED));
+    await openConnect();
+    const sonarr = await appCard("Sonarr");
+
+    const url = within(sonarr).getByLabelText("URL");
+
+    expect(url).toHaveValue("http://sonarr.env:8989");
+    expect(url).toHaveAttribute("readonly");
+    expect(url).toHaveAccessibleDescription("Definit per variable d’entorn");
+  });
+
+  it("saves a key with the URL locked, leaving the URL out of the patch, then tests", async () => {
+    const patches = recordPatches(() => ({ ...URL_LOCKED, sonarr_key_set: true }));
+    server.use(http.post("/api/connect/test", () => CONNECTED("sonarr")), ...settingsHandlers(URL_LOCKED));
+    const { user } = await openConnect();
+    const sonarr = await appCard("Sonarr");
+
+    await user.type(within(sonarr).getByLabelText(/^Clau de l’API/), "secret");
+    await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
+
+    expect(await within(sonarr).findByText("Connectat · v4.0.1")).toBeVisible();
+    expect(patches).toEqual([{ sonarr_key: "secret" }]);
+  });
+
+  it("sends nothing but still tests when everything on the card is locked", async () => {
+    const locked: Partial<Settings> = { ...URL_LOCKED, sonarr_key_set: true, sonarr_key_env_locked: true };
+    const patches = recordPatches(() => locked);
+    const test = vi.fn();
+    server.use(
+      http.post("/api/connect/test", () => {
+        test();
+        return CONNECTED("sonarr");
+      }),
+      ...settingsHandlers(locked),
+    );
+    const { user } = await openConnect();
+    const sonarr = await appCard("Sonarr");
+    await within(sonarr).findByText("Connectat · v4.0.1");
+
+    expect(within(sonarr).getByText("Definit per variable d’entorn", { selector: '[data-slot="badge"]' })).toBeVisible();
+    expect(within(sonarr).queryByRole("button", { name: /Clau de l’API/ })).not.toBeInTheDocument();
+
+    await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
+
+    await vi.waitFor(() => expect(test).toHaveBeenCalledTimes(2));
+    expect(patches).toEqual([]);
+  });
+
+  it("saves the URL when only the key is locked", async () => {
+    const locked: Partial<Settings> = { sonarr_key_set: true, sonarr_key_env_locked: true };
+    const patches = recordPatches((patch) => ({ ...locked, ...patch }));
+    server.use(http.post("/api/connect/test", () => CONNECTED("sonarr")), ...settingsHandlers(locked));
+    const { user } = await openConnect();
+    const sonarr = await appCard("Sonarr");
+
+    await user.type(within(sonarr).getByLabelText("URL"), "http://sonarr:8989");
+    await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
+
+    await vi.waitFor(() => expect(patches).toEqual([{ sonarr_url: "http://sonarr:8989" }]));
+  });
+
+  it("leaves out what was typed before the setting became locked", async () => {
+    const patches = recordPatches(() => ({ ...URL_LOCKED, sonarr_key_set: true, sonarr_key_env_locked: true }));
+    server.use(http.post("/api/connect/test", () => CONNECTED("sonarr")), ...settingsHandlers());
+    const { user } = await openConnect();
+    const sonarr = await appCard("Sonarr");
+    const radarr = await appCard("Radarr");
+
+    await user.type(within(sonarr).getByLabelText("URL"), "http://typed");
+    await user.type(within(sonarr).getByLabelText(/^Clau de l’API/), "typed-key");
+    await user.type(within(radarr).getByLabelText("URL"), "http://radarr:7878");
+    await user.click(within(radarr).getByRole("button", { name: "Desa i prova" }));
+
+    const url = await within(sonarr).findByDisplayValue("http://sonarr.env:8989");
+    expect(url).toHaveAttribute("readonly");
+
+    await user.click(within(sonarr).getByRole("button", { name: "Desa i prova" }));
+
+    await vi.waitFor(() => expect(within(sonarr).getByText(/^Connectat/)).toBeVisible());
+    expect(patches).toEqual([{ radarr_url: "http://radarr:7878" }]);
+  });
+});
+
+describe("the external URL", () => {
+  const EXTERNAL = "https://radarr.example.com";
+
+  it("is offered for Radarr and Sonarr, not Prowlarr", async () => {
+    server.use(...settingsHandlers());
+    await openConnect();
+
+    expect(within(await appCard("Radarr")).getByLabelText("URL externa")).toBeVisible();
+    expect(within(await appCard("Sonarr")).getByLabelText("URL externa")).toBeVisible();
+    expect(within(await appCard("Prowlarr")).queryByLabelText("URL externa")).not.toBeInTheDocument();
+  });
+
+  it("saves only itself, and comes back from the server", async () => {
+    const patches = recordPatches((patch) => ({ ...RADARR_SAVED, ...patch }));
+    server.use(radarrChoices(), http.post("/api/connect/test", () => CONNECTED("radarr")), ...settingsHandlers(RADARR_SAVED));
+    const { user } = await openConnect();
+    const radarr = await appCard("Radarr");
+
+    await user.type(within(radarr).getByLabelText("URL externa"), EXTERNAL);
+    await user.click(within(radarr).getByRole("button", { name: "Desa i prova" }));
+
+    await vi.waitFor(() => expect(patches).toEqual([{ radarr_external_url: EXTERNAL }]));
+    expect(within(radarr).getByLabelText("URL externa")).toHaveValue(EXTERNAL);
+  });
+
+  it("clears by saving it empty", async () => {
+    const saved: Partial<Settings> = { ...RADARR_SAVED, radarr_external_url: EXTERNAL };
+    const patches = recordPatches((patch) => ({ ...saved, ...patch }));
+    server.use(radarrChoices(), http.post("/api/connect/test", () => CONNECTED("radarr")), ...settingsHandlers(saved));
+    const { user } = await openConnect();
+    const radarr = await appCard("Radarr");
+
+    await user.clear(within(radarr).getByLabelText("URL externa"));
+    await user.click(within(radarr).getByRole("button", { name: "Desa i prova" }));
+
+    await vi.waitFor(() => expect(patches).toEqual([{ radarr_external_url: "" }]));
+    expect(within(radarr).getByLabelText("URL externa")).toHaveValue("");
+  });
+
+  it("shows why a URL was refused on the card, and keeps it for fixing", async () => {
+    server.use(
+      http.patch("/api/settings", () =>
+        HttpResponse.json({ detail: { key: "err.settings.url_scheme" } }, { status: 400 }),
+      ),
+      radarrChoices(),
+      http.post("/api/connect/test", () => CONNECTED("radarr")),
+      ...settingsHandlers(RADARR_SAVED),
+    );
+    const { user } = await openConnect();
+    const radarr = await appCard("Radarr");
+
+    await user.type(within(radarr).getByLabelText("URL externa"), "ftp://radarr");
+    await user.click(within(radarr).getByRole("button", { name: "Desa i prova" }));
+
+    expect(await within(radarr).findByRole("alert")).toHaveTextContent("http://");
+    expect(within(radarr).getByLabelText("URL externa")).toHaveValue("ftp://radarr");
   });
 });
 
