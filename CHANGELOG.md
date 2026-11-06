@@ -86,6 +86,12 @@
   `.out-of-scope/directory-import.md`.
 
 ### Fixed
+- The Newznab/SABnzbd and TMDB API keys no longer reach the container logs. Request
+  lines show `apikey=***`, including the key inside the link Sonarr and Radarr send to
+  add a download, and outbound requests are no longer logged at INFO. Logs from before
+  this version still hold the keys: regenerate any that may have been exposed, the
+  Newznab key in Settings (then update it in Sonarr and Radarr) and the TMDB key in the
+  TMDB account.
 - `PLEX_URL` and `PLEX_TOKEN` reach Plex. Only values saved in the UI used to.
 - Proxy credentials can't come back from the API or reach the log: a proxy URL that
   doesn't parse into a host and port shows as `(set)` instead of as written, and a

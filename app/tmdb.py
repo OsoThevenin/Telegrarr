@@ -14,6 +14,7 @@ import httpx
 from . import settings
 from .http_errors import ErrorKeys, request_json
 from .i18n import KeyedError, message
+from .log_redaction import redact
 
 log = logging.getLogger("art")
 API = "https://api.themoviedb.org/3"
@@ -51,7 +52,7 @@ async def _tmdb_art(imdb_id, key):
             "year": (m.get("first_air_date") or m.get("release_date") or "")[:4],
         }
     except Exception as e:
-        log.warning("tmdb art failed for %s: %s", imdb_id, e)
+        log.warning("tmdb art failed for %s: %s", imdb_id, redact(e))   # raise_for_status quotes the URL
         return {}
 
 

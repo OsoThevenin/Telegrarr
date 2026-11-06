@@ -19,6 +19,7 @@ from . import transfers
 from .tg import get_client
 from .namer import imdb_search, LANGUAGE_TOKENS, CHANNEL_QUALITIES
 from .config import summary
+from .log_redaction import protect_logs
 from .routes import channel_series, connect as connect_routes, review, tmdb as tmdb_routes
 from .routes import catalog as catalog_routes, downloads as download_routes, photos as photo_routes
 from .routes import topics as topic_routes
@@ -27,6 +28,7 @@ from .routes.common import normalize_topic_id as _normalize_topic_id
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
+protect_logs()
 log = logging.getLogger("main")
 
 HERE = os.path.dirname(__file__)
