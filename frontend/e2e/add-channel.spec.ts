@@ -76,7 +76,7 @@ test.describe("adding a channel", () => {
     await save(dialog);
 
     await expect(dialog).toBeHidden();
-    await expect(page.getByText("S’han afegit 2 fonts de tema")).toBeVisible();
+    await expect(page.getByText("S’han afegit 2 canals de tema")).toBeVisible();
     await expect(card(page, "Sèries HD")).toBeVisible();
     await page.getByRole("tab", { name: /^Pel·lícules/ }).click();
     await expect(card(page, "Pel·lícules HD")).toBeVisible();

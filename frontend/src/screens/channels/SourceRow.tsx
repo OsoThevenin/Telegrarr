@@ -93,7 +93,7 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label={t(isOnlySource ? "ch.remove_aria" : "ch.remove_source")}
+          aria-label={t("ch.remove_aria")}
           aria-describedby={labelId}
           onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
         >

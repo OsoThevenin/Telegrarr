@@ -66,7 +66,7 @@ function useChannelOverlays(page: RefObject<HTMLElement | null>) {
   };
 
   const confirmRemoval = async ({ source, isWholeShow }: Removal) => {
-    const isRemoved = await actions.remove(source, t(isWholeShow ? "ch.removed" : "ch.source_removed"));
+    const isRemoved = await actions.remove(source, t("ch.removed"));
     if (isRemoved && isWholeShow) sheet.close();
   };
 
