@@ -5,9 +5,11 @@ export type Download = {
   file_name: string | null;
   file_size: number | null;
   status: "queued" | "downloading" | "paused" | "completed" | "failed" | "cancelled";
-  /** From 0 to 100. */
+  /** From 0 to 1. */
   progress: number;
   speed_mbs: number;
+  save_path: string | null;
+  finished_at: number | null;
   channel_title: string | null;
   topic_title: string | null;
 };

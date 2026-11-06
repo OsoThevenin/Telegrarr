@@ -22,6 +22,8 @@ function row(overrides: Partial<Download> = {}): Download {
     file_size: 1000,
     status: "downloading",
     progress: 10,
+    save_path: null,
+    finished_at: null,
     speed_mbs: 1,
     channel_title: "Cinema Club",
     topic_title: null,
