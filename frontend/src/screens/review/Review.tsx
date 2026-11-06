@@ -4,11 +4,15 @@ import { useI18n } from "@/i18n/use-i18n";
 
 import { InlineAlert } from "./InlineAlert";
 import { Queue } from "./Queue";
-import { fetchPending, PENDING_KEY } from "./review-api";
+import { fetchPending, PENDING_KEY, PENDING_REFRESH_MS } from "./review-api";
 
 export function Review() {
   const { t, errorText } = useI18n();
-  const pending = useQuery({ queryKey: PENDING_KEY, queryFn: fetchPending });
+  const pending = useQuery({
+    queryKey: PENDING_KEY,
+    queryFn: fetchPending,
+    refetchInterval: PENDING_REFRESH_MS,
+  });
   const releases = pending.data;
 
   return (
