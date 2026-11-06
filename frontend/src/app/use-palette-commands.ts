@@ -17,10 +17,14 @@ export type PaletteCommand = {
   run: () => void;
 };
 
-/** Asks for every channel, so one failure does not stop the rest. */
+/**
+ * Asks for every channel, so one failure does not stop the rest. One with scanning
+ * off is left out: the backend would refuse it, and the user turned it off on purpose.
+ */
 async function backfillAllChannels(): Promise<void> {
-  const channels = await api.get<{ id: number }[]>("/api/channels");
-  const results = await Promise.allSettled(channels.map(({ id }) => api.post(`/api/channels/${id}/backfill`)));
+  const channels = await api.get<{ id: number; scanning: number }[]>("/api/channels");
+  const scannable = channels.filter(({ scanning }) => scanning);
+  const results = await Promise.allSettled(scannable.map(({ id }) => api.post(`/api/channels/${id}/backfill`)));
   const failure = results.find((result) => result.status === "rejected");
   if (failure) throw failure.reason;
 }
