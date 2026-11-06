@@ -5,7 +5,8 @@ import { expect, signIn, test } from "./fixtures";
 const PAUSE = "Posa en pausa les baixades";
 const RESUME = "Reprèn les baixades";
 
-const button = (page: Page, name: string) => page.getByRole("button", { name });
+// The sidebar toggle: the Dashboard also offers to resume, from its status line.
+const button = (page: Page, name: string) => page.getByRole("complementary").getByRole("button", { name });
 const palette = (page: Page) => page.getByRole("dialog", { name: "Paleta d’ordres" });
 
 async function runCommand(page: Page, name: string) {

@@ -7,6 +7,8 @@ type Params = Record<string, unknown>;
 
 type I18n = {
   language: Language;
+  /** The BCP 47 tag for dates and numbers in that language. */
+  locale: string;
   /** Looks up a key; an unknown key renders as itself. */
   t: (key: string, params?: Params) => string;
   /** Picks `key.one` or `key.other` for a count and fills `{n}` with it, localized. */
@@ -51,5 +53,5 @@ export function useI18n(): I18n {
     return error.detail ? msg(error.detail) : t("common.http_error", { status: error.status });
   };
 
-  return { language: language.code, t, tn, msg, errorText };
+  return { language: language.code, locale: language.locale, t, tn, msg, errorText };
 }

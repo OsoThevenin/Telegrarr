@@ -37,13 +37,14 @@ test.describe("Catalog", () => {
     const paNegre = sheet.getByRole("button", { name: /^Pa negre 2010/ });
 
     await test.step("pages come from the server, 25 at a time", async () => {
-      await expect(sheet.getByText("Mostrant 1–25 de 27")).toBeVisible();
+      await expect(sheet.getByText("Mostrant 1–25 de 30")).toBeVisible();
       await expect(sheet.getByRole("listitem").filter({ hasText: "Pel·lícula" })).toHaveCount(24);
 
       await sheet.getByRole("link", { name: "Pàgina 2" }).click();
 
-      await expect(sheet.getByText("Mostrant 26–27 de 27")).toBeVisible();
+      await expect(sheet.getByText("Mostrant 26–30 de 30")).toBeVisible();
       await expect(sheet.getByRole("button", { name: /^Pel·lícula 01/ })).toBeVisible();
+      await expect(sheet.getByRole("link", { name: "Revisa Els.Pirates.CAT.mkv" })).toBeVisible();
     });
 
     await test.step("a search narrows the list and goes back to page 1", async () => {

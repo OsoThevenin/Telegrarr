@@ -1,5 +1,6 @@
 const STORAGE_KEY = "theme";
-const THEMES = ["auto", "light", "dark"] as const;
+
+export const THEMES = ["auto", "light", "dark"] as const;
 
 export type Theme = (typeof THEMES)[number];
 
@@ -9,7 +10,7 @@ function storedTheme(): string | null {
   try {
     return localStorage.getItem(STORAGE_KEY);
   } catch {
-    // Blocked storage: follow the system preference, as "auto" does.
+    // Blocked storage: the system preference decides.
     return null;
   }
 }
@@ -36,14 +37,17 @@ export function subscribeToTheme(listener: () => void): () => void {
   };
 }
 
-/** Moves on to the next theme, in the old UI's order. */
-export function cycleTheme(): void {
-  const next = THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length];
-  applyTheme(next);
+export function chooseTheme(theme: Theme): void {
+  applyTheme(theme);
   try {
-    localStorage.setItem(STORAGE_KEY, next);
+    localStorage.setItem(STORAGE_KEY, theme);
   } catch {
     // Blocked storage: the choice lasts until the page reloads.
   }
   for (const listener of listeners) listener();
+}
+
+/** Moves on to the next theme, in the old UI's order. */
+export function cycleTheme(): void {
+  chooseTheme(THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length]);
 }
