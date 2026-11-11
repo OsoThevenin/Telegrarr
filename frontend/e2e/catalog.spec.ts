@@ -14,7 +14,6 @@ const connectRadarr = async (page: Page) => {
 
 const openCatalog = async (page: Page) => {
   await page.goto("/channels");
-  await page.getByRole("tab", { name: /^Pel·lícules/ }).click();
   await page.getByRole("button", { name: /Cinema Club\s*\S/ }).click();
 
   const sheet = page.getByRole("dialog");
@@ -79,8 +78,7 @@ test.describe("Catalog", () => {
 
   test("says Radarr is missing, and still lists the Catalog", async ({ signedInPage: page }) => {
     await page.goto("/channels");
-    await page.getByRole("tab", { name: /^Pel·lícules/ }).click();
-    await page.getByRole("button", { name: /Cinema Club\s*\S/ }).click();
+      await page.getByRole("button", { name: /Cinema Club\s*\S/ }).click();
     const sheet = page.getByRole("dialog");
 
     await expect(sheet.getByText("Radarr no connectat")).toBeVisible();

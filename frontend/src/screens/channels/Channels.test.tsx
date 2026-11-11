@@ -12,69 +12,91 @@ import { server } from "@/test/server";
 
 const serveChannels = (rows: unknown[]) => server.use(http.get("/api/channels", () => HttpResponse.json(rows)));
 
-const openChannels = async () => {
-  const app = await renderApp({ route: "/channels" });
-  await screen.findByRole("tablist");
+const openChannels = async (route = "/channels") => {
+  const app = await renderApp({ route });
+  await screen.findByRole("list", { name: "Canals" });
   return app;
 };
-
-const tab = (name: RegExp) => screen.getByRole("tab", { name });
 
 /** The button that opens a card: its name runs on past the title, into the card's meta line. */
 const cardName = (title: string) => new RegExp(`${title}\\s*\\S`);
 const cardButton = (title: string) => screen.getByRole("button", { name: cardName(title) });
 const queryCardButton = (title: string) => screen.queryByRole("button", { name: cardName(title) });
 
-describe("tabs", () => {
-  it("splits series and movie channels and counts each", async () => {
+describe("grid", () => {
+  const cardTitles = () =>
+    within(screen.getByRole("list", { name: "Canals" }))
+      .getAllByRole("article")
+      .map((card) => card.querySelector("[title]")?.textContent);
+
+  it("lists series and movies together, in alphabetical order", async () => {
     serveChannels([
       channel({ id: 1, title: "Sèries CAT", kind: "tv" }),
-      channel({ id: 2, title: "Anime CAT", kind: "tv" }),
-      channel({ id: 3, title: "Cinema Club", kind: "movie" }),
+      channel({ id: 2, title: "cinema Club", kind: "movie" }),
+      channel({ id: 3, title: "Àlbum", kind: "tv" }),
+      channel({ id: 4, title: "Bones", kind: "movie" }),
     ]);
 
-    const { user } = await openChannels();
+    await openChannels();
 
-    expect(tab(/^Sèries\s*2$/)).toHaveAttribute("aria-selected", "true");
-    expect(cardButton("Sèries CAT")).toBeVisible();
-    expect(queryCardButton("Cinema Club")).not.toBeInTheDocument();
+    expect(cardTitles()).toEqual(["Àlbum", "Bones", "cinema Club", "Sèries CAT"]);
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
 
-    await user.click(tab(/^Pel·lícules\s*1$/));
+  it("says on each card whether it is a series or a movie, and leaves the kind out of its meta line", async () => {
+    serveChannels([
+      channel({ id: 1, title: "Sèries CAT", kind: "tv", weekdays: "0,1,2,3,4,5,6", poll_minutes: 30 }),
+      channel({ id: 2, title: "Cinema Club", kind: "movie" }),
+    ]);
 
-    expect(cardButton("Cinema Club")).toBeVisible();
-    expect(queryCardButton("Sèries CAT")).not.toBeInTheDocument();
+    await openChannels();
+
+    const series = within(cardButton("Sèries CAT"));
+    expect(series.getByText("Sèrie")).toBeVisible();
+    expect(series.getByText("cada dia · 30 min")).toBeVisible();
+    expect(within(cardButton("Cinema Club")).getByText("Pel·lícula")).toBeVisible();
+    expect(screen.getAllByText("Sèrie")).toHaveLength(1);
   });
 
   it("counts a show fed by several sources as one card", async () => {
     serveChannels([
       channel({ id: 1, title: "Font A", imdb_id: "tt1", imdb_title: "Dark" }),
-      channel({ id: 2, title: "Font B", imdb_id: "tt1", imdb_title: "Dark" }),
+      channel({ id: 2, title: "Font B", imdb_id: "tt1", imdb_title: "Dark", poll_minutes: 90 }),
     ]);
     server.use(http.get("/api/art", () => HttpResponse.json({})));
 
     await openChannels();
 
-    expect(tab(/^Sèries\s*1$/)).toBeVisible();
-    const card = cardButton("Dark");
-    expect(within(card).getByText("2 canals")).toBeVisible();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+    const card = within(cardButton("Dark"));
+    expect(card.getByText("2 canals")).toBeVisible();
+    expect(card.getByText("Horaris diversos")).toBeVisible();
   });
 
-  it("keeps a channel of an unknown kind reachable, on the series tab", async () => {
+  it("keeps a channel of an unknown kind reachable, under its own kind", async () => {
     serveChannels([channel({ id: 1, title: "Antic", kind: "other" })]);
 
     await openChannels();
 
-    expect(tab(/^Sèries\s*1$/)).toBeVisible();
-    expect(cardButton("Antic")).toBeVisible();
+    expect(within(cardButton("Antic")).getByText("other")).toBeVisible();
   });
 
-  it("says so when a tab has no channels", async () => {
-    serveChannels([channel({ id: 1, kind: "tv" })]);
+  it("marks a card whose every source is off", async () => {
+    serveChannels([channel({ id: 1, title: "Apagat", enabled: 0 }), channel({ id: 2, title: "Encès" })]);
 
-    const { user } = await openChannels();
-    await user.click(tab(/^Pel·lícules\s*0$/));
+    await openChannels();
 
-    expect(screen.getByText("Encara no hi ha cap canal de pel·lícules.")).toBeVisible();
+    expect(within(cardButton("Apagat")).getByText("Desactivat")).toBeVisible();
+    expect(within(cardButton("Encès")).queryByText("Desactivat")).not.toBeInTheDocument();
+  });
+
+  it("still opens from an old link to the movies tab, with every channel", async () => {
+    serveChannels([channel({ id: 1, title: "Sèries CAT", kind: "tv" }), channel({ id: 2, title: "Cinema Club", kind: "movie" })]);
+
+    await openChannels("/channels?tab=movies");
+
+    expect(cardButton("Sèries CAT")).toBeVisible();
+    expect(cardButton("Cinema Club")).toBeVisible();
   });
 });
 
@@ -149,8 +171,7 @@ describe("card image", () => {
       ),
     );
 
-    const { user } = await openChannels();
-    await user.click(tab(/^Pel·lícules/));
+    await openChannels();
     photoIsMissing("Cinema Club");
 
     await waitFor(() => expect(posterOf("Cinema Club")).toHaveAttribute("src", POSTER));
@@ -187,7 +208,6 @@ describe("card actions", () => {
   const OK = { ok: true };
 
   const noArt = () => server.use(http.get("/api/art", () => HttpResponse.json({})));
-  const menuItems = () => screen.getAllByRole("menuitem").map((item) => item.textContent);
 
   it("scans every source, one by one, from a button that is always on the card", async () => {
     serveChannels([channel({ id: 1, title: "Font A", ...DARK }), channel({ id: 2, title: "Font B", ...DARK })]);
@@ -225,95 +245,17 @@ describe("card actions", () => {
     expect(secondScan).toHaveBeenCalled();
   });
 
-  it("reaches every action of a channel with the keyboard, and gives focus back", async () => {
+  it("has no menu: the card opens its Sheet, and scans", async () => {
     serveChannels([channel({ id: 1, title: "Cinema Club" })]);
 
-    const { user } = await openChannels();
-    const trigger = screen.getByRole("button", { name: "Accions de Cinema Club" });
-    trigger.focus();
-    await user.keyboard("{Enter}");
+    await openChannels();
 
-    await screen.findByRole("menu");
-    expect(menuItems()).toEqual(["Escaneja", "Recupera l’historial", "Desactiva", "Edita", "Elimina"]);
-
-    await user.keyboard("{Escape}");
-
-    await waitFor(() => expect(trigger).toHaveFocus());
-  });
-
-  it("offers the sources, not Edit and Remove, for a show with several", async () => {
-    serveChannels([channel({ id: 1, ...DARK }), channel({ id: 2, ...DARK })]);
-    noArt();
-
-    const { user } = await openChannels();
-    await user.click(screen.getByRole("button", { name: "Accions de Dark" }));
-
-    expect(await screen.findAllByRole("menuitem")).toHaveLength(4);
-    expect(menuItems()).toEqual(["Escaneja", "Recupera l’historial", "Desactiva", "Canals"]);
-  });
-
-  it("starts a history backfill from the menu", async () => {
-    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
-    const backfill = vi.fn(() => HttpResponse.json(OK));
-    server.use(http.post("/api/channels/1/backfill", backfill));
-
-    const { user } = await openChannels();
-    await user.click(screen.getByRole("button", { name: "Accions de Cinema Club" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Recupera l’historial" }));
-
-    expect(await screen.findByText("S’ha començat a recuperar l’historial")).toBeVisible();
-    expect(backfill).toHaveBeenCalled();
-  });
-
-  it("disables every source of a show while any is on, and shows the result", async () => {
-    let rows = [channel({ id: 1, enabled: 1, ...DARK }), channel({ id: 2, enabled: 0, ...DARK })];
-    noArt();
-    server.use(
-      http.get("/api/channels", () => HttpResponse.json(rows)),
-      http.patch("/api/channels/:id", async ({ params, request }) => {
-        const { enabled } = (await request.json()) as { enabled: number };
-        rows = rows.map((row) => (row.id === Number(params.id) ? { ...row, enabled } : row));
-        return HttpResponse.json(OK);
-      }),
-    );
-
-    const { user } = await openChannels();
-    await user.click(screen.getByRole("button", { name: "Accions de Dark" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Desactiva" }));
-
-    expect(await within(screen.getByRole("article")).findByText("Desactivat")).toBeVisible();
-    expect(rows.map(({ enabled }) => enabled)).toEqual([0, 0]);
-  });
-
-  it("removes a channel only after the AlertDialog agrees", async () => {
-    let rows = [channel({ id: 1, title: "Cinema Club" }), channel({ id: 2, title: "Altres" })];
-    const removed = vi.fn(() => {
-      rows = rows.filter(({ id }) => id !== 1);
-      return HttpResponse.json(OK);
-    });
-    server.use(
-      http.get("/api/channels", () => HttpResponse.json(rows)),
-      http.delete("/api/channels/1", removed),
-    );
-
-    const { user } = await openChannels();
-    const askToRemove = async () => {
-      await user.click(screen.getByRole("button", { name: "Accions de Cinema Club" }));
-      await user.click(await screen.findByRole("menuitem", { name: "Elimina" }));
-      return screen.findByRole("alertdialog");
-    };
-
-    await user.click(within(await askToRemove()).getByRole("button", { name: "Cancel·la" }));
-    expect(removed).not.toHaveBeenCalled();
-    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
-
-    const dialog = await askToRemove();
-    expect(dialog).toHaveTextContent("Vols eliminar aquest canal?");
-    await user.click(within(dialog).getByRole("button", { name: "Elimina" }));
-
-    expect(await screen.findByText("S’ha eliminat el canal")).toBeVisible();
-    await waitFor(() => expect(queryCardButton("Cinema Club")).not.toBeInTheDocument());
-    expect(removed).toHaveBeenCalledOnce();
+    const card = within(screen.getByRole("article"));
+    expect(card.getAllByRole("button").map((button) => button.getAttribute("aria-label") ?? "card")).toEqual([
+      "card",
+      "Escaneja Cinema Club",
+    ]);
+    expect(screen.queryByRole("button", { name: /^Accions/ })).not.toBeInTheDocument();
   });
 });
 
@@ -363,7 +305,6 @@ describe("Sheet", () => {
     server.use(http.get("/api/downloads", downloads));
 
     const { user } = await openChannels();
-    await user.click(tab(/^Pel·lícules/));
     await user.click(cardButton("Cinema Club"));
 
     const sheet = await screen.findByRole("dialog");
@@ -405,19 +346,114 @@ describe("Sheet", () => {
     }
   });
 
-  it("opens from the Sources item of the menu and gives focus back to the menu button", async () => {
-    serveChannels([channel({ id: 1, ...DARK }), channel({ id: 2, ...DARK })]);
-    serveArt();
-    serveDownloads([]);
+  describe("actions", () => {
+    const buttonNames = (element: HTMLElement) =>
+      within(element)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label") ?? button.textContent);
+    const sourceRow = (sheet: HTMLElement, label: string) =>
+      within(sheet)
+        .getAllByRole("listitem")
+        .find((row) => row.textContent?.includes(label)) as HTMLElement;
 
-    const { user } = await openChannels();
-    const trigger = screen.getByRole("button", { name: "Accions de Dark" });
-    await user.click(trigger);
-    await user.click(await screen.findByRole("menuitem", { name: "Canals" }));
-    await screen.findByRole("dialog");
-    await user.keyboard("{Escape}");
+    it("offers every action of a single-channel show", async () => {
+      serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+      serveDownloads([]);
 
-    await waitFor(() => expect(trigger).toHaveFocus());
+      const { sheet } = await openSheet("Cinema Club");
+
+      expect(within(sheet).getByRole("button", { name: "Escaneja" })).toBeVisible();
+      expect(within(sheet).getByRole("button", { name: "Recupera l’historial" })).toBeVisible();
+      expect(buttonNames(sourceRow(sheet, "Cinema Club"))).toEqual(["Desactiva", "Edita", "Elimina el canal"]);
+      expect(within(sheet).queryByRole("button", { name: "Desactiva tots els canals" })).not.toBeInTheDocument();
+    });
+
+    it("offers every action of a show with several sources, each source on its own row", async () => {
+      serveChannels([channel({ id: 1, title: "Font A", ...DARK }), channel({ id: 2, title: "Font B", ...DARK })]);
+      serveArt();
+      serveDownloads([]);
+
+      const { sheet } = await openSheet("Dark");
+
+      expect(within(sheet).getByRole("button", { name: "Escaneja" })).toBeVisible();
+      expect(within(sheet).getByRole("button", { name: "Recupera l’historial" })).toBeVisible();
+      expect(within(sheet).getByRole("button", { name: "Desactiva tots els canals" })).toBeVisible();
+      expect(within(sheet).getByRole("heading", { name: "2 canals" })).toBeVisible();
+      for (const label of ["Font A", "Font B"]) {
+        expect(buttonNames(sourceRow(sheet, label))).toEqual(["Desactiva", "Edita", "Elimina el canal"]);
+      }
+    });
+
+    it("starts a history backfill of every source", async () => {
+      serveChannels([channel({ id: 1, title: "Font A", ...DARK }), channel({ id: 2, title: "Font B", ...DARK })]);
+      serveArt();
+      serveDownloads([]);
+      const backfilled: unknown[] = [];
+      server.use(
+        http.post("/api/channels/:id/backfill", ({ params }) => {
+          backfilled.push(params.id);
+          return HttpResponse.json(OK);
+        }),
+      );
+
+      const { user, sheet } = await openSheet("Dark");
+      await user.click(within(sheet).getByRole("button", { name: "Recupera l’historial" }));
+
+      expect(await screen.findByText("S’ha començat a recuperar l’historial")).toBeVisible();
+      expect(backfilled).toEqual(["1", "2"]);
+    });
+
+    it("disables every source of a show while any is on, and the card follows", async () => {
+      let rows = [channel({ id: 1, enabled: 1, ...DARK }), channel({ id: 2, enabled: 0, ...DARK })];
+      serveArt();
+      serveDownloads([]);
+      server.use(
+        http.get("/api/channels", () => HttpResponse.json(rows)),
+        http.patch("/api/channels/:id", async ({ params, request }) => {
+          const { enabled } = (await request.json()) as { enabled: number };
+          rows = rows.map((row) => (row.id === Number(params.id) ? { ...row, enabled } : row));
+          return HttpResponse.json(OK);
+        }),
+      );
+
+      const { user, sheet } = await openSheet("Dark");
+      await user.click(within(sheet).getByRole("button", { name: "Desactiva tots els canals" }));
+
+      expect(await within(sheet).findByRole("button", { name: "Activa tots els canals" })).toBeVisible();
+      expect(rows.map(({ enabled }) => enabled)).toEqual([0, 0]);
+      expect(within(screen.getByRole("article", { hidden: true })).getByText("Desactivat")).toBeInTheDocument();
+    });
+
+    it("removes a channel only after the AlertDialog agrees", async () => {
+      let rows = [channel({ id: 1, title: "Cinema Club" }), channel({ id: 2, title: "Altres" })];
+      const removed = vi.fn(() => {
+        rows = rows.filter(({ id }) => id !== 1);
+        return HttpResponse.json(OK);
+      });
+      serveDownloads([]);
+      server.use(
+        http.get("/api/channels", () => HttpResponse.json(rows)),
+        http.delete("/api/channels/1", removed),
+      );
+
+      const { user, sheet } = await openSheet("Cinema Club");
+      const askToRemove = async () => {
+        await user.click(within(sheet).getByRole("button", { name: "Elimina el canal" }));
+        return screen.findByRole("alertdialog");
+      };
+
+      await user.click(within(await askToRemove()).getByRole("button", { name: "Cancel·la" }));
+      expect(removed).not.toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+      const dialog = await askToRemove();
+      expect(dialog).toHaveTextContent("Vols eliminar aquest canal?");
+      await user.click(within(dialog).getByRole("button", { name: "Elimina" }));
+
+      expect(await screen.findByText("S’ha eliminat el canal")).toBeVisible();
+      await waitFor(() => expect(queryCardButton("Cinema Club")).not.toBeInTheDocument());
+      expect(removed).toHaveBeenCalledOnce();
+    });
   });
 
   it("lists the downloads it fetched itself: this show's only, newest first", async () => {
@@ -758,10 +794,14 @@ describe("Sheet", () => {
 });
 
 describe("edit dialog", () => {
-  const ACTIONS = "Accions de Cinema Club";
+  const SHEET_EDIT = "Edita";
 
   beforeEach(() => {
-    server.use(http.get("/api/settings", () => HttpResponse.json({ settings: { tmdb_key_set: true } })));
+    server.use(
+      http.get("/api/settings", () => HttpResponse.json({ settings: { tmdb_key_set: true } })),
+      http.get("/api/downloads", () => HttpResponse.json([])),
+      http.get("/api/art", () => HttpResponse.json({})),
+    );
   });
 
   const servePatch =(reply: () => Response = () => HttpResponse.json({ ok: true })) => {
@@ -775,10 +815,12 @@ describe("edit dialog", () => {
     return bodies;
   };
 
-  const openEdit = async (actions = ACTIONS) => {
+  /** Through the Sheet of the show's card, which is how an edit is reached. */
+  const openEdit = async (title = "Cinema Club") => {
     const app = await openChannels();
-    await app.user.click(screen.getByRole("button", { name: actions }));
-    await app.user.click(await screen.findByRole("menuitem", { name: "Edita" }));
+    await app.user.click(cardButton(title));
+    const sheet = await screen.findByRole("dialog");
+    await app.user.click(within(sheet).getByRole("button", { name: SHEET_EDIT }));
     return { ...app, dialog: await screen.findByRole("dialog", { name: "Edita el canal" }) };
   };
 
@@ -809,7 +851,7 @@ describe("edit dialog", () => {
     expect(within(dialog).getByRole("button", { name: "Dg" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("saves the changes, says so and goes back to the menu button", async () => {
+  it("saves the changes, says so and goes back to the Sheet's Edit button", async () => {
     serveChannels([channel({ id: 1, title: "Cinema Club", weekdays: "0,1" })]);
     const bodies = servePatch();
 
@@ -822,12 +864,12 @@ describe("edit dialog", () => {
     await user.type(within(dialog).getByLabelText("Interval de consulta (minuts)"), "60");
     await user.click(saveButton(dialog));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
     expect(bodies).toEqual([
       { kind: "movie", language: "en", fallback_quality: "1080p", weekdays: "0,4", poll_minutes: 60 },
     ]);
     expect(await screen.findByText("S’ha actualitzat el canal")).toBeVisible();
-    await waitFor(() => expect(screen.getByRole("button", { name: ACTIONS })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: SHEET_EDIT })).toHaveFocus());
   });
 
   it("reads a channel with every day turned off as every day", async () => {
@@ -864,19 +906,19 @@ describe("edit dialog", () => {
     expect(screen.getByRole("dialog", { name: "Edita el canal" })).toBeVisible();
   });
 
-  it("sends nothing on cancel and goes back to the menu button", async () => {
+  it("sends nothing on cancel and goes back to the Sheet's Edit button", async () => {
     serveChannels([channel({ id: 1, title: "Cinema Club" })]);
     const bodies = servePatch();
 
     const { user, dialog } = await openEdit();
     await user.click(within(dialog).getByRole("button", { name: "Cancel·la" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: ACTIONS })).toHaveFocus());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: SHEET_EDIT })).toHaveFocus());
     expect(bodies).toEqual([]);
   });
 
-  it("keeps the Sheet with the channel when an edit moves it to the other tab", async () => {
+  it("keeps the Sheet with the channel when an edit turns it into a movie channel", async () => {
     const rows = (kind: string) => [channel({ id: 1, title: "Cinema Club", kind })];
     let kind = "tv";
     server.use(
@@ -950,7 +992,7 @@ describe("edit dialog", () => {
         channel({ id: 1, title: "Cinema Club", imdb_id: "tt1", imdb_title: "Dark", tmdb_id: 70523, tvdb_id: 334824 }),
       ]);
 
-      const { dialog } = await openEdit("Accions de Dark");
+      const { dialog } = await openEdit("Dark");
 
       expect(within(dialog).getByLabelText(SERIES_LABEL)).toHaveValue("Dark");
       expect(within(dialog).getByLabelText("Identificador de TVDB")).toHaveValue("334824");
@@ -966,7 +1008,7 @@ describe("edit dialog", () => {
       await chooseMerli(opened);
       await opened.user.click(saveButton(opened.dialog));
 
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
       expect(bodies).toHaveLength(1);
       expect(mapped).toEqual([{ tmdb_id: 1001, tvdb_id: null, title: "Merlí (2015)" }]);
     });
@@ -975,11 +1017,11 @@ describe("edit dialog", () => {
       serveChannels([channel({ id: 1, title: "Cinema Club", imdb_title: "Dark", tvdb_id: 334824 })]);
       servePatch();
       const mapped = serveMapping();
-      const { user, dialog } = await openEdit("Accions de Dark");
+      const { user, dialog } = await openEdit("Dark");
 
       await user.click(saveButton(dialog));
 
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
       expect(mapped).toEqual([]);
     });
 
@@ -987,7 +1029,7 @@ describe("edit dialog", () => {
       serveChannels([channel({ id: 1, title: "Cinema Club", imdb_title: "Dark", tvdb_id: 334824 })]);
       servePatch();
       const mapped = serveMapping();
-      const { user, dialog } = await openEdit("Accions de Dark");
+      const { user, dialog } = await openEdit("Dark");
       const tvdb = within(dialog).getByLabelText("Identificador de TVDB");
 
       await user.clear(tvdb);
@@ -1022,7 +1064,7 @@ describe("edit dialog", () => {
 
       expect(within(opened.dialog).getByText(/Els canals de pel·lícules/)).toBeVisible();
       await opened.user.click(saveButton(opened.dialog));
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
       expect(mapped).toEqual([]);
     });
 
@@ -1068,7 +1110,8 @@ describe("channel list", () => {
     await renderApp({ route: "/channels" });
 
     expect(await screen.findByText("Encara no hi ha cap canal")).toBeVisible();
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Canals" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Afegeix un canal" })).toHaveLength(2);
   });
 
   it("reports a list that failed to load", async () => {

@@ -78,7 +78,7 @@ describe("opening Add channel", () => {
   it("closes without adding, back on what opened it and with a clean URL", async () => {
     const { posted } = serveAccount({ existing: [channel({ id: 1 })] });
     const { user, router } = await renderApp({ route: "/channels" });
-    await screen.findByRole("tablist");
+    await screen.findByRole("list", { name: "Canals" });
     const opener = screen.getByRole("button", { name: DIALOG_NAME });
     await user.click(opener);
     const dialog = await screen.findByRole("dialog", { name: DIALOG_NAME });
@@ -113,7 +113,7 @@ describe("saving", () => {
     await user.click(save(dialog));
   };
 
-  it("sends the settings chosen and shows the tab the channel landed on", async () => {
+  it("sends the settings chosen and shows the channel as the kind it was added as", async () => {
     const { posted } = serveAccount({ existing: [channel({ id: 1 })] });
     const { user, dialog } = await openDialog();
 
@@ -123,7 +123,8 @@ describe("saving", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(posted[0]).toMatchObject({ kind: "movie", language: "es" });
-    await waitFor(() => expect(screen.getByRole("tab", { name: /^Pel·lícules/ })).toHaveAttribute("aria-selected", "true"));
+    const added = await screen.findByRole("button", { name: /^Merlí 1080p/ });
+    expect(within(added).getByText("Pel·lícula")).toBeVisible();
   });
 
   it("stays open with the reason when adding fails", async () => {

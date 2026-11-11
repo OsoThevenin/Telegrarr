@@ -46,15 +46,10 @@ export type Show = {
   sources: Channel[];
 };
 
-export type ChannelTab = "series" | "movies";
-
 export const isMovieChannel = (channel: Channel) => channel.kind === MOVIE_KIND;
 
 /** The one kind a series mapping applies to. */
 export const isSeriesKind = (kind: ChannelKind) => kind === SERIES_KIND;
-
-/** Every kind but movie lands on the series tab, so no channel falls out of the grid. */
-export const tabOf = (channel: Channel): ChannelTab => (isMovieChannel(channel) ? "movies" : "series");
 
 const showKey = (channel: Channel) =>
   channel.imdb_id?.trim() || channel.imdb_title?.trim() || `ch:${channel.id}`;
@@ -67,6 +62,12 @@ export function groupIntoShows(channels: Channel[]): Show[] {
     const sources = channels.filter((channel) => showKey(channel) === key);
     return { key, lead: sources[0], sources };
   });
+}
+
+/** Shows in alphabetical order of their titles, as the UI language sorts them. */
+export function sortByTitle(shows: Show[], locale: string): Show[] {
+  const collator = new Intl.Collator(locale, { sensitivity: "base", numeric: true });
+  return [...shows].sort((a, b) => collator.compare(showTitle(a), showTitle(b)));
 }
 
 /** How a source is named: its chat, plus the topic for a topic source. */

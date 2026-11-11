@@ -7,7 +7,7 @@ const DIALOG_NAME = "Afegeix un canal";
 
 const openChannels = async (page: Page) => {
   await page.goto("/channels");
-  await expect(page.getByRole("tablist")).toBeVisible();
+  await expect(page.getByRole("list", { name: "Canals" })).toBeVisible();
 };
 
 const openDialog = async (page: Page) => {
@@ -68,9 +68,8 @@ test.describe("adding a channel", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.getByText("S’han afegit 2 canals de tema")).toBeVisible();
-    await expect(card(page, "Sèries HD")).toBeVisible();
-    await page.getByRole("tab", { name: /^Pel·lícules/ }).click();
-    await expect(card(page, "Pel·lícules HD")).toBeVisible();
+    await expect(card(page, "Sèries HD")).toContainText("Sèrie");
+    await expect(card(page, "Pel·lícules HD")).toContainText("Pel·lícula");
   });
 
   test("maps the new channel to the series TMDB finds for it", async ({ signedInPage: page }) => {
@@ -103,7 +102,7 @@ test.describe("adding a channel", () => {
 
     await expect(dialog).toBeHidden();
     await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
-    await expect(page.getByRole("tablist")).toBeVisible();
+    await expect(page.getByRole("list", { name: "Canals" })).toBeVisible();
   });
 
   test("the form fits a phone without sideways scrolling", async ({ signedInPage: page }) => {

@@ -26,11 +26,10 @@ import { useSeriesMapping } from "@/screens/channels/use-series-mapping";
 type Props = {
   /** Where focus goes when what opened the dialog is gone, as the palette is. */
   focusFallback: RefObject<HTMLElement | null>;
-  onAdded: (rows: Channel[]) => void;
 };
 
 /** Open while the URL says so: the top bar, the empty list and the palette all link to it. */
-export function AddChannelDialog({ focusFallback, onAdded }: Props) {
+export function AddChannelDialog({ focusFallback }: Props) {
   const { t } = useI18n();
   const { add } = useSearch({ from: "/channels" });
   const navigate = useNavigate();
@@ -48,10 +47,7 @@ export function AddChannelDialog({ focusFallback, onAdded }: Props) {
     element?.focus();
   };
 
-  const finish = (rows: Channel[]) => {
-    onAdded(rows);
-    close();
-  };
+  const finish = () => close();
 
   return (
     <Dialog open={Boolean(add)} onOpenChange={(open) => !open && close()}>

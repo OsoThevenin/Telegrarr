@@ -41,7 +41,7 @@ export function ChannelSheet({ show, isOpen, controls, onClose, onCloseAutoFocus
   const { t } = useI18n();
   const art = useArt(show.lead.imdb_id).data ?? {};
   const poster = useShowPoster(show);
-  const { lead, sources } = show;
+  const { lead } = show;
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -55,20 +55,37 @@ export function ChannelSheet({ show, isOpen, controls, onClose, onCloseAutoFocus
         <Hero url={art.backdrop || poster} />
         <div className="flex flex-col gap-4 px-4 pb-6">
           <Summary show={show} art={art} poster={poster} />
-          <div className="flex flex-wrap gap-2">
-            <Button size="lg" onClick={() => controls.actions.scan(sources)}>
-              <ScanLineIcon />
-              {t("common.scan")}
-            </Button>
-            <Button size="lg" variant="outline" onClick={() => controls.actions.backfill(sources)}>
-              {t("ch.backfill")}
-            </Button>
-          </div>
+          <ShowActions show={show} controls={controls} />
           <SourceList show={show} controls={controls} />
           {isMovieChannel(lead) ? <CatalogSection key={lead.id} channel={lead} /> : <EpisodesList show={show} />}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** What applies to every source at once. One source has its own switch in its row. */
+function ShowActions({ show, controls }: { show: Show; controls: ChannelControls }) {
+  const { t } = useI18n();
+  const { actions } = controls;
+  const { sources } = show;
+  const isAnyEnabled = sources.some(({ enabled }) => enabled);
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Button size="lg" onClick={() => actions.scan(sources)}>
+        <ScanLineIcon aria-hidden="true" />
+        {t("common.scan")}
+      </Button>
+      <Button size="lg" variant="outline" onClick={() => actions.backfill(sources)}>
+        {t("ch.backfill")}
+      </Button>
+      {sources.length > 1 && (
+        <Button size="lg" variant="outline" onClick={() => actions.setEnabled(sources, !isAnyEnabled)}>
+          {isAnyEnabled ? t("ch.disable_all") : t("ch.enable_all")}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -109,7 +126,7 @@ function Summary({ show, art, poster }: SummaryProps) {
     <div className="flex flex-col gap-2">
       <div className="flex items-end gap-3">
         <div className="relative -mt-10 w-24 shrink-0 overflow-hidden rounded-lg border bg-background">
-          <ChannelPoster title={title} urls={showImages(show, poster)} />
+          <ChannelPoster title={title} urls={showImages(show, poster)} className="aspect-[2/3]" />
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 pt-3">
           <SheetTitle className="text-lg">{title}</SheetTitle>

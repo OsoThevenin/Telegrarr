@@ -7,12 +7,11 @@ const PHONE = { width: 390, height: 844 };
 /** The button that opens a card: its name runs on past the title, into the card's meta line. */
 const cardButton = (page: Page, title: string) =>
   page.getByRole("button", { name: new RegExp(`${title}\\s*\\S`) });
-const menuButton = (page: Page, title: string) => page.getByRole("button", { name: `Accions de ${title}` });
-const tab = (page: Page, name: RegExp) => page.getByRole("tab", { name });
+const grid = (page: Page) => page.getByRole("list", { name: "Canals" });
 
-const openChannels = async (page: Page) => {
-  await page.goto("/channels");
-  await expect(page.getByRole("tablist")).toBeVisible();
+const openChannels = async (page: Page, path = "/channels") => {
+  await page.goto(path);
+  await expect(grid(page)).toBeVisible();
 };
 
 test.describe("channels", () => {
@@ -22,15 +21,20 @@ test.describe("channels", () => {
     const errors = watchErrors(page);
 
     await openChannels(page);
-    await expect(tab(page, /^Sèries\s*1$/)).toBeVisible();
-    await expect(cardButton(page, "Sèries CAT")).toBeVisible();
-    await expect(cardButton(page, "Cinema Club")).toBeHidden();
+    await test.step("series and movies share one grid, in alphabetical order, each saying its kind", async () => {
+      await expect(page.getByRole("tablist")).toHaveCount(0);
+      await expect(grid(page).locator("article [title]")).toHaveText(["Cinema Club", "Sèries CAT"]);
+      await expect(cardButton(page, "Cinema Club")).toContainText("Pel·lícula");
+      await expect(cardButton(page, "Sèries CAT")).toContainText("Sèrie");
+      await expect(page.getByRole("button", { name: /^Accions/ })).toHaveCount(0);
+    });
 
     await test.step("hovering a card does not change its size", async () => {
       const card = page.getByRole("article").filter({ hasText: "Sèries CAT" });
       const before = await card.boundingBox();
       await card.hover();
-      expect(await card.boundingBox()).toEqual(before);
+      const after = await card.boundingBox();
+      expect([after?.width, after?.height]).toEqual([before?.width, before?.height]);
     });
 
     await test.step("the Sheet of a series channel closes on Escape and gives focus back", async () => {
@@ -45,8 +49,6 @@ test.describe("channels", () => {
       await expect(cardButton(page, "Sèries CAT")).toBeFocused();
     });
 
-    await tab(page, /^Pel·lícules\s*1$/).click();
-
     await test.step("the Sheet of a movie channel has room for its Catalog", async () => {
       await cardButton(page, "Cinema Club").click();
       await expect(page.getByRole("dialog").getByRole("heading", { name: "Catàleg" })).toBeVisible();
@@ -54,10 +56,13 @@ test.describe("channels", () => {
       await expect(page.getByRole("dialog")).toBeHidden();
     });
 
-    await test.step("the menu edits by keyboard and gives focus back", async () => {
-      await menuButton(page, "Cinema Club").focus();
+    const sheet = page.getByRole("dialog", { name: /Cinema Club/ });
+    const sheetButton = (name: string) => sheet.getByRole("button", { name, exact: true });
+
+    await test.step("the Sheet edits by keyboard and gives focus back", async () => {
+      await cardButton(page, "Cinema Club").focus();
       await page.keyboard.press("Enter");
-      await page.getByRole("menuitem", { name: "Edita" }).focus();
+      await sheetButton("Edita").focus();
       await page.keyboard.press("Enter");
       const dialog = page.getByRole("dialog", { name: "Edita el canal" });
       await expect(dialog).toBeVisible();
@@ -67,27 +72,36 @@ test.describe("channels", () => {
       await dialog.getByRole("button", { name: "Desa" }).click();
 
       await expect(dialog).toBeHidden();
-      await expect(menuButton(page, "Cinema Club")).toBeFocused();
+      await expect(sheetButton("Edita")).toBeFocused();
       await expect(page.getByText("S’ha actualitzat el canal")).toBeVisible();
-      await expect(page.getByRole("article").filter({ hasText: "60 min" })).toBeVisible();
+      await expect(sheet.getByText(/60 min/)).toBeVisible();
+    });
+
+    await test.step("disabling takes the Sheet, and the card shows it", async () => {
+      await sheetButton("Desactiva").click();
+      await expect(sheetButton("Activa")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("article").filter({ hasText: "Cinema Club" })).toContainText("Desactivat");
+      await cardButton(page, "Cinema Club").click();
+      await sheetButton("Activa").click();
+      await expect(sheetButton("Desactiva")).toBeVisible();
     });
 
     await test.step("removing asks first, and sticks", async () => {
-      await menuButton(page, "Cinema Club").click();
-      await page.getByRole("menuitem", { name: "Elimina" }).click();
+      await sheetButton("Elimina el canal").click();
       const confirm = page.getByRole("alertdialog");
       await confirm.getByRole("button", { name: "Cancel·la" }).click();
       await expect(confirm).toBeHidden();
-      await expect(cardButton(page, "Cinema Club")).toBeVisible();
+      await expect(sheet).toBeVisible();
 
-      await menuButton(page, "Cinema Club").click();
-      await page.getByRole("menuitem", { name: "Elimina" }).click();
+      await sheetButton("Elimina el canal").click();
       await confirm.getByRole("button", { name: "Elimina" }).click();
 
       await expect(confirm).toBeHidden();
+      await expect(sheet).toBeHidden();
       await expect(cardButton(page, "Cinema Club")).toBeHidden();
       await page.reload();
-      await expect(tab(page, /^Pel·lícules\s*0$/)).toBeVisible();
+      await expect(grid(page).getByRole("article")).toHaveCount(1);
     });
 
     expect(errors).toEqual([]);
@@ -131,6 +145,13 @@ test.describe("channels", () => {
     await expect(card.getByText(STOPPED)).toBeHidden();
   });
 
+  test("an old link to the movies tab still opens every channel", async ({ signedInPage: page }) => {
+    await openChannels(page, "/channels?tab=movies");
+
+    await expect(cardButton(page, "Sèries CAT")).toBeVisible();
+    await expect(cardButton(page, "Cinema Club")).toBeVisible();
+  });
+
   test("a card shows the channel's Telegram photo", async ({ signedInPage: page }) => {
     await openChannels(page);
 
@@ -145,13 +166,17 @@ test.describe("channels", () => {
     await openChannels(page);
 
     await expect(page.getByRole("button", { name: "Escaneja Sèries CAT" })).toBeVisible();
-    await menuButton(page, "Sèries CAT").click();
-    await expect(page.getByRole("menuitem", { name: "Elimina" })).toBeVisible();
-    await page.keyboard.press("Escape");
+    const cards = await grid(page).getByRole("article").evaluateAll((articles) =>
+      articles.map((article) => Math.round(article.getBoundingClientRect().top)),
+    );
+    expect(cards[0]).toBe(cards[1]);
 
     await cardButton(page, "Sèries CAT").click();
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByRole("button", { name: "Tanca" })).toBeVisible();
+    for (const name of ["Escaneja", "Recupera l’historial", "Desactiva", "Edita", "Elimina el canal"]) {
+      await expect(sheet.getByRole("button", { name, exact: true })).toBeVisible();
+    }
 
     // Polled: while the sheet slides in, its width can round to a hair over the screen's.
     await expect.poll(async () => (await sheet.boundingBox())?.width).toBeLessThanOrEqual(PHONE.width);
