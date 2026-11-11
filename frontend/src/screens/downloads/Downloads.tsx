@@ -8,7 +8,8 @@ import { useI18n } from "@/i18n/use-i18n";
 import { downloadsQuery } from "@/lib/downloads";
 import { DownloadFilters } from "@/screens/downloads/DownloadFilters";
 import { DownloadTabPanel } from "@/screens/downloads/DownloadTabPanel";
-import { ACTIVE_TAB, DOWNLOAD_TABS, matchesFilter, rowsOfTab, type SortOrder } from "@/screens/downloads/download-list";
+import { DEFAULT_TAB, HISTORY_TABS, matchesFilter, rowsOfTab, type SortOrder } from "@/screens/downloads/download-list";
+import { InProgressSection } from "@/screens/downloads/InProgressSection";
 import { storedDensity, storedSort, storeDensity, storeSort } from "@/screens/downloads/preferences";
 
 const route = getRouteApi("/downloads");
@@ -16,13 +17,14 @@ const route = getRouteApi("/downloads");
 export function Downloads() {
   const { t } = useI18n();
   const query = useQuery(downloadsQuery);
-  const { tab: openTab = ACTIVE_TAB.id } = route.useSearch();
+  const { tab: openTab = DEFAULT_TAB.id } = route.useSearch();
   const navigate = route.useNavigate();
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState(storedSort);
   const [isDense, setIsDense] = useState(storedDensity);
 
   const filteredRows = (query.data ?? []).filter((download) => matchesFilter(download, filter));
+  const isFiltered = filter.trim() !== "";
 
   const handleSortChange = (order: SortOrder) => {
     setSort(order);
@@ -44,23 +46,26 @@ export function Downloads() {
         isDense={isDense}
         onDensityToggle={handleDensityToggle}
       />
-      <Tabs value={openTab} onValueChange={(tab) => void navigate({ search: { tab }, replace: true })}>
-        <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
-          {DOWNLOAD_TABS.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} className="flex-none">
+      <InProgressSection rows={filteredRows} query={query} isFiltered={isFiltered} isDense={isDense} />
+      <Tabs className="mt-4" value={openTab} onValueChange={(tab) => void navigate({ search: { tab }, replace: true })}>
+        {/* Three equal tabs across a phone, so none drops onto a line of its own. */}
+        <TabsList className="w-full group-data-horizontal/tabs:h-auto sm:w-fit">
+          {HISTORY_TABS.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} className="min-h-9 flex-1 sm:flex-none sm:px-3">
               {t(tab.labelKey)}{" "}
               {query.data && <span className="tabular-nums opacity-70">{rowsOfTab(filteredRows, tab).length}</span>}
             </TabsTrigger>
           ))}
         </TabsList>
-        {DOWNLOAD_TABS.map((tab) => (
+        {HISTORY_TABS.map((tab) => (
           <TabsContent key={tab.id} value={tab.id} className="pt-2">
             <DownloadTabPanel
               tab={tab}
               rows={rowsOfTab(filteredRows, tab)}
               query={query}
-              isFiltered={filter.trim() !== ""}
+              isFiltered={isFiltered}
               sort={sort}
+              onSortChange={handleSortChange}
               isDense={isDense}
             />
           </TabsContent>

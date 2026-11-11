@@ -15,11 +15,11 @@ type Props = {
   /** The rows of the tab, which Select all takes in. */
   rows: readonly Download[];
   selection: DownloadSelection;
-  /** What applies to the tab whatever is selected. */
+  /** What applies to the tab whatever is selected, at the right of the row. */
   children?: ReactNode;
 };
 
-type OutlineActionProps = {
+type BulkActionProps = {
   label: string;
   hint?: string;
   ids: number[];
@@ -27,10 +27,10 @@ type OutlineActionProps = {
   onRun: (ids: number[]) => void;
 };
 
-function OutlineAction({ label, hint, ids, isPending, onRun }: OutlineActionProps) {
+function BulkAction({ label, hint, ids, isPending, onRun }: BulkActionProps) {
   if (ids.length === 0) return null;
   return (
-    <Button variant="outline" size="sm" title={hint} disabled={isPending} onClick={() => onRun(ids)}>
+    <Button variant="quiet" size="sm" title={hint} disabled={isPending} onClick={() => onRun(ids)}>
       {label}
     </Button>
   );
@@ -50,21 +50,21 @@ function BulkActions({ selected, onDone }: ActionsProps) {
 
   return (
     <>
-      <OutlineAction
+      <BulkAction
         label={t("dl.pause")}
         hint={t("dl.pause_hint")}
         ids={idsOf(isPausable)}
         isPending={isPending}
         onRun={(ids) => pauseMany(ids, onDone)}
       />
-      <OutlineAction
+      <BulkAction
         label={t("dl.resume")}
         hint={t("dl.resume_hint")}
         ids={idsOf(isPaused)}
         isPending={isPending}
         onRun={(ids) => resumeMany(ids, onDone)}
       />
-      <OutlineAction
+      <BulkAction
         label={t("dl.retry")}
         ids={idsOf(isRetryable)}
         isPending={isPending}
@@ -88,7 +88,7 @@ function BulkActions({ selected, onDone }: ActionsProps) {
   );
 }
 
-/** Stays under the shell's header, so the actions are at hand anywhere in a long list. */
+/** Stays under the shell's header, so the actions are at hand anywhere in a long list. Select all shows only when there are rows. */
 export function DownloadBulkBar({ rows, selection, children }: Props) {
   const { t, tn } = useI18n();
   const selectAll = useRef<HTMLButtonElement>(null);
@@ -103,25 +103,27 @@ export function DownloadBulkBar({ rows, selection, children }: Props) {
 
   return (
     <div className="sticky top-14 z-5 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-2 bg-background py-1 pl-3">
-      <div role="group" aria-label={t("dl.bulk_bar")} className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Checkbox
-          ref={selectAll}
-          aria-label={t("dl.select_all")}
-          checked={count === rows.length || (count > 0 && "indeterminate")}
-          onCheckedChange={(checked) => toggleAll(checked === true)}
-          className="after:-inset-3.5"
-        />
-        <span aria-live="polite" className="text-sm text-muted-foreground tabular-nums">
-          {count > 0 ? tn("dl.selected_n", count) : t("dl.select_all")}
-        </span>
-        <BulkActions selected={selected} onDone={handleDone} />
-        {count > 0 && (
-          <Button variant="ghost" size="sm" onClick={handleDone}>
-            {t("dl.clear_selection")}
-          </Button>
-        )}
-      </div>
-      {children}
+      {rows.length > 0 && (
+        <div role="group" aria-label={t("dl.bulk_bar")} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Checkbox
+            ref={selectAll}
+            aria-label={t("dl.select_all")}
+            checked={count === rows.length || (count > 0 && "indeterminate")}
+            onCheckedChange={(checked) => toggleAll(checked === true)}
+            className="after:-inset-3.5"
+          />
+          <span aria-live="polite" className="text-sm text-muted-foreground tabular-nums">
+            {count > 0 ? tn("dl.selected_n", count) : t("dl.select_all")}
+          </span>
+          <BulkActions selected={selected} onDone={handleDone} />
+          {count > 0 && (
+            <Button variant="quiet" size="sm" onClick={handleDone}>
+              {t("dl.clear_selection")}
+            </Button>
+          )}
+        </div>
+      )}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">{children}</div>
     </div>
   );
 }

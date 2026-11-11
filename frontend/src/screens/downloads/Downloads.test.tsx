@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Download } from "@/lib/downloads";
 import { emitSnapshot } from "@/test/event-stream";
@@ -31,16 +31,18 @@ function serveDownloads(rows: readonly Download[]) {
   server.use(http.get("/api/downloads", () => HttpResponse.json(rows)));
 }
 
-const rowOf = async (name: string) => (await screen.findByText(name)).closest("li") as HTMLElement;
+/** A card or a queue line in En curs, or a row of the history, by its file name. */
+const rowOf = async (name: string) => (await screen.findByText(name)).closest("li, tr") as HTMLElement;
 
 const TABS = [
-  { label: "A la cua / Actives", status: "queued", empty: "No hi ha res a la cua ni baixant." },
   { label: "Completades", status: "completed", empty: "Encara no s’ha baixat res." },
   { label: "Fallides", status: "failed", empty: "No hi ha res." },
   { label: "Cancel·lades", status: "cancelled", empty: "No hi ha res." },
 ] as const;
 
 const tab = (label: string) => screen.findByRole("tab", { name: new RegExp(`^${label}`) });
+const inProgress = () => screen.findByRole("region", { name: "En curs" });
+const queueToggle = () => screen.findByRole("button", { name: /a la cua|més/ });
 
 type User = Awaited<ReturnType<typeof renderApp>>["user"];
 
@@ -48,14 +50,39 @@ async function openTab(user: User, label: string) {
   await user.click(await tab(label));
 }
 
-const visibleNames = () =>
-  screen.getAllByRole("listitem").flatMap((row) => row.querySelector("p")?.textContent ?? []);
+/** Opens the queue line, where rows still waiting their turn are. */
+async function openQueue(user: User) {
+  await user.click(await queueToggle());
+}
+
+/** The file names in view, card by card and table row by table row. */
+const visibleNames = (container: HTMLElement = document.body) =>
+  within(container)
+    .queryAllByRole("listitem")
+    .concat(within(container).queryAllByRole("row"))
+    .flatMap((row) => row.querySelector("p")?.textContent ?? []);
+
+/** A paragraph whose whole text matches, though its phrases sit in spans of their own. */
+const paragraph = (pattern: RegExp) => (_: string, element: Element | null) =>
+  element?.tagName === "P" && pattern.test(element.textContent ?? "");
 
 const filterBox = () => screen.findByRole("searchbox", { name: "Filtra…" });
 
+/** Makes every `max-width` query match, as on a phone. */
+function onAPhone() {
+  const desktop = window.matchMedia;
+  beforeEach(() => {
+    window.matchMedia = (query) =>
+      ({ matches: query.includes("max-width"), media: query, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList;
+  });
+  afterEach(() => {
+    window.matchMedia = desktop;
+  });
+}
+
 beforeEach(() => localStorage.clear());
 
-describe("Downloads, Queued / Active tab", () => {
+describe("En curs", () => {
   it("shows a running transfer with its progress, speed and channel", async () => {
     serveDownloads([download({ status: "downloading", progress: 0.42, speed_mbs: 3.5 })]);
 
@@ -81,7 +108,7 @@ describe("Downloads, Queued / Active tab", () => {
     expect(await screen.findByText(/75%/)).toBeVisible();
   });
 
-  it("puts what is running first and keeps rows paused on their own in view", async () => {
+  it("gives what is running and what is paused a card each, running first", async () => {
     serveDownloads([
       download({ id: 3, status: "paused", file_name: "held.mkv" }),
       download({ id: 2, status: "queued", file_name: "waiting.mkv" }),
@@ -91,8 +118,110 @@ describe("Downloads, Queued / Active tab", () => {
     await renderApp({ route: ROUTE });
 
     await screen.findByText("running.mkv");
-    expect(visibleNames()).toEqual(["running.mkv", "waiting.mkv", "held.mkv"]);
-    expect(await tab("A la cua / Actives")).toHaveAccessibleName("A la cua / Actives 3");
+    expect(visibleNames(await inProgress())).toEqual(["running.mkv", "held.mkv"]);
+  });
+
+  it("folds the queue into one line, closed until asked", async () => {
+    serveDownloads([
+      download({ id: 1, status: "downloading", file_name: "running.mkv" }),
+      download({ id: 2, status: "queued", file_name: "waiting.mkv" }),
+      download({ id: 3, status: "queued", file_name: "next.mkv" }),
+    ]);
+
+    await renderApp({ route: ROUTE });
+
+    const toggle = await queueToggle();
+    expect(toggle).toHaveAccessibleName("2 a la cua Mostra");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("waiting.mkv")).not.toBeInTheDocument();
+  });
+
+  it("opens the queue in queue order, a line each with no progress bar, and closes it again", async () => {
+    serveDownloads([
+      download({ id: 1, status: "downloading", file_name: "running.mkv" }),
+      download({ id: 5, status: "queued", file_name: "later.mkv" }),
+      download({ id: 2, status: "queued", file_name: "first.mkv" }),
+    ]);
+    const { user } = await renderApp({ route: ROUTE });
+
+    await openQueue(user);
+
+    const toggle = await queueToggle();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("2 a la cua Amaga");
+    const queue = screen.getByRole("list", { name: "2 a la cua" });
+    expect(toggle).toHaveAttribute("aria-controls", queue.parentElement?.id);
+    expect(visibleNames(queue)).toEqual(["first.mkv", "later.mkv"]);
+    expect(within(queue).queryByRole("progressbar")).not.toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("first.mkv")).not.toBeInTheDocument();
+  });
+
+  it("says, in one line, when nothing is in progress, and keeps the queue's switch there", async () => {
+    serveDownloads([download({ status: "completed" })]);
+
+    await renderApp({ route: ROUTE });
+
+    const section = within(await inProgress());
+    expect(await section.findByText("Res en curs")).toBeVisible();
+    expect(section.getByRole("button", { name: "Posa-ho tot en pausa" })).toBeEnabled();
+    expect(section.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("says when the filter leaves nothing in progress", async () => {
+    serveDownloads([download({ status: "downloading" })]);
+    const { user } = await renderApp({ route: ROUTE });
+    await screen.findByText("Merli.S01E01.mkv");
+
+    await user.type(await filterBox(), "nothing like this");
+
+    expect(await within(await inProgress()).findByText("Res en curs amb aquest filtre")).toBeVisible();
+  });
+
+  it("shows the total speed beside its heading", async () => {
+    serveDownloads([download({ status: "downloading" })]);
+    await renderApp({ route: ROUTE });
+    await screen.findByText("Merli.S01E01.mkv");
+
+    emitSnapshot({ speed: 12.4 });
+
+    expect(await within(await inProgress()).findByText("12.4 MB/s")).toBeVisible();
+  });
+
+  it("sits above the history tabs, whichever tab is open", async () => {
+    serveDownloads([download({ status: "downloading" })]);
+    await renderApp({ route: "/downloads?tab=failed" });
+
+    const section = await inProgress();
+    const tabs = await screen.findByRole("tablist");
+
+    expect(section.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(section).getByText("Merli.S01E01.mkv")).toBeVisible();
+  });
+
+  describe("on a phone", () => {
+    onAPhone();
+
+    it("keeps two cards and folds the rest in with the queue", async () => {
+      serveDownloads([
+        download({ id: 1, status: "downloading", file_name: "one.mkv" }),
+        download({ id: 2, status: "downloading", file_name: "two.mkv" }),
+        download({ id: 3, status: "paused", file_name: "three.mkv" }),
+        download({ id: 4, status: "queued", file_name: "four.mkv" }),
+      ]);
+      const { user } = await renderApp({ route: ROUTE });
+      await screen.findByText("one.mkv");
+
+      expect(visibleNames(await inProgress())).toEqual(["one.mkv", "two.mkv"]);
+      expect(await queueToggle()).toHaveAccessibleName("2 més Mostra");
+
+      await openQueue(user);
+
+      expect(visibleNames(screen.getByRole("list", { name: "2 més" }))).toEqual(["three.mkv", "four.mkv"]);
+    });
   });
 });
 
@@ -139,14 +268,18 @@ describe.each(TABS)("Downloads, $label tab", ({ label, status, empty }) => {
   });
 
   it("shows only its own rows, and counts them", async () => {
-    serveDownloads(TABS.map((other, index) => download({ id: index, status: other.status, file_name: other.status })));
+    const statuses = ["downloading", ...TABS.map((other) => other.status)] as const;
+    serveDownloads(statuses.map((other, index) => download({ id: index, status: other, file_name: other })));
     const { user } = await renderApp({ route: ROUTE });
 
     await openTab(user, label);
 
     expect(await tab(label)).toHaveAccessibleName(`${label} 1`);
-    expect(await screen.findByText(new RegExp(status === "completed" ? "Cinema Club" : `^${status}$`))).toBeVisible();
-    expect(screen.queryAllByRole("listitem")).toHaveLength(1);
+    const panel = within(await screen.findByRole("tabpanel"));
+    expect(await panel.findByText(new RegExp(status === "completed" ? "Cinema Club" : `^${status}$`))).toBeVisible();
+    for (const other of statuses.filter((other) => other !== status)) {
+      expect(panel.queryByText(other)).not.toBeInTheDocument();
+    }
   });
 
   it("narrows to what the filter matches", async () => {
@@ -183,40 +316,44 @@ describe("Downloads tab in the URL", () => {
     expect(await tab("Fallides")).toHaveAttribute("aria-selected", "true");
   });
 
-  it("opens on the Active tab for a tab that does not exist", async () => {
+  it.each(["active", "nonsense"])("opens on Completades for a tab that is not there: %s", async (name) => {
     serveDownloads([]);
-    await renderApp({ route: "/downloads?tab=nonsense" });
+    await renderApp({ route: `/downloads?tab=${name}` });
 
-    expect(await tab("A la cua / Actives")).toHaveAttribute("aria-selected", "true");
+    expect(await tab("Completades")).toHaveAttribute("aria-selected", "true");
+    expect(screen.getAllByRole("tab").map((each) => each.textContent?.replace(/\d+/, "").trim())).toEqual([
+      "Completades",
+      "Fallides",
+      "Cancel·lades",
+    ]);
   });
 
   it("remembers the chosen tab in the URL", async () => {
     serveDownloads([]);
     const { router, user } = await renderApp({ route: "/downloads" });
 
-    await openTab(user, "Completades");
+    await openTab(user, "Fallides");
 
-    expect(await tab("Completades")).toHaveAttribute("aria-selected", "true");
-    expect(router.history.location.search).toBe("?tab=completed");
+    expect(await tab("Fallides")).toHaveAttribute("aria-selected", "true");
+    expect(router.history.location.search).toBe("?tab=failed");
   });
 });
 
 describe("Downloads filters", () => {
-  it("sit above the tabs and the lists", async () => {
-    serveDownloads([download()]);
+  it("sit above En curs and the tabs", async () => {
+    serveDownloads([download({ status: "downloading" })]);
     await renderApp({ route: ROUTE });
 
     const filter = await filterBox();
-    const tabs = await screen.findByRole("tablist");
-    await screen.findByText("Merli.S01E01.mkv");
+    const section = await inProgress();
 
-    expect(filter.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(filter.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("match the channel as well as the file, whatever the case", async () => {
     serveDownloads([
-      download({ id: 1, file_name: "one.mkv", channel_title: "Cinema Club", topic_title: "Clàssics" }),
-      download({ id: 2, file_name: "two.mkv", channel_title: "Sèries" }),
+      download({ id: 1, status: "downloading", file_name: "one.mkv", channel_title: "Cinema Club", topic_title: "Clàssics" }),
+      download({ id: 2, status: "downloading", file_name: "two.mkv", channel_title: "Sèries" }),
     ]);
     const { user } = await renderApp({ route: ROUTE });
 
@@ -251,7 +388,7 @@ describe("Downloads filters", () => {
     await user.selectOptions(await screen.findByRole("combobox", { name: "Ordena" }), "Més grans");
 
     await screen.findByText("large.mkv");
-    expect(visibleNames()).toEqual(["large.mkv", "small.mkv"]);
+    expect(visibleNames(await screen.findByRole("tabpanel"))).toEqual(["large.mkv", "small.mkv"]);
     expect(localStorage.getItem("dl_sort")).toBe("big");
   });
 
@@ -273,10 +410,11 @@ describe("Downloads filters", () => {
     expect(await screen.findByRole("combobox", { name: "Ordena" })).toHaveValue("new");
   });
 
-  it("remember the row density", async () => {
+  it("remember the row density, behind a switch that says what it does", async () => {
     serveDownloads([]);
     const { user } = await renderApp({ route: ROUTE });
     const toggle = await screen.findByRole("button", { name: "Canvia la densitat de les files" });
+    expect(toggle).toHaveTextContent("Densitat");
     expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await user.click(toggle);
@@ -292,7 +430,32 @@ describe("Pause all", () => {
 
   beforeEach(() => serveDownloads([]));
 
-  it("pauses the global queue from the top of the page", async () => {
+  it("sits in En curs beside its Select all, apart from the selection's own actions", async () => {
+    serveDownloads([download({ status: "downloading" })]);
+    await renderApp({ route: ROUTE });
+
+    const section = within(await inProgress());
+    expect(await section.findByRole("button", { name: PAUSE_ALL })).toBeEnabled();
+    const selectAll = section.getByRole("checkbox", { name: "Selecciona-ho tot" });
+    const bar = section.getByRole("group", { name: "Accions sobre les baixades seleccionades" });
+    expect(bar).toContainElement(selectAll);
+    expect(within(bar).queryByRole("button", { name: PAUSE_ALL })).not.toBeInTheDocument();
+  });
+
+  it("is in none of the history tabs, nor in the toolbar", async () => {
+    serveDownloads(TABS.map(({ status }, index) => download({ id: index, status })));
+    const { user } = await renderApp({ route: ROUTE });
+
+    for (const { label } of TABS) {
+      await openTab(user, label);
+      expect(within(await screen.findByRole("tabpanel")).queryByRole("button", { name: PAUSE_ALL })).not.toBeInTheDocument();
+    }
+    const toolbar = (await filterBox()).parentElement as HTMLElement;
+    expect(within(toolbar).queryByRole("button", { name: PAUSE_ALL })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: PAUSE_ALL })).toHaveLength(1);
+  });
+
+  it("pauses the global queue from the top of the list", async () => {
     const calls: string[] = [];
     server.use(
       http.post("/api/queue/pause", () => {
@@ -336,6 +499,95 @@ describe("Pause all", () => {
   });
 });
 
+describe("Failed and cancelled history as a table", () => {
+  const NOW = Math.floor(Date.now() / 1000);
+  const FAILED = [
+    download({ id: 1, status: "failed", file_name: "small.mkv", file_size: 1_000, finished_at: NOW - 7_200, error: "Disk full" }),
+    download({ id: 2, status: "failed", file_name: "large.mkv", file_size: 9_000_000_000, finished_at: NOW - 60 }),
+  ];
+
+  async function openFailed() {
+    serveDownloads(FAILED);
+    const { user } = await renderApp({ route: "/downloads?tab=failed" });
+    return { user, table: await screen.findByRole("table") };
+  }
+
+  it("names its columns, with no status column", async () => {
+    const { table } = await openFailed();
+
+    const headers = within(table).getAllByRole("columnheader");
+    expect(headers.map((header) => header.textContent)).toEqual(["Selecció", "Fitxer", "Canal", "Mida", "Quan", "Accions"]);
+    for (const header of headers) expect(header).toHaveAttribute("scope", "col");
+    expect(within(table).queryByRole("columnheader", { name: /Estat/ })).not.toBeInTheDocument();
+  });
+
+  it("says which column it is sorted by, and sorts by the one clicked", async () => {
+    const { user, table } = await openFailed();
+    const header = (name: string) => within(table).getByRole("columnheader", { name });
+    expect(header("Quan")).toHaveAttribute("aria-sort", "descending");
+    expect(header("Mida")).not.toHaveAttribute("aria-sort");
+
+    await user.click(within(header("Mida")).getByRole("button", { name: "Mida" }));
+
+    expect(header("Mida")).toHaveAttribute("aria-sort", "descending");
+    expect(header("Quan")).not.toHaveAttribute("aria-sort");
+    expect(visibleNames(table)).toEqual(["large.mkv", "small.mkv"]);
+    expect(localStorage.getItem("dl_sort")).toBe("big");
+
+    await user.click(within(header("Fitxer")).getByRole("button", { name: "Fitxer" }));
+
+    expect(header("Fitxer")).toHaveAttribute("aria-sort", "ascending");
+    expect(screen.getByRole("combobox", { name: "Ordena" })).toHaveValue("name");
+  });
+
+  it("turns the date order around on a second click", async () => {
+    const { user, table } = await openFailed();
+    const when = within(table).getByRole("columnheader", { name: "Quan" });
+
+    await user.click(within(when).getByRole("button", { name: "Quan" }));
+
+    expect(when).toHaveAttribute("aria-sort", "ascending");
+    expect(visibleNames(table)).toEqual(["small.mkv", "large.mkv"]);
+  });
+
+  it("puts the error under the file name, and says how long ago in words, with the full date on hover", async () => {
+    const { table } = await openFailed();
+
+    const row = within((await within(table).findByText("small.mkv")).closest("tr") as HTMLElement);
+    expect(row.getByText("Disk full")).toHaveClass("text-destructive");
+    expect(row.getByText("fa 2 h")).toHaveAttribute("title", expect.stringMatching(/\d{4}/));
+  });
+
+  it("keeps the row checkboxes and the bulk actions", async () => {
+    const { user, table } = await openFailed();
+
+    await user.click(within(table).getByRole("checkbox", { name: "Selecciona small.mkv" }));
+
+    expect(within(await screen.findByRole("tabpanel")).getByText("1 seleccionada")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Esborra les 2 fallides" })).toBeEnabled();
+  });
+
+  it("is not how Completades reads", async () => {
+    serveDownloads([download({ status: "completed" })]);
+    await renderApp({ route: ROUTE });
+
+    await screen.findByRole("button", { name: /^Cinema Club/ });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  describe("on a phone", () => {
+    onAPhone();
+
+    it("falls back to cards", async () => {
+      serveDownloads(FAILED);
+      await renderApp({ route: "/downloads?tab=failed" });
+
+      expect((await screen.findByText("small.mkv")).closest("li")).not.toBeNull();
+      expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    });
+  });
+});
+
 describe("Row actions", () => {
   const CANCEL = "/api/downloads/:id/cancel";
   const RETRY = "/api/downloads/:id/retry";
@@ -358,6 +610,7 @@ describe("Row actions", () => {
     const row = download({ id: 7, status });
     const calls = serveThenMove(CANCEL, { ok: true }, row, { ...row, status: "cancelled" });
     const { user } = await renderApp({ route: ROUTE });
+    if (status === "queued") await openQueue(user);
 
     await user.click(within(await rowOf("Merli.S01E01.mkv")).getByRole("button", { name: "Atura" }));
 
@@ -369,6 +622,7 @@ describe("Row actions", () => {
     const row = download({ status: "queued" });
     serveThenMove(CANCEL, { ok: false }, row, row);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
 
     await user.click(within(await rowOf("Merli.S01E01.mkv")).getByRole("button", { name: "Atura" }));
 
@@ -379,6 +633,7 @@ describe("Row actions", () => {
     serveDownloads([download()]);
     server.use(http.post(CANCEL, () => HttpResponse.json({ detail: { key: "err.settings.budget" } }, { status: 500 })));
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
 
     await user.click(within(await rowOf("Merli.S01E01.mkv")).getByRole("button", { name: "Atura" }));
 
@@ -397,7 +652,7 @@ describe("Row actions", () => {
     await user.click(within(await rowOf("Merli.S01E01.mkv")).getByRole("button", { name: "Torna-ho a provar" }));
 
     expect(await screen.findByText("S’ha tornat a posar a la cua")).toBeVisible();
-    expect(await screen.findByRole("tab", { name: "A la cua / Actives 1" })).toBeVisible();
+    expect(await within(await inProgress()).findByRole("button", { name: "1 a la cua Mostra" })).toBeVisible();
     expect(calls).toEqual(["9"]);
   });
 
@@ -441,6 +696,7 @@ describe("Row actions", () => {
       download({ id: 2, status: "failed", file_name: "broken.mkv" }),
     ]);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
 
     const running = within(await rowOf("running.mkv"));
     expect(running.queryByRole("button", { name: "Torna-ho a provar" })).not.toBeInTheDocument();
@@ -490,9 +746,9 @@ describe("Pause and resume a row", () => {
 
     await user.click(row.getByRole("button", { name: "Reprèn" }));
 
-    expect(await row.findByText("A la cua")).toBeVisible();
+    expect(await screen.findByRole("button", { name: "1 a la cua Mostra" })).toBeVisible();
     expect(calls).toEqual(["/api/downloads/7/resume"]);
-    expect(row.queryByText("En pausa")).not.toBeInTheDocument();
+    expect(screen.queryByText("En pausa")).not.toBeInTheDocument();
     expect(await screen.findByText("Torna a ser a la cua: començarà des del principi")).toBeVisible();
   });
 
@@ -523,11 +779,11 @@ describe("Pause and resume a row", () => {
       download({ id: 2, status: "completed", file_name: "done.mkv" }),
     ]);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
 
     const waiting = within(await rowOf("waiting.mkv"));
     expect(waiting.getByRole("button", { name: "Pausa" })).toBeEnabled();
 
-    await openTab(user, "Completades");
     await user.click(await screen.findByRole("button", { name: /^Cinema Club/ }));
     const done = within(await rowOf("done.mkv"));
     expect(done.queryByRole("button", { name: "Pausa" })).not.toBeInTheDocument();
@@ -550,7 +806,7 @@ describe("Pause and resume a row", () => {
     const row = within(await rowOf("Merli.S01E01.mkv"));
 
     expect(row.getByText("Tornarà a començar des del principi quan el reprenguis")).toBeVisible();
-    expect(row.getByText(/Cinema Club · 2\.00 GB/)).toBeVisible();
+    expect(row.getByText(paragraph(/^Cinema Club · 2\.00 GB$/))).toBeVisible();
     expect(row.queryByText(/%/)).not.toBeInTheDocument();
     expect(row.queryByText(/MB\/s/)).not.toBeInTheDocument();
     expect(row.queryByRole("progressbar")).not.toBeInTheDocument();
@@ -612,6 +868,7 @@ describe("Selecting downloads", () => {
   it("shows a partial selection on Select all", async () => {
     serveDownloads(ROWS);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
 
     await user.click(await pick("waiting.mkv"));
 
@@ -623,6 +880,7 @@ describe("Selecting downloads", () => {
     serveDownloads([download({ id: 1, status: "queued", file_name: "waiting.mkv" })]);
     const bodies = serveBulk();
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
     const checkbox = await pick("waiting.mkv");
 
     checkbox.focus();
@@ -639,6 +897,7 @@ describe("Selecting downloads", () => {
   it("gives focus back to Select all when the actions go away", async () => {
     serveDownloads(ROWS);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
     await user.click(await pick("waiting.mkv"));
 
     await user.click((await bulkBar()).getByRole("button", { name: "Esborra la selecció" }));
@@ -647,22 +906,35 @@ describe("Selecting downloads", () => {
     expect(await pick("waiting.mkv")).not.toBeChecked();
   });
 
-  it("forgets the selection on another tab", async () => {
-    serveDownloads([...ROWS, download({ id: 4, status: "failed", file_name: "broken.mkv" })]);
-    const { user } = await renderApp({ route: ROUTE });
-    await user.click(await pick("waiting.mkv"));
+  it("forgets a history tab's selection on another tab", async () => {
+    serveDownloads([
+      download({ id: 4, status: "failed", file_name: "broken.mkv" }),
+      download({ id: 5, status: "cancelled", file_name: "stopped.mkv" }),
+    ]);
+    const { user } = await renderApp({ route: "/downloads?tab=failed" });
+    await user.click(await pick("broken.mkv"));
 
+    await openTab(user, "Cancel·lades");
+    await pick("stopped.mkv");
     await openTab(user, "Fallides");
-    await pick("broken.mkv");
-    await openTab(user, "A la cua / Actives");
 
-    expect(await pick("waiting.mkv")).not.toBeChecked();
+    expect(await pick("broken.mkv")).not.toBeChecked();
+  });
+
+  it("keeps En curs and the history apart", async () => {
+    serveDownloads([...ROWS, download({ id: 4, status: "failed", file_name: "broken.mkv" })]);
+    const { user } = await renderApp({ route: "/downloads?tab=failed" });
+    await user.click(await pick("running.mkv"));
+
+    expect(await pick("broken.mkv")).not.toBeChecked();
+    expect(within(await screen.findByRole("tabpanel")).getByRole("checkbox", { name: SELECT_ALL })).not.toBeChecked();
   });
 
   it("drops a selected row that leaves the tab", async () => {
     const rows = [...ROWS];
     server.use(http.get("/api/downloads", () => HttpResponse.json(rows)));
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
     await user.click(await pick("waiting.mkv"));
     await user.click(await pick("running.mkv"));
     await screen.findByText("2 seleccionades");
@@ -687,6 +959,7 @@ describe("Bulk pause and resume", () => {
     serveDownloads(ROWS);
     const bodies = serveBulk(2);
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
     await user.click(await pick("running.mkv"));
     await user.click(await pick("waiting.mkv"));
 
@@ -740,6 +1013,7 @@ describe("Bulk pause and resume", () => {
     serveDownloads(ROWS);
     const bodies = serveBulk();
     const { user } = await renderApp({ route: ROUTE });
+    await openQueue(user);
     await user.click(await pick("running.mkv"));
     await user.click(await pick("waiting.mkv"));
 
@@ -948,7 +1222,7 @@ describe("Row details", () => {
     [{ episode: 12, parsed_episode: 3, episode_source: "sonarr" }, "Part resolta: canal E03 → E12 via Sonarr"],
     [{ episode: 3, parsed_episode: 3, episode_source: "mystery" }, "Part comprovada: E03 via mystery"],
   ])("says how the episode number was settled: %j", async (fields, note) => {
-    serveDownloads([download(fields)]);
+    serveDownloads([download({ status: "downloading", ...fields })]);
 
     await renderApp({ route: ROUTE });
 
@@ -956,7 +1230,7 @@ describe("Row details", () => {
   });
 
   it("explains a number kept from the channel", async () => {
-    serveDownloads([download({ episode: 3, parsed_episode: 3, episode_source: "channel" })]);
+    serveDownloads([download({ status: "downloading", episode: 3, parsed_episode: 3, episode_source: "channel" })]);
 
     await renderApp({ route: ROUTE });
 
@@ -1104,7 +1378,7 @@ describe("Clear failed", () => {
     await openTab(user, "Fallides");
     await user.type(await filterBox(), "merli");
 
-    await user.click(await screen.findByRole("button", { name: "Esborra les 1 fallides" }));
+    await user.click(await screen.findByRole("button", { name: "Esborra la fallida" }));
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Suprimeix" }));
 
     await waitFor(() => expect(bodies).toEqual([{ action: "delete", ids: [1] }]));

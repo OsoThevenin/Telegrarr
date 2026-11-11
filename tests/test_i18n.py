@@ -82,7 +82,7 @@ def test_the_key_scan_reads_the_frontend():
     assert "PauseToggle.tsx: shell.pause" in found  # a t() call
     assert "AccountTab.tsx: set.theme.auto" in found  # a choice of label
     assert "TelegramSignInDialog.tsx: tgw.phone_intro" in found  # a step's copy
-    assert "DownloadRow.tsx: status.queued" in found  # a server value's label
+    assert "StatusPill.tsx: status.queued" in found  # a server value's label
     assert any(key.startswith("StatusPanel.tsx: ") for key in found)  # a *_KEYS map
 
 

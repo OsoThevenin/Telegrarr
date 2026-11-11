@@ -18,7 +18,7 @@ export function DownloadActions({ download }: Props) {
     <div className="flex items-center gap-1">
       {isPausable(download) && (
         <Button
-          variant="outline"
+          variant="quiet"
           size="sm"
           title={t("dl.pause_hint")}
           disabled={isPending}
@@ -29,7 +29,7 @@ export function DownloadActions({ download }: Props) {
       )}
       {isPaused(download) && (
         <Button
-          variant="outline"
+          variant="quiet"
           size="sm"
           title={t("dl.resume_hint")}
           disabled={isPending}
@@ -39,12 +39,12 @@ export function DownloadActions({ download }: Props) {
         </Button>
       )}
       {isInTransfer(download) && (
-        <Button variant="outline" size="sm" disabled={isPending} onClick={() => stop(download.id)}>
+        <Button variant="quiet" size="sm" disabled={isPending} onClick={() => stop(download.id)}>
           {t("dl.stop")}
         </Button>
       )}
       {isRetryable(download) && (
-        <Button variant="outline" size="sm" disabled={isPending} onClick={() => retry(download.id)}>
+        <Button variant="quiet" size="sm" disabled={isPending} onClick={() => retry(download.id)}>
           {t("dl.retry")}
         </Button>
       )}

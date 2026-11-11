@@ -3,21 +3,16 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { ConfirmTrigger } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NARROW_QUERY, useMediaQuery } from "@/lib/use-media-query";
 import { useI18n } from "@/i18n/use-i18n";
 import type { Download } from "@/lib/downloads";
 import { CompletedGroups } from "@/screens/downloads/CompletedGroups";
 import { DownloadBulkBar } from "@/screens/downloads/DownloadBulkBar";
 import { DownloadList } from "@/screens/downloads/DownloadList";
-import {
-  ACTIVE_TAB,
-  COMPLETED_TAB,
-  FAILED_TAB,
-  sortRows,
-  type DownloadTab,
-  type SortOrder,
-} from "@/screens/downloads/download-list";
+import { HistoryTable } from "@/screens/downloads/HistoryTable";
+import { COMPLETED_TAB, FAILED_TAB, sortRows, type DownloadTab, type SortOrder } from "@/screens/downloads/download-list";
 import { useDownloadActions } from "@/screens/downloads/use-download-actions";
-import { useDownloadSelection } from "@/screens/downloads/use-download-selection";
+import { useDownloadSelection, type DownloadSelection } from "@/screens/downloads/use-download-selection";
 
 const SKELETON_ROWS = 3;
 
@@ -53,10 +48,8 @@ function ListFailure({ error, onRefetch }: ListFailureProps) {
   );
 }
 
-function emptyText(tab: DownloadTab, t: (key: string) => string): string {
-  if (tab === ACTIVE_TAB) return t("dl.no_active");
-  return tab === COMPLETED_TAB ? t("dl.nothing_downloaded") : t("dl.nothing_here");
-}
+const emptyText = (tab: DownloadTab, t: (key: string) => string): string =>
+  tab === COMPLETED_TAB ? t("dl.nothing_downloaded") : t("dl.nothing_here");
 
 type ClearFailedProps = {
   /** The failed rows in view: Clear never reaches past the filter. */
@@ -64,25 +57,24 @@ type ClearFailedProps = {
 };
 
 function ClearFailed({ rows }: ClearFailedProps) {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const { isPending, removeMany } = useDownloadActions();
   const n = rows.length;
+  const label = tn("dl.clear_failed", n);
 
   return (
-    <div className="flex justify-end">
-      <ConfirmTrigger
-        trigger={
-          <Button variant="outline" size="sm" disabled={isPending}>
-            {t("dl.clear_failed", { n })}
-          </Button>
-        }
-        title={t("dl.clear_failed", { n })}
-        description={t("dl.delete_failed_confirm", { n })}
-        confirmLabel={t("common.delete")}
-        isDestructive
-        onConfirm={async () => removeMany(rows.map(({ id }) => id))}
-      />
-    </div>
+    <ConfirmTrigger
+      trigger={
+        <Button variant="quiet" size="sm" disabled={isPending}>
+          {label}
+        </Button>
+      }
+      title={label}
+      description={t("dl.delete_failed_confirm", { n })}
+      confirmLabel={t("common.delete")}
+      isDestructive
+      onConfirm={async () => removeMany(rows.map(({ id }) => id))}
+    />
   );
 }
 
@@ -93,12 +85,19 @@ type Props = {
   query: UseQueryResult<Download[]>;
   isFiltered: boolean;
   sort: SortOrder;
+  onSortChange: (sort: SortOrder) => void;
   isDense: boolean;
 };
 
-export function DownloadTabPanel({ tab, rows, query, isFiltered, sort, isDense }: Props) {
+type BodyProps = Omit<Props, "rows" | "tab"> & {
+  tab: DownloadTab;
+  rows: readonly Download[];
+  selection: DownloadSelection;
+};
+
+function PanelBody({ tab, rows, query, isFiltered, sort, onSortChange, isDense, selection }: BodyProps) {
   const { t } = useI18n();
-  const selection = useDownloadSelection(rows);
+  const isNarrow = useMediaQuery(NARROW_QUERY);
 
   if (query.isPending) return <LoadingRows />;
   if (query.isError && !query.data) return <ListFailure error={query.error} onRefetch={() => void query.refetch()} />;
@@ -106,17 +105,28 @@ export function DownloadTabPanel({ tab, rows, query, isFiltered, sort, isDense }
     return <p className="py-8 text-center text-muted-foreground">{isFiltered ? t("dl.no_matches") : emptyText(tab, t)}</p>;
   }
 
-  const sortedRows = sortRows(rows, sort);
+  const sorted = sortRows(rows, sort);
+  // Failed and cancelled rows read as a table where there is room for its columns.
+  if (tab !== COMPLETED_TAB && !isNarrow) {
+    return <HistoryTable rows={sorted} sort={sort} onSortChange={onSortChange} selection={selection} />;
+  }
   // A filter looks for files, so it opens the show folders up into a flat list.
   const isGrouped = tab === COMPLETED_TAB && !isFiltered;
   const List = isGrouped ? CompletedGroups : DownloadList;
+  return <List rows={sorted} isDense={isDense} selection={selection} />;
+}
+
+/** A history tab: its Select all row, then its rows. The queue's switch lives in En curs, not here. */
+export function DownloadTabPanel(props: Props) {
+  const { tab, rows } = props;
+  const selection = useDownloadSelection(rows);
 
   return (
     <div className="flex flex-col gap-2">
       <DownloadBulkBar rows={rows} selection={selection}>
-        {tab === FAILED_TAB && <ClearFailed rows={rows} />}
+        {tab === FAILED_TAB && rows.length > 0 && <ClearFailed rows={rows} />}
       </DownloadBulkBar>
-      <List rows={sortedRows} isDense={isDense} selection={selection} />
+      <PanelBody {...props} selection={selection} />
     </div>
   );
 }

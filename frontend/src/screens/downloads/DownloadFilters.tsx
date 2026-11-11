@@ -1,24 +1,10 @@
-import { Pause, Play, Rows3 } from "lucide-react";
+import { Funnel } from "lucide-react";
 
-import { useQueuePause } from "@/app/use-queue-pause";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { useI18n } from "@/i18n/use-i18n";
 import { isSortOrder, SORT_ORDERS, type SortOrder } from "@/screens/downloads/download-list";
-
-function PauseAllButton() {
-  const { t } = useI18n();
-  const { isPaused, isPending, toggle } = useQueuePause();
-  const Icon = isPaused ? Play : Pause;
-
-  return (
-    <Button variant="outline" disabled={isPaused === undefined || isPending} onClick={toggle}>
-      <Icon aria-hidden="true" />
-      {isPaused ? t("dl.resume_all") : t("dl.pause_all")}
-    </Button>
-  );
-}
 
 type Props = {
   filter: string;
@@ -29,7 +15,7 @@ type Props = {
   onDensityToggle: () => void;
 };
 
-/** The top of the page: what narrows every tab, and the queue's own switch. */
+/** The top of the page: what narrows and orders En curs and every tab. */
 export function DownloadFilters({ filter, onFilterChange, sort, onSortChange, isDense, onDensityToggle }: Props) {
   const { t } = useI18n();
 
@@ -41,7 +27,7 @@ export function DownloadFilters({ filter, onFilterChange, sort, onSortChange, is
     <div className="flex flex-wrap items-center gap-2">
       <Input
         type="search"
-        className="min-w-48 flex-1"
+        className="max-w-sm min-w-32 flex-1"
         placeholder={t("dl.filter")}
         aria-label={t("dl.filter")}
         value={filter}
@@ -55,16 +41,15 @@ export function DownloadFilters({ filter, onFilterChange, sort, onSortChange, is
         ))}
       </NativeSelect>
       <Button
-        variant="outline"
-        size="icon"
+        variant="quiet"
         title={t("dl.density")}
         aria-label={t("dl.density_aria")}
         aria-pressed={isDense}
         onClick={onDensityToggle}
       >
-        <Rows3 aria-hidden="true" />
+        <Funnel aria-hidden="true" />
+        {t("dl.density_label")}
       </Button>
-      <PauseAllButton />
     </div>
   );
 }

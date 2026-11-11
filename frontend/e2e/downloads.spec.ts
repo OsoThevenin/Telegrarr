@@ -16,26 +16,54 @@ async function reportProgress(page: Page, id: number, progress: number) {
   expect(response.ok()).toBe(true);
 }
 
-const row = (page: Page, name: string) => page.getByRole("listitem").filter({ hasText: name });
+/** A card or queue line in En curs, or a history table row. */
+const row = (page: Page, name: string) => page.locator("li, tr").filter({ hasText: name });
 const button = (page: Page, name: string) => page.getByRole("button", { name });
+const queueToggle = (page: Page) => page.getByRole("button", { name: /a la cua/ });
 
-test("the tabs sit above the list and mark the open one, on a phone too", async ({ signedInPage: page }) => {
-  await page.setViewportSize({ width: 375, height: 760 });
-  await addDownload(page, { file_name: WAITING, file_size: 1_000_000_000, status: "queued" });
+test("En curs sits above the tabs, which fit one line and mark the open one, on a phone", async ({
+  signedInPage: page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 760 });
+  await addDownload(page, { file_name: RUNNING, file_size: 1_000_000_000, status: "downloading", progress: 0.2 });
 
   await page.goto("/downloads");
-  await expect(row(page, WAITING)).toBeVisible();
+  await expect(row(page, RUNNING)).toBeVisible();
 
+  const section = await page.getByRole("region", { name: "En curs" }).boundingBox();
   const tabs = await page.getByRole("tablist").boundingBox();
+  const firstTab = await page.getByRole("tab", { name: /^Completades/ }).boundingBox();
   const lastTab = await page.getByRole("tab", { name: /^Cancel·lades/ }).boundingBox();
-  const firstRow = await row(page, WAITING).boundingBox();
-  expect(lastTab!.y + lastTab!.height).toBeLessThanOrEqual(tabs!.y + tabs!.height);
-  expect(tabs!.y + tabs!.height).toBeLessThanOrEqual(firstRow!.y);
+  expect(section!.y + section!.height).toBeLessThanOrEqual(tabs!.y);
+  expect(Math.abs(lastTab!.y - firstTab!.y)).toBeLessThanOrEqual(1);
+  expect(lastTab!.x + lastTab!.width).toBeLessThanOrEqual(390);
 
   const background = (name: RegExp) =>
     page.getByRole("tab", { name }).evaluate((tab) => getComputedStyle(tab).backgroundColor);
-  expect(await background(/^A la cua/)).not.toBe(await background(/^Completades/));
+  expect(await background(/^Completades/)).not.toBe(await background(/^Fallides/));
 });
+
+for (const viewport of [
+  { name: "desktop", width: 1280, height: 800 },
+  { name: "phone", width: 390, height: 760 },
+]) {
+  test(`Pause all sits at the right of En curs's Select all row, on ${viewport.name}`, async ({ signedInPage: page }) => {
+    await page.setViewportSize(viewport);
+    await addDownload(page, { file_name: RUNNING, file_size: 1_000_000_000, status: "downloading", progress: 0.2 });
+
+    await page.goto("/downloads");
+    await expect(row(page, RUNNING)).toBeVisible();
+
+    const selectAll = await page.getByRole("checkbox", { name: "Selecciona-ho tot" }).boundingBox();
+    const pauseAll = await button(page, "Posa-ho tot en pausa").boundingBox();
+    const firstRow = await row(page, RUNNING).boundingBox();
+    const middle = (box: { y: number; height: number }) => box.y + box.height / 2;
+    expect(Math.abs(middle(pauseAll!) - middle(selectAll!))).toBeLessThanOrEqual(4);
+    expect(pauseAll!.x).toBeGreaterThan(selectAll!.x);
+    expect(Math.abs(pauseAll!.x + pauseAll!.width - (firstRow!.x + firstRow!.width))).toBeLessThanOrEqual(2);
+    expect(pauseAll!.y + pauseAll!.height).toBeLessThanOrEqual(firstRow!.y);
+  });
+}
 
 test("the Downloads screen: filter, live progress, Stop, Retry and Pause all", async ({ signedInPage: page }) => {
   const running = await addDownload(page, {
@@ -49,6 +77,7 @@ test("the Downloads screen: filter, live progress, Stop, Retry and Pause all", a
 
   await page.goto("/downloads");
   await expect(row(page, RUNNING)).toContainText("10%");
+  await queueToggle(page).click();
   await expect(row(page, WAITING)).toBeVisible();
 
   const filter = page.getByRole("searchbox", { name: "Filtra…" });
@@ -62,6 +91,7 @@ test("the Downloads screen: filter, live progress, Stop, Retry and Pause all", a
 
   await row(page, WAITING).getByRole("button", { name: "Atura" }).click();
   await page.getByRole("tab", { name: "Cancel·lades 1" }).click();
+  await expect(page.getByRole("table").getByRole("row").filter({ hasText: WAITING })).toBeVisible();
 
   // The fake Telegram has no such message, so the server refuses with its reason.
   await row(page, WAITING).getByRole("button", { name: "Torna-ho a provar" }).click();
@@ -101,6 +131,7 @@ test("the bulk bar pauses and resumes rows in one request, and Resume all leaves
   const bar = page.getByRole("group", { name: "Accions sobre les baixades seleccionades" });
 
   await page.goto("/downloads");
+  await queueToggle(page).click();
   await selectBoth();
   await bar.getByRole("button", { name: "Pausa" }).click();
 
@@ -123,6 +154,6 @@ test("the bulk bar pauses and resumes rows in one request, and Resume all leaves
 
   await expect(pausedBadge(RUNNING)).toBeHidden();
   await expect(pausedBadge(WAITING)).toBeHidden();
-  await expect(row(page, RUNNING)).toBeVisible();
+  await expect(queueToggle(page)).toHaveAccessibleName("2 a la cua Mostra");
   expect(bulkRequests).toHaveLength(2);
 });

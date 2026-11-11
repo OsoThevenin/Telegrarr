@@ -8,12 +8,12 @@ export type DownloadTab = {
   statuses: readonly DownloadStatus[];
 };
 
-export const ACTIVE_TAB: DownloadTab = {
-  id: "active",
-  labelKey: "dl.tab.active",
-  // A row paused on its own has nowhere else to be: it is held, not finished.
-  statuses: ["downloading", "queued", "paused"],
-};
+/** What is not finished yet, in the order it reads in En curs. A row paused on its own is held, not finished. */
+const IN_TRANSFER: readonly DownloadStatus[] = ["downloading", "paused", "queued"];
+
+/** The En curs section's anchor, for links that lead straight to it. */
+export const IN_PROGRESS_ID = "en-curs";
+
 export const COMPLETED_TAB: DownloadTab = {
   id: "completed",
   labelKey: "dash.stat.completed",
@@ -22,16 +22,18 @@ export const COMPLETED_TAB: DownloadTab = {
 export const FAILED_TAB: DownloadTab = { id: "failed", labelKey: "dash.stat.failed", statuses: ["failed"] };
 export const CANCELLED_TAB: DownloadTab = { id: "cancelled", labelKey: "dl.cancelled", statuses: ["cancelled"] };
 
-export const DOWNLOAD_TABS = [ACTIVE_TAB, COMPLETED_TAB, FAILED_TAB, CANCELLED_TAB] as const;
+/** The history under En curs. The old Active tab is gone: a link to it opens the default one. */
+export const HISTORY_TABS = [COMPLETED_TAB, FAILED_TAB, CANCELLED_TAB] as const;
+export const DEFAULT_TAB = COMPLETED_TAB;
 
 /** The tab a URL names, if it names one. */
-export const tabFromUrl = (id: unknown): string | undefined => DOWNLOAD_TABS.find((tab) => tab.id === id)?.id;
+export const tabFromUrl = (id: unknown): string | undefined => HISTORY_TABS.find((tab) => tab.id === id)?.id;
 
 const RETRYABLE: readonly DownloadStatus[] = ["failed", "cancelled"];
 const PAUSABLE: readonly DownloadStatus[] = ["downloading", "queued"];
 
 /** The rows not finished yet: Stop can act on them, and there is nothing to delete yet. */
-export const isInTransfer = ({ status }: Download): boolean => ACTIVE_TAB.statuses.includes(status);
+export const isInTransfer = ({ status }: Download): boolean => IN_TRANSFER.includes(status);
 
 /** The rows Retry can act on; the server enforces the same rule. */
 export const isRetryable = ({ status }: Download): boolean => RETRYABLE.includes(status);
@@ -41,6 +43,8 @@ export const isPausable = ({ status }: Download): boolean => PAUSABLE.includes(s
 
 /** A row held on its own, with no partial file: Resume starts it from the beginning. */
 export const isPaused = ({ status }: Download): boolean => status === "paused";
+
+export const isQueued = ({ status }: Download): boolean => status === "queued";
 
 export const rowsOfTab = (rows: readonly Download[], { statuses }: DownloadTab): Download[] =>
   rows.filter(({ status }) => statuses.includes(status));
@@ -88,10 +92,22 @@ export const DEFAULT_SORT: SortOrder = "new";
 
 export const isSortOrder = (value: string | null): value is SortOrder => SORT_ORDERS.some(({ id }) => id === value);
 
-const transferRank = ({ status }: Download): number => ACTIVE_TAB.statuses.indexOf(status);
-
-/** In the chosen order; within a tab of mixed states, what is running comes first. */
 export function sortRows(rows: readonly Download[], order: SortOrder): Download[] {
   const { compare } = SORT_ORDERS.find(({ id }) => id === order) ?? SORT_ORDERS[0];
-  return rows.toSorted(compare).toSorted((a, b) => transferRank(a) - transferRank(b));
+  return rows.toSorted(compare);
+}
+
+const transferRank = ({ status }: Download): number => IN_TRANSFER.indexOf(status);
+
+export type InProgress = {
+  /** Running, then paused: each one a full card. */
+  transfers: Download[];
+  /** Waiting, in the order the queue will start them. */
+  queued: Download[];
+};
+
+/** The rows of En curs, split into what shows as a card and what folds into the queue line. */
+export function splitInProgress(rows: readonly Download[]): InProgress {
+  const inTransfer = rows.filter(isInTransfer).toSorted((a, b) => transferRank(a) - transferRank(b) || a.id - b.id);
+  return { transfers: inTransfer.filter((row) => !isQueued(row)), queued: inTransfer.filter(isQueued) };
 }
