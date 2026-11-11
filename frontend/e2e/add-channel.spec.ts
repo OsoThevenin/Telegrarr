@@ -3,6 +3,16 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, test, watchErrors } from "./fixtures";
 
 const PHONE = { width: 390, height: 844 };
+const SHORT_LAPTOP = { width: 1280, height: 720 };
+const LONG_TITLE = "Sèries en català HD — estrenes, clàssics i temporades completes de TV3, 3Cat i SX3";
+/** A real account: many chats, some with names wider than the dialog. */
+const MANY_CHATS = Array.from({ length: 20 }, (_, index) => ({
+  chat_id: -1009000 - index,
+  title: index === 0 ? LONG_TITLE : `Canal ${index}`,
+  username: index === 0 ? "un_nom_d_usuari_molt_llarg_que_no_cap_a_la_fila" : "",
+  kind: "channel",
+  members: 10,
+}));
 const DIALOG_NAME = "Afegeix un canal";
 
 const openChannels = async (page: Page) => {
@@ -103,6 +113,25 @@ test.describe("adding a channel", () => {
     await expect(dialog).toBeHidden();
     await expect(page.locator("body")).not.toHaveCSS("pointer-events", "none");
     await expect(page.getByRole("list", { name: "Canals" })).toBeVisible();
+  });
+
+  test("keeps its actions and its X in view on a short screen full of chats", async ({ signedInPage: page }) => {
+    await page.setViewportSize(SHORT_LAPTOP);
+    await page.route("**/api/telegram/dialogs**", (route) => route.fulfill({ json: MANY_CHATS }));
+    const dialog = await openDialog(page);
+    await expect(dialog.getByRole("option", { name: new RegExp(LONG_TITLE.slice(0, 20)) })).toBeVisible();
+
+    await expect(dialog.getByRole("button", { name: "Desa" })).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole("button", { name: "Cancel·la" })).toBeInViewport({ ratio: 1 });
+    await expect(dialog.getByRole("button", { name: "Tanca" })).toBeInViewport({ ratio: 1 });
+    const overflow = await dialog.evaluate((element) => {
+      const body = element.querySelector("[data-slot=dialog-body]") as HTMLElement;
+      return [element.scrollWidth - element.clientWidth, body.scrollWidth - body.clientWidth];
+    });
+    expect(overflow).toEqual([0, 0]);
+
+    await dialog.getByRole("button", { name: "Tanca" }).click();
+    await expect(dialog).toBeHidden();
   });
 
   test("the form fits a phone without sideways scrolling", async ({ signedInPage: page }) => {

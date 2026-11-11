@@ -78,13 +78,14 @@ test.describe("channels", () => {
     });
 
     await test.step("disabling takes the Sheet, and the card shows it", async () => {
-      await sheetButton("Desactiva").click();
-      await expect(sheetButton("Activa")).toBeVisible();
+      const enabled = sheet.getByRole("switch", { name: "Activat" });
+      await enabled.click();
+      await expect(enabled).not.toBeChecked();
       await page.keyboard.press("Escape");
       await expect(page.getByRole("article").filter({ hasText: "Cinema Club" })).toContainText("Desactivat");
       await cardButton(page, "Cinema Club").click();
-      await sheetButton("Activa").click();
-      await expect(sheetButton("Desactiva")).toBeVisible();
+      await enabled.click();
+      await expect(enabled).toBeChecked();
     });
 
     await test.step("removing asks first, and sticks", async () => {
@@ -174,8 +175,11 @@ test.describe("channels", () => {
     await cardButton(page, "Sèries CAT").click();
     const sheet = page.getByRole("dialog");
     await expect(sheet.getByRole("button", { name: "Tanca" })).toBeVisible();
-    for (const name of ["Escaneja", "Recupera l’historial", "Desactiva", "Edita", "Elimina el canal"]) {
+    for (const name of ["Escaneja", "Recupera l’historial", "Edita", "Elimina el canal"]) {
       await expect(sheet.getByRole("button", { name, exact: true })).toBeVisible();
+    }
+    for (const name of ["Activat", "Escaneig"]) {
+      await expect(sheet.getByRole("switch", { name })).toBeVisible();
     }
 
     // Polled: while the sheet slides in, its width can round to a hair over the screen's.

@@ -1,15 +1,8 @@
 import { useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/use-i18n";
+import { ChannelDialogContent, ChannelForm } from "@/screens/channels/ChannelFormDialog";
 import { ChannelSettingsFields, Field, FIELD_CLASS } from "@/screens/channels/ChannelSettingsFields";
 import { SeriesMapper } from "@/screens/channels/SeriesMapper";
 import { isSeriesKind, MOVIE_KIND, sourceLabel, type Channel } from "@/screens/channels/channel";
@@ -31,17 +24,9 @@ export function ChannelEditDialog({ source, isOpen, onSaved, onClose, onCloseAut
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md"
-        onCloseAutoFocus={onCloseAutoFocus}
-      >
-        <DialogHeader>
-          <DialogTitle>{t("ch.edit_aria")}</DialogTitle>
-        </DialogHeader>
+      <ChannelDialogContent title={t("ch.edit_aria")} onCloseAutoFocus={onCloseAutoFocus}>
         <EditForm source={source} onSaved={onSaved} />
-      </DialogContent>
+      </ChannelDialogContent>
     </Dialog>
   );
 }
@@ -61,7 +46,7 @@ function EditForm({ source, onSaved }: Pick<Props, "source" | "onSaved">) {
   };
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={save}>
+    <ChannelForm onSubmit={save} isSaving={update.isPending} canSave={!update.isPending}>
       <Field label={t("chm.tg_channel")}>
         <input className={FIELD_CLASS} value={sourceLabel(source)} disabled />
       </Field>
@@ -73,16 +58,6 @@ function EditForm({ source, onSaved }: Pick<Props, "source" | "onSaved">) {
           {errorText(update.error)}
         </p>
       )}
-      <DialogFooter>
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            {t("common.cancel")}
-          </Button>
-        </DialogClose>
-        <Button type="submit" disabled={update.isPending}>
-          {update.isPending ? t("common.saving") : t("common.save")}
-        </Button>
-      </DialogFooter>
-    </form>
+    </ChannelForm>
   );
 }

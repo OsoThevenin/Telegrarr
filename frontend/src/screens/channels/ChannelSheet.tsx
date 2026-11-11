@@ -49,7 +49,7 @@ export function ChannelSheet({ show, isOpen, controls, onClose, onCloseAutoFocus
         side="right"
         showCloseButton={false}
         closeLabel={t("common.close")}
-        className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+        className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl data-[side=right]:lg:max-w-3xl"
         onCloseAutoFocus={onCloseAutoFocus}
       >
         <Hero url={art.backdrop || poster} />
@@ -120,15 +120,16 @@ function Summary({ show, art, poster }: SummaryProps) {
   const { lead, sources } = show;
   const title = showTitle(show);
   const ids = mappingIds(lead);
-  const meta = [art.year, kindLabel(lead.kind, t), art.rating && `★ ${art.rating}`, lead.imdb_id].filter(Boolean);
+  // The IMDb id is left to the mapping line below, which names every id at once.
+  const meta = [art.year, kindLabel(lead.kind, t), art.rating && `★ ${art.rating}`, !ids && lead.imdb_id].filter(Boolean);
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-end gap-3">
+      <div className="flex items-start gap-3">
         <div className="relative -mt-10 w-24 shrink-0 overflow-hidden rounded-lg border bg-background">
           <ChannelPoster title={title} urls={showImages(show, poster)} className="aspect-[2/3]" />
         </div>
-        <div className="flex min-w-0 flex-col gap-0.5 pt-3">
+        <div className="flex min-w-0 flex-col gap-0.5 pt-2">
           <SheetTitle className="text-lg">{title}</SheetTitle>
           {lead.imdb_title && lead.topic_title && sources.length === 1 && (
             <p className="truncate text-muted-foreground">{sourceLabel(lead)}</p>

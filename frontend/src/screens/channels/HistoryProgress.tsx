@@ -22,7 +22,7 @@ export function HistoryProgress({ history }: { history: Channel["history"] }) {
       : t("ch.history_read_of", { read: read.toLocaleString(locale), total: total?.toLocaleString(locale) });
 
   return (
-    <div className="flex basis-full flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 border-t pt-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-2">
         <span className="font-medium">{t("ch.history")}</span>
         <span className="text-xs text-muted-foreground">{complete ? t("ch.history_complete") : nextBatch}</span>

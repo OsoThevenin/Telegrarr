@@ -5,7 +5,7 @@ import asyncio
 import logging
 import contextlib
 
-from fastapi import FastAPI, Request, Form, Depends, HTTPException
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, Query
 from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
                                Response, StreamingResponse, FileResponse)
 from fastapi.staticfiles import StaticFiles
@@ -395,7 +395,9 @@ async def api_backfill(cid: int, user=Depends(auth.require_user)):
 # ── downloads ─────────────────────────────────────────────────────────
 @app.get("/api/downloads")
 async def api_downloads(limit: int = 100, status: str = "",
+                        channel_id: list[int] = Query(default=[]),
                         user=Depends(auth.require_user)):
+    """``channel_id`` may repeat: a show reads from several channels."""
     limit = max(1, min(limit, 1000))
     # season/episode as published (a resolved two-part episode carries the
     # channel's own number in parsed_episode and where it came from in episode_source)
@@ -403,10 +405,15 @@ async def api_downloads(limit: int = 100, status: str = "",
          "r.season, r.episode, r.parsed_episode, r.episode_source "
          "FROM downloads d LEFT JOIN channels c ON c.id=d.channel_id "
          "LEFT JOIN releases r ON r.channel_id=d.channel_id AND r.message_id=d.message_id")
-    args = []
+    where, args = [], []
     if status:
-        q += " WHERE d.status=?"
+        where.append("d.status=?")
         args.append(status)
+    if channel_id:
+        where.append(f"d.channel_id IN ({','.join('?' * len(channel_id))})")
+        args.extend(channel_id)
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY d.id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:

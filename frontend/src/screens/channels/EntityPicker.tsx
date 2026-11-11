@@ -79,13 +79,18 @@ export function EntityPicker({ selected, onSelect }: Props) {
     });
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       {/* cmdk names the input with its own hidden label; this is the same text, for the eye. */}
       <span aria-hidden className="font-medium">
         {t("chm.tg_channel")}
       </span>
       <Command shouldFilter={false} label={t("chm.tg_channel")} className="size-auto rounded-lg! border">
-        <CommandInput value={query} onValueChange={changeQuery} placeholder={t("chm.chan_search_placeholder")} />
+        <CommandInput
+          className="min-w-0 text-ellipsis placeholder:text-ellipsis"
+          value={query}
+          onValueChange={changeQuery}
+          placeholder={t("chm.chan_search_placeholder")}
+        />
         <CommandList className="max-h-48">
           <CommandEmpty className="px-2">{dialogs.isError ? null : emptyText}</CommandEmpty>
           {LINK_PATTERN.test(typed) && (

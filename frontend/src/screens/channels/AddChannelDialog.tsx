@@ -3,16 +3,9 @@ import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/use-i18n";
+import { ChannelDialogContent, ChannelForm } from "@/screens/channels/ChannelFormDialog";
 import { ChannelSettingsFields } from "@/screens/channels/ChannelSettingsFields";
 import { EntityPicker } from "@/screens/channels/EntityPicker";
 import { SeriesMapper } from "@/screens/channels/SeriesMapper";
@@ -51,18 +44,13 @@ export function AddChannelDialog({ focusFallback }: Props) {
 
   return (
     <Dialog open={Boolean(add)} onOpenChange={(open) => !open && close()}>
-      <DialogContent
-        showCloseButton={false}
-        aria-describedby={undefined}
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md"
+      <ChannelDialogContent
+        title={t("shell.add_channel")}
         onOpenAutoFocus={rememberOpener}
         onCloseAutoFocus={restoreFocus}
       >
-        <DialogHeader>
-          <DialogTitle>{t("shell.add_channel")}</DialogTitle>
-        </DialogHeader>
         <AddForm onFinished={finish} />
-      </DialogContent>
+      </ChannelDialogContent>
     </Dialog>
   );
 }
@@ -114,7 +102,7 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
   };
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={save}>
+    <ChannelForm onSubmit={save} isSaving={add.isPending} canSave={!add.isPending && !topicList.isFetching}>
       <EntityPicker selected={chat} onSelect={pickChat} />
       {topicList.isFetching && <p className="text-muted-foreground">{t("chm.topics.loading")}</p>}
       {topicList.isError && (
@@ -132,16 +120,6 @@ function AddForm({ onFinished }: { onFinished: (rows: Channel[]) => void }) {
           {problem}
         </p>
       ))}
-      <DialogFooter>
-        <DialogClose asChild>
-          <Button type="button" variant="outline">
-            {t("common.cancel")}
-          </Button>
-        </DialogClose>
-        <Button type="submit" disabled={add.isPending || topicList.isFetching}>
-          {add.isPending ? t("common.saving") : t("common.save")}
-        </Button>
-      </DialogFooter>
-    </form>
+    </ChannelForm>
   );
 }

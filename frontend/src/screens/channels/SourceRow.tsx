@@ -17,34 +17,41 @@ type Props = {
   controls: ChannelControls;
 };
 
-type ScanningSwitchProps = {
-  source: Channel;
+type SourceSwitchProps = {
+  label: string;
+  hint: string;
+  isOn: boolean;
   /** The element that names the source. */
   describedBy: string;
-  controls: ChannelControls;
+  onChange: (isOn: boolean) => Promise<unknown>;
 };
 
 /** Shows the change at once, and goes back to what the server says once that has settled. */
-function ScanningSwitch({ source, describedBy, controls }: ScanningSwitchProps) {
-  const { t } = useI18n();
+function SourceSwitch({ label, hint, isOn, describedBy, onChange }: SourceSwitchProps) {
   const switchId = useId();
+  const hintId = useId();
   const [requested, setRequested] = useState<boolean | null>(null);
 
-  const change = async (isScanning: boolean) => {
+  const change = async (next: boolean) => {
     if (requested !== null) return;
-    setRequested(isScanning);
-    await controls.actions.setScanning(source, isScanning);
+    setRequested(next);
+    await onChange(next);
     setRequested(null);
   };
 
   return (
-    <div className="flex basis-full items-center justify-between gap-2 border-t pt-2">
-      <Label htmlFor={switchId}>{t("ch.scanning")}</Label>
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <Label htmlFor={switchId}>{label}</Label>
+        <span id={hintId} className="text-xs text-muted-foreground">
+          {hint}
+        </span>
+      </div>
       <Switch
         id={switchId}
-        aria-describedby={describedBy}
-        checked={requested ?? Boolean(source.scanning)}
-        onCheckedChange={(isScanning) => void change(isScanning)}
+        aria-describedby={`${hintId} ${describedBy}`}
+        checked={requested ?? isOn}
+        onCheckedChange={(next) => void change(next)}
       />
     </div>
   );
@@ -55,52 +62,58 @@ export function SourceRow({ source, isOnlySource, controls }: Props) {
   const { t } = useI18n();
   const labelId = useId();
   const label = sourceLabel(source);
-  const isEnabled = Boolean(source.enabled);
-  const detail = [
-    isEnabled ? t("common.enabled") : t("common.disabled"),
-    scheduleLabel(source, t),
-    isWholeForum(source) && t("ch.forum_whole_short"),
-  ].filter(Boolean);
+  const detail = [scheduleLabel(source, t), isWholeForum(source) && t("ch.forum_whole_short")].filter(Boolean);
+  const { actions } = controls;
 
   return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border p-2">
-      <span className="min-w-0 flex-1 basis-40">
-        <span id={labelId} className="block truncate font-medium" title={label}>
-          {label}
+    <li className="flex flex-col gap-3 rounded-lg border p-3">
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1">
+          <span id={labelId} className="block truncate font-medium" title={label}>
+            {label}
+          </span>
+          <span className="block truncate text-xs text-muted-foreground">{detail.join(" · ")}</span>
+          {!source.scanning && (
+            <Badge variant="secondary" className="mt-1">
+              {t("ch.scanning_stopped")}
+            </Badge>
+          )}
         </span>
-        <span className="block truncate text-xs text-muted-foreground">{detail.join(" · ")}</span>
-        {!source.scanning && (
-          <Badge variant="secondary" className="mt-1">
-            {t("ch.scanning_stopped")}
-          </Badge>
-        )}
-      </span>
-      <div className="flex items-center">
-        <Button
-          variant="ghost"
-          aria-describedby={labelId}
-          onClick={() => controls.actions.setEnabled([source], !isEnabled)}
-        >
-          {isEnabled ? t("common.disable") : t("common.enable")}
-        </Button>
-        <Button
-          variant="ghost"
-          aria-describedby={labelId}
-          onClick={(event) => controls.editSource(source, event.currentTarget)}
-        >
-          {t("common.edit")}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("ch.remove_aria")}
-          aria-describedby={labelId}
-          onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
-        >
-          <Trash2Icon />
-        </Button>
+        <div className="flex shrink-0 items-center">
+          <Button
+            variant="ghost"
+            aria-describedby={labelId}
+            onClick={(event) => controls.editSource(source, event.currentTarget)}
+          >
+            {t("common.edit")}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={t("ch.remove_aria")}
+            aria-describedby={labelId}
+            onClick={(event) => controls.askToRemove({ source, isWholeShow: isOnlySource }, event.currentTarget)}
+          >
+            <Trash2Icon />
+          </Button>
+        </div>
       </div>
-      <ScanningSwitch source={source} describedBy={labelId} controls={controls} />
+      <div className="flex flex-col gap-3 border-t pt-3">
+        <SourceSwitch
+          label={t("common.enabled")}
+          hint={t("ch.enabled_hint")}
+          isOn={Boolean(source.enabled)}
+          describedBy={labelId}
+          onChange={(isEnabled) => actions.setEnabled([source], isEnabled)}
+        />
+        <SourceSwitch
+          label={t("ch.scanning")}
+          hint={t("ch.scanning_hint")}
+          isOn={Boolean(source.scanning)}
+          describedBy={labelId}
+          onChange={(isScanning) => actions.setScanning(source, isScanning)}
+        />
+      </div>
       <HistoryProgress history={source.history} />
     </li>
   );

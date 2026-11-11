@@ -91,6 +91,37 @@ describe("opening Add channel", () => {
     expect(posted).toEqual([]);
   });
 
+  it("closes from the X in its corner, with a clean URL", async () => {
+    const { posted } = serveAccount({ existing: [channel({ id: 1 })] });
+    const { user, dialog, router } = await openDialog();
+
+    await user.click(within(dialog).getByRole("button", { name: "Tanca" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(router.state.location.search).toEqual({});
+    expect(posted).toEqual([]);
+  });
+
+  it("keeps its actions outside the part that scrolls", async () => {
+    serveAccount();
+    const { dialog } = await openDialog();
+    const body = dialog.querySelector("[data-slot=dialog-body]");
+
+    expect(body).toContainElement(within(dialog).getByRole("combobox", { name: SEARCH_LABEL }));
+    expect(body).not.toContainElement(save(dialog));
+    expect(body).not.toContainElement(within(dialog).getByRole("button", { name: "Cancel·la" }));
+    expect(body).not.toContainElement(within(dialog).getByRole("button", { name: "Tanca" }));
+  });
+
+  it("says when the fallback quality applies under the field, not in its name", async () => {
+    serveAccount();
+    const { dialog } = await openDialog();
+
+    expect(within(dialog).getByLabelText("Qualitat per defecte")).toHaveAccessibleDescription(
+      "Quan Telegram no indica la mida del vídeo",
+    );
+  });
+
   it("starts blank each time", async () => {
     serveAccount({ existing: [channel({ id: 1 })] });
     const { user, dialog } = await openDialog();

@@ -57,12 +57,20 @@ export function useUpdateChannel() {
   });
 }
 
-/** The endpoint has no channel filter and caps at MAX_DOWNLOADS, newest first, across every channel. */
-export const useCompletedDownloads = () =>
-  useQuery({
-    queryKey: [...DOWNLOADS_KEY, "completed"],
-    queryFn: () => api.get<CompletedDownload[]>(`/api/downloads?status=completed&limit=${MAX_DOWNLOADS}`),
+function completedDownloadsUrl(channelIds: readonly number[]): string {
+  const query = new URLSearchParams({ status: "completed", limit: String(MAX_DOWNLOADS) });
+  for (const id of channelIds) query.append("channel_id", String(id));
+  return `/api/downloads?${query}`;
+}
+
+/** A show's finished downloads, from every channel it reads, up to MAX_DOWNLOADS, newest first. */
+export const useCompletedDownloads = (channelIds: readonly number[]) => {
+  const ids = channelIds.toSorted((a, b) => a - b);
+  return useQuery({
+    queryKey: [...DOWNLOADS_KEY, "completed", { channelIds: ids }],
+    queryFn: () => api.get<CompletedDownload[]>(completedDownloadsUrl(ids)),
   });
+};
 
 export const useArt = (imdbId: string | null) =>
   useQuery({

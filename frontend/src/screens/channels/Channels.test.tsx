@@ -293,7 +293,7 @@ describe("Sheet", () => {
 
     expect(within(sheet).getByRole("heading", { name: "Dark" })).toBeVisible();
     expect(await within(sheet).findByText("Una ciutat alemanya.")).toBeVisible();
-    expect(within(sheet).getByText(/2017 · Sèrie · ★ 8.7 · tt1/)).toBeVisible();
+    expect(within(sheet).getByText("2017 · Sèrie · ★ 8.7")).toBeVisible();
     expect(within(sheet).getByText("Actual: Dark (TVDB 334824 · TMDB 70523 · IMDb tt1)")).toBeVisible();
     expect(within(sheet).getByRole("listitem")).toHaveTextContent("Font A");
   });
@@ -364,7 +364,8 @@ describe("Sheet", () => {
 
       expect(within(sheet).getByRole("button", { name: "Escaneja" })).toBeVisible();
       expect(within(sheet).getByRole("button", { name: "Recupera l’historial" })).toBeVisible();
-      expect(buttonNames(sourceRow(sheet, "Cinema Club"))).toEqual(["Desactiva", "Edita", "Elimina el canal"]);
+      expect(buttonNames(sourceRow(sheet, "Cinema Club"))).toEqual(["Edita", "Elimina el canal"]);
+      expect(within(sourceRow(sheet, "Cinema Club")).getByRole("switch", { name: "Activat" })).toBeChecked();
       expect(within(sheet).queryByRole("button", { name: "Desactiva tots els canals" })).not.toBeInTheDocument();
     });
 
@@ -380,7 +381,7 @@ describe("Sheet", () => {
       expect(within(sheet).getByRole("button", { name: "Desactiva tots els canals" })).toBeVisible();
       expect(within(sheet).getByRole("heading", { name: "2 canals" })).toBeVisible();
       for (const label of ["Font A", "Font B"]) {
-        expect(buttonNames(sourceRow(sheet, label))).toEqual(["Desactiva", "Edita", "Elimina el canal"]);
+        expect(buttonNames(sourceRow(sheet, label))).toEqual(["Edita", "Elimina el canal"]);
       }
     });
 
@@ -456,32 +457,68 @@ describe("Sheet", () => {
     });
   });
 
-  it("lists the downloads it fetched itself: this show's only, newest first", async () => {
+  it("asks for this show's completed downloads only, and lists them by episode, latest first", async () => {
     serveChannels([
       channel({ id: 1, title: "Font A", ...DARK }),
       channel({ id: 2, title: "Font B", ...DARK }),
       channel({ id: 3, title: "Altre" }),
     ]);
     serveArt();
-    let asked = "";
+    let asked = new URLSearchParams();
     server.use(
       http.get("/api/downloads", ({ request }) => {
-        asked = new URL(request.url).search;
+        asked = new URL(request.url).searchParams;
         return HttpResponse.json([
-          download(1, 1, { save_path: "/media/Dark/S01E01.mkv", file_size: 1500000000, finished_at: 10 }),
-          download(2, 2, { file_name: "S01E02.mkv", finished_at: 20 }),
-          download(3, 3, { file_name: "d'un altre canal.mkv" }),
+          download(1, 1, { save_path: "/media/Dark/Dark.S01E10.mkv", file_size: 1610612736, finished_at: 30 }),
+          download(2, 2, { file_name: "Dark_S02E01_Origen.mkv", finished_at: 10 }),
+          download(3, 1, { file_name: "Extres.mkv", finished_at: 20 }),
         ]);
       }),
     );
 
     const { sheet } = await openSheet("Dark");
 
-    expect(await within(sheet).findByRole("heading", { name: "2 episodis baixats" })).toBeVisible();
-    expect(asked).toContain("status=completed");
-    const episodes = within(within(sheet).getByRole("list", { name: "2 episodis baixats" })).getAllByRole("listitem");
-    expect(episodes.map((row) => row.textContent)).toEqual(["S01E02.mkv", "S01E01.mkv1.50 GB"]);
-    expect(within(sheet).queryByText("d'un altre canal.mkv")).not.toBeInTheDocument();
+    const list = await within(sheet).findByRole("list", { name: "3 episodis baixats" });
+    expect(asked.get("status")).toBe("completed");
+    expect(asked.getAll("channel_id")).toEqual(["1", "2"]);
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector("[data-episode]")?.textContent)).toEqual(["S02E01", "S01E10", ""]);
+    expect(within(rows[0]).getByText("Dark Origen")).toHaveAttribute("title", "Dark_S02E01_Origen.mkv");
+    expect(within(rows[1]).getByText("Dark")).toHaveAttribute("title", "Dark.S01E10.mkv");
+    expect(rows[1]).toHaveTextContent("1.5 GB");
+    expect(rows[2]).toHaveTextContent("Extres");
+  });
+
+  it("numbers episodes published by their absolute number", async () => {
+    serveChannels([channel({ id: 1, title: "Detectiu" })]);
+    serveDownloads([
+      download(1, 1, { file_name: "514-Tres_sospitosos.mp4" }),
+      download(2, 1, { file_name: "525 - Espurnes Blaves D'odi (2A Part).mp4" }),
+      download(3, 1, { file_name: "522_El_cas_del_pont.mp4" }),
+    ]);
+
+    const { sheet } = await openSheet("Detectiu");
+
+    const list = await within(sheet).findByRole("list", { name: "3 episodis baixats" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows.map((row) => row.querySelector("[data-episode]")?.textContent)).toEqual(["525", "522", "514"]);
+    expect(rows[0]).toHaveTextContent("Espurnes Blaves D'odi (2A Part)");
+    expect(rows[1]).toHaveTextContent("El cas del pont");
+  });
+
+  it("shows the first episodes, and the next ones on request", async () => {
+    const TOTAL = 75;
+    serveChannels([channel({ id: 1, title: "Llarga" })]);
+    serveDownloads(Array.from({ length: TOTAL }, (_, i) => download(i + 1, 1, { file_name: `${i + 1}_Episodi.mp4` })));
+
+    const { user, sheet } = await openSheet("Llarga");
+
+    const list = await within(sheet).findByRole("list", { name: "75 episodis baixats" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(50);
+    await user.click(within(sheet).getByRole("button", { name: "Mostra’n 25 més" }));
+
+    expect(within(list).getAllByRole("listitem")).toHaveLength(TOTAL);
+    expect(within(sheet).queryByRole("button", { name: /^Mostra’n/ })).not.toBeInTheDocument();
   });
 
   it("says so when no episode has been downloaded", async () => {
@@ -528,11 +565,50 @@ describe("Sheet", () => {
 
     const { user, sheet } = await openSheet("Dark");
     const row = within(sheet).getByText("Font B").closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Desactiva" }));
+    const toggle = within(row).getByRole("switch", { name: "Activat" });
+    await user.click(toggle);
 
-    expect(await within(row).findByRole("button", { name: "Activa" })).toBeVisible();
+    await waitFor(() => expect(toggle).not.toBeChecked());
     const other = within(sheet).getByText("Font A").closest("li") as HTMLElement;
-    expect(within(other).getByRole("button", { name: "Desactiva" })).toBeVisible();
+    expect(within(other).getByRole("switch", { name: "Activat" })).toBeChecked();
+  });
+
+  it("explains each switch of a source in a line of its own", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+    serveDownloads([]);
+
+    const { sheet } = await openSheet("Cinema Club");
+
+    expect(within(sheet).getByRole("switch", { name: "Activat" })).toHaveAccessibleDescription(
+      /Sonarr i Radarr el poden fer servir/,
+    );
+    expect(within(sheet).getByRole("switch", { name: "Escaneig" })).toHaveAccessibleDescription(
+      /Busca missatges nous/,
+    );
+  });
+
+  it("puts the change of a source on screen at once, and back when it is refused", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+    serveDownloads([]);
+    let answer: () => void = () => {};
+    server.use(
+      http.patch(
+        "/api/channels/1",
+        () =>
+          new Promise<Response>((resolve) => {
+            answer = () => resolve(HttpResponse.json({ detail: "boom" }, { status: 500 }));
+          }),
+      ),
+    );
+
+    const { user, sheet } = await openSheet("Cinema Club");
+    const toggle = within(sheet).getByRole("switch", { name: "Activat" });
+    await user.click(toggle);
+
+    expect(toggle).not.toBeChecked();
+    answer();
+    expect(await screen.findByText("Cinema Club: boom")).toBeVisible();
+    await waitFor(() => expect(toggle).toBeChecked());
   });
 
   describe("scanning", () => {
@@ -849,6 +925,18 @@ describe("edit dialog", () => {
     expect(within(dialog).getByRole("button", { name: "Dl" })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByRole("button", { name: "Dt" })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog).getByRole("button", { name: "Dg" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("closes from the X in its corner, keeping its actions outside the part that scrolls", async () => {
+    serveChannels([channel({ id: 1, title: "Cinema Club" })]);
+    const { user, dialog } = await openEdit();
+    const body = dialog.querySelector("[data-slot=dialog-body]");
+    expect(body).toContainElement(within(dialog).getByLabelText("Tipus"));
+    expect(body).not.toContainElement(saveButton(dialog));
+
+    await user.click(within(dialog).getByRole("button", { name: "Tanca" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edita el canal" })).not.toBeInTheDocument());
   });
 
   it("saves the changes, says so and goes back to the Sheet's Edit button", async () => {
