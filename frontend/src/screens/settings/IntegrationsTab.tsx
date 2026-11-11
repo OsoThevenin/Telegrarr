@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -8,7 +8,7 @@ import { SecretField, secretPatch, secretState } from "@/components/SecretField"
 import { StatusLine } from "@/components/StatusLine";
 import { TestOutcome } from "@/components/TestOutcome";
 import { TextField } from "@/components/TextField";
-import { Badge } from "@/components/ui/badge";
+import { ToneBadge } from "@/components/ToneBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
 import { isEnvLocked, useSaveSettings, useSettingsForm, type Settings, type TestResult } from "@/lib/settings";
 import { TelegramCard } from "@/screens/settings/TelegramCard";
+import { BUTTON, SMALL_BUTTON } from "@/lib/touch";
 
 type Props = {
   settings: Settings;
@@ -33,7 +34,7 @@ export function IntegrationsTab({ settings }: Props) {
       <NotificationsCard settings={settings} />
       <Card>
         <CardHeader>
-          <CardTitle>{t("set.arr")}</CardTitle>
+          <CardTitle as="h2">{t("set.arr")}</CardTitle>
           <CardDescription>
             <Link to="/connect" className="text-primary underline-offset-4 hover:underline">
               {t("set.arr_open_connect")}
@@ -49,9 +50,9 @@ function ConfiguredBadge({ isConfigured }: { isConfigured: boolean }) {
   const { t } = useI18n();
 
   return (
-    <Badge variant={isConfigured ? "secondary" : "outline"}>
+    <ToneBadge tone={isConfigured ? "success" : "neutral"}>
       {isConfigured ? t("set.status.configured") : t("set.status.not_configured")}
-    </Badge>
+    </ToneBadge>
   );
 }
 
@@ -100,7 +101,7 @@ function TmdbCard({ settings }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.tmdb")}</CardTitle>
+        <CardTitle as="h2">{t("set.tmdb")}</CardTitle>
         <CardDescription>{t("set.tmdb_intro")}</CardDescription>
         <CardAction>
           <ConfiguredBadge isConfigured={settings.tmdb_key_set} />
@@ -108,7 +109,7 @@ function TmdbCard({ settings }: Props) {
       </CardHeader>
       <CardContent>
         <form className="flex flex-col items-start gap-3" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="w-full">
+          <div className="w-full max-w-md">
             <SecretField
               label={t("common.api_key")}
               state={secretState(settings, "tmdb_key", settings.tmdb_key_set)}
@@ -117,7 +118,13 @@ function TmdbCard({ settings }: Props) {
               onClear={handleClear}
             />
           </div>
-          <Button type="submit" variant="outline" size="sm" disabled={!canSubmit || form.isSaving || test.isPending}>
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            className={SMALL_BUTTON}
+            disabled={!canSubmit || form.isSaving || test.isPending}
+          >
             {t("common.save_test")}
           </Button>
           <SaveOutcomeLine outcome={form.outcome} savedText={t("set.tmdb_saved")} />
@@ -143,14 +150,15 @@ function PlexCard({ settings }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Plex</CardTitle>
+        <CardTitle as="h2">Plex</CardTitle>
+        <CardDescription>{t("set.plex_intro")}</CardDescription>
         <CardAction>
           <ConfiguredBadge isConfigured={Boolean(settings.plex_url) && settings.plex_token_set} />
         </CardAction>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col items-start gap-3" onSubmit={(event) => void handleSubmit(event)}>
-          <div className="flex w-full flex-col gap-3">
+          <div className="flex w-full max-w-md flex-col gap-3">
             <TextField
               label={t("set.plex_url")}
               type="url"
@@ -168,7 +176,7 @@ function PlexCard({ settings }: Props) {
               onClear={handleClear}
             />
           </div>
-          <Button type="submit" variant="outline" size="sm" disabled={isSaving || test.isPending}>
+          <Button type="submit" variant="outline" size="sm" className={SMALL_BUTTON} disabled={isSaving || test.isPending}>
             {t("common.save_test")}
           </Button>
           <SaveOutcomeLine outcome={outcome} savedText={t("set.plex_saved")} />
@@ -192,29 +200,32 @@ function NotificationsCard({ settings }: Props) {
     void submit();
   }
 
-  const dmState = settings.notify_telegram ? t("set.tg_dm_on") : t("set.tg_dm_off");
+  const dmHintId = useId();
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.notifications")}</CardTitle>
+        <CardTitle as="h2">{t("set.notifications")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between gap-3">
-            <Label htmlFor="settings-notify-telegram">{dmState}</Label>
+            <Label htmlFor="settings-notify-telegram">{t("set.tg_dm")}</Label>
             <Switch
               id="settings-notify-telegram"
+              aria-describedby={dmHintId}
               checked={settings.notify_telegram}
               disabled={saveDm.isPending}
               onCheckedChange={(isOn) => saveDm.mutate({ notify_telegram: isOn })}
             />
           </div>
-          <p className="text-xs text-muted-foreground">{t("set.tg_dm_hint")}</p>
+          <p id={dmHintId} className="text-xs text-muted-foreground">
+            {t("set.tg_dm_hint")}
+          </p>
           {saveDm.isError && <StatusLine tone="error">{errorText(saveDm.error)}</StatusLine>}
         </div>
         <form className="flex flex-col items-start gap-2" onSubmit={handleSubmit}>
-          <div className="w-full">
+          <div className="w-full max-w-md">
             <TextField
               label={t("set.webhook_url")}
               hint={t("set.webhook_hint")}
@@ -225,12 +236,13 @@ function NotificationsCard({ settings }: Props) {
             />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={!isDirty || isSaving}>
+            <Button type="submit" className={BUTTON} disabled={!isDirty || isSaving}>
               {t("set.save_webhook")}
             </Button>
             <Button
               type="button"
               variant="outline"
+              className={BUTTON}
               disabled={isDirty || test.isPending}
               onClick={() => test.mutate()}
             >

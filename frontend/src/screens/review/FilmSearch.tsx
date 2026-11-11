@@ -69,7 +69,7 @@ export function FilmSearch(props: Props) {
       {films.data && films.data.length > 0 && (
         <>
           <p className="text-xs text-muted-foreground">{t("review.hits_hint")}</p>
-          <ul className="flex flex-col gap-0.5">
+          <ul className="flex flex-col gap-2">
             {films.data.map((film) => (
               <FilmHitCard
                 key={film.tmdb_id}

@@ -74,7 +74,7 @@ export function RegisterCard({ settings }: { settings: Settings }) {
       </CardHeader>
       <CardContent>
         <form className="flex flex-col items-start gap-3" onSubmit={handleSubmit}>
-          <div className="w-full">
+          <div className="w-full max-w-md">
             <TextField
               label={t("connect.own_url")}
               hint={t("connect.own_url_hint")}
@@ -87,7 +87,7 @@ export function RegisterCard({ settings }: { settings: Settings }) {
           </div>
           {isSuggestion && <StatusLine tone="neutral">{t("connect.own_url_suggestion")}</StatusLine>}
           {isLoopback && <StatusLine tone="warning">{t("connect.own_url_loopback")}</StatusLine>}
-          <Button type="submit" size="sm" disabled={!canRegister || register.isPending}>
+          <Button type="submit" size="sm" className="h-11 sm:h-7" disabled={!canRegister || register.isPending}>
             {t("connect.register_title")}
           </Button>
           {!canRegister && <StatusLine tone="neutral">{t("connect.register_blocked")}</StatusLine>}

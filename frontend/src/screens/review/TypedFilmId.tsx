@@ -36,7 +36,7 @@ function useTypedPreview(value: string) {
 
 function TypedPreview({ film }: { film: FilmPreview }) {
   return (
-    <div className="flex items-start gap-1 rounded-lg border border-primary/50 bg-background p-2">
+    <div className="flex items-start gap-1 rounded-lg border border-primary bg-card p-2 ring-3 ring-primary/15">
       <span className="flex min-w-0 flex-1 items-start gap-3">
         <FilmPoster url={film.poster} size="preview" />
         <FilmFacts film={film} isDetailed />

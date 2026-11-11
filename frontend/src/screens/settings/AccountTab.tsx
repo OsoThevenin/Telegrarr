@@ -19,6 +19,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
 import { goToLogin } from "@/lib/browser";
 import { SETTINGS_KEY } from "@/lib/settings";
+import { BUTTON, SMALL_BUTTON } from "@/lib/touch";
 import { chooseTheme, currentTheme, subscribeToTheme, THEMES, type Theme } from "@/lib/theme";
 
 // The backend's auth.MIN_PASSWORD_LEN, for the hint; the server enforces it.
@@ -39,15 +40,18 @@ export function AccountTab({ username }: { username: string }) {
     <>
       <Card>
         <CardHeader>
-          <CardTitle>{t("set.account")}</CardTitle>
+          <CardTitle as="h2">{t("set.account")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <p className="font-mono text-sm break-all">{username}</p>
+          <dl className="flex flex-col gap-0.5">
+            <dt className="text-xs text-muted-foreground">{t("login.username")}</dt>
+            <dd className="font-mono text-sm break-all">{username}</dd>
+          </dl>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpenDialog("username")}>
+            <Button type="button" variant="outline" size="sm" className={SMALL_BUTTON} onClick={() => setOpenDialog("username")}>
               {t("set.change_username")}
             </Button>
-            <Button type="button" variant="outline" size="sm" onClick={() => setOpenDialog("password")}>
+            <Button type="button" variant="outline" size="sm" className={SMALL_BUTTON} onClick={() => setOpenDialog("password")}>
               {t("set.change_password")}
             </Button>
           </div>
@@ -89,9 +93,9 @@ function AppearanceCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.appearance")}</CardTitle>
+        <CardTitle as="h2">{t("set.appearance")}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="max-w-md">
         <SelectField
           label={t("shell.theme")}
           value={theme}
@@ -118,10 +122,10 @@ function DialogButtons({ isPending, onCancel }: DialogButtonsProps) {
 
   return (
     <DialogFooter>
-      <Button type="button" variant="outline" onClick={onCancel} disabled={isPending}>
+      <Button type="button" variant="outline" className={BUTTON} onClick={onCancel} disabled={isPending}>
         {t("common.cancel")}
       </Button>
-      <Button type="submit" disabled={isPending}>
+      <Button type="submit" className={BUTTON} disabled={isPending}>
         {isPending ? t("common.saving") : t("common.save")}
       </Button>
     </DialogFooter>

@@ -85,13 +85,21 @@ function SavedSecret({ label, preview, onClear, onReplace, hint }: SavedSecretPr
         <Badge variant="secondary" className="h-auto max-w-full font-mono whitespace-normal break-all">
           {t("secret.saved", { preview: preview ?? MASK })}
         </Badge>
-        <Button type="button" variant="outline" size="sm" aria-label={t("secret.replace_label", { label })} onClick={onReplace}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-11 sm:h-7"
+          aria-label={t("secret.replace_label", { label })}
+          onClick={onReplace}
+        >
           {t("secret.replace")}
         </Button>
         <Button
           type="button"
           variant="ghost"
           size="sm"
+          className="h-11 sm:h-7"
           aria-label={t("secret.clear_label", { label })}
           onClick={() => setIsConfirming(true)}
         >

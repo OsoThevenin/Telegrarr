@@ -3,91 +3,67 @@ import { useState } from "react";
 
 import { LoadError } from "@/components/LoadError";
 import { LoadingBlock } from "@/components/LoadingBlock";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useI18n } from "@/i18n/use-i18n";
-import { useFormat } from "@/lib/use-format";
-import { collapseEntries, logQuery, type LogEntry, type LogLevelFilter } from "@/screens/activity/log";
+import { LogDays } from "@/screens/activity/LogDays";
+import { LogToolbar } from "@/screens/activity/LogToolbar";
+import { collapseEntries, groupByDay, LOG_LIMIT, logQuery } from "@/screens/activity/log";
+import { applyLogFilters, isFiltering, NO_LOG_FILTERS, type LogFilters } from "@/screens/activity/log-filters";
+import { sourceLabel } from "@/screens/channels/channel";
+import { useChannels } from "@/screens/channels/queries";
 
-const ALL_LEVELS: LogLevelFilter = "ALL";
-
-const LEVEL_OPTIONS: readonly { value: LogLevelFilter; labelKey: string }[] = [
-  { value: ALL_LEVELS, labelKey: "log.all_levels" },
-  { value: "ERROR", labelKey: "log.errors" },
-  { value: "WARN", labelKey: "log.warnings" },
-  { value: "INFO", labelKey: "log.info" },
-];
-
-function LogRow({ entry }: { entry: LogEntry }) {
+function NoMatches({ onClear }: { onClear: () => void }) {
   const { t } = useI18n();
-  const { dateTime, when } = useFormat();
 
   return (
-    <li className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b py-2 text-sm last:border-b-0">
-      <Badge variant={entry.level === "ERROR" ? "destructive" : "secondary"} className="font-mono">
-        {entry.level}
-      </Badge>
-      <span className="min-w-0 flex-1 basis-48 break-words">{entry.text}</span>
-      {entry.count > 1 && <span title={t("log.times", { n: entry.count })}>×{entry.count}</span>}
-      <time className="text-muted-foreground tabular-nums" title={dateTime(entry.ts)}>
-        {when(entry.ts)}
-      </time>
-    </li>
+    <div className="flex flex-col items-start gap-2">
+      <p className="text-muted-foreground">{t("log.none")}</p>
+      <Button variant="outline" className="h-11 sm:h-9" onClick={onClear}>
+        {t("log.clear_filters")}
+      </Button>
+    </div>
   );
+}
+
+/** Channel names by id, as the Channels screen names them; empty until the list arrives. */
+function useChannelTitles(): ReadonlyMap<number, string> {
+  const channels = useChannels();
+  return new Map((channels.data ?? []).map((channel) => [channel.id, sourceLabel(channel)]));
 }
 
 export function Activity() {
   const { t, msg } = useI18n();
-  const [level, setLevel] = useState<LogLevelFilter>(ALL_LEVELS);
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState<LogFilters>(NO_LOG_FILTERS);
   const log = useQuery(logQuery);
+  const titles = useChannelTitles();
 
-  const needle = search.trim().toLowerCase();
-  const entries = collapseEntries(log.data ?? [], msg).filter(
-    (entry) =>
-      (level === ALL_LEVELS || entry.level === level) &&
-      (!needle || entry.text.toLowerCase().includes(needle)),
-  );
+  const allEntries = collapseEntries(log.data ?? [], msg);
+  const entries = applyLogFilters(allEntries, filters);
+  const hasEntries = allEntries.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="search"
-          className="min-w-0 flex-1 basis-48"
-          placeholder={t("log.search")}
-          aria-label={t("log.search")}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <Select value={level} onValueChange={(next) => setLevel(next as LogLevelFilter)}>
-          <SelectTrigger aria-label={t("log.level")}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {LEVEL_OPTIONS.map(({ value, labelKey }) => (
-              <SelectItem key={value} value={value}>
-                {t(labelKey)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button variant="outline" disabled={log.isFetching} onClick={() => void log.refetch()}>
-          {t("common.refresh")}
-        </Button>
-      </div>
+      <LogToolbar
+        entries={allEntries}
+        filters={filters}
+        onChange={setFilters}
+        titles={titles}
+        isRefreshing={log.isFetching}
+        onRefresh={() => void log.refetch()}
+      />
 
+      {log.isSuccess && hasEntries && isFiltering(filters) && (
+        <p className="text-sm text-muted-foreground tabular-nums">
+          {t("log.shown_of", { shown: entries.length, total: allEntries.length })}
+        </p>
+      )}
       {log.isPending && <LoadingBlock rows={8} />}
       {log.isError && <LoadError error={log.error} onRetry={() => void log.refetch()} />}
-      {log.isSuccess && entries.length === 0 && <p className="text-muted-foreground">{t("log.none")}</p>}
-      {log.isSuccess && entries.length > 0 && (
-        <ul>
-          {entries.map((entry) => (
-            <LogRow key={entry.id} entry={entry} />
-          ))}
-        </ul>
+      {log.isSuccess && !hasEntries && <p className="text-muted-foreground">{t("log.empty")}</p>}
+      {log.isSuccess && hasEntries && entries.length === 0 && <NoMatches onClear={() => setFilters(NO_LOG_FILTERS)} />}
+      {log.isSuccess && entries.length > 0 && <LogDays days={groupByDay(entries)} titles={titles} />}
+      {log.isSuccess && log.data.length >= LOG_LIMIT && (
+        <p className="text-center text-sm text-muted-foreground">{t("log.limit_reached", { n: LOG_LIMIT })}</p>
       )}
     </div>
   );

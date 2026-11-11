@@ -6,11 +6,12 @@ import { SaveOutcomeLine } from "@/components/SaveOutcomeLine";
 import { SecretField, secretPatch, secretState } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { TextField } from "@/components/TextField";
-import { Badge } from "@/components/ui/badge";
+import { ToneBadge } from "@/components/ToneBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/i18n/use-i18n";
 import { isEnvLocked, useSaveSettings, useSettingsForm, type ArrApp, type Settings } from "@/lib/settings";
+import type { StatusTone } from "@/lib/status-tone";
 import { RADARR_DEFAULTS_KEY, useAppStatus } from "@/screens/connect/connect-api";
 
 type AppDetails = {
@@ -34,19 +35,32 @@ export function appName(app: ArrApp): string {
 type UrlKey = `${ArrApp}_url` | NonNullable<AppDetails["externalUrlKey"]>;
 type AppStatus = ReturnType<typeof useAppStatus>;
 
+type Translate = ReturnType<typeof useI18n>["t"];
+
 type StatusProps = {
   isSetUp: boolean;
   status: AppStatus;
 };
 
-function StatusBadge({ isSetUp, status }: StatusProps) {
-  const { t } = useI18n();
-  if (!isSetUp) return <Badge variant="outline">{t("set.status.not_configured")}</Badge>;
-  if (status.isFetching) return <Badge variant="outline">{t("common.testing")}</Badge>;
+type BadgeState = {
+  tone: StatusTone;
+  label: string;
+};
+
+function badgeState({ isSetUp, status }: StatusProps, t: Translate): BadgeState {
+  if (!isSetUp) return { tone: "neutral", label: t("set.status.not_configured") };
+  if (status.isFetching) return { tone: "neutral", label: t("common.testing") };
   if (status.data?.ok) {
-    return <Badge variant="secondary">{t("connect.connected_version", { version: status.data.version })}</Badge>;
+    return { tone: "success", label: t("connect.connected_version", { version: status.data.version }) };
   }
-  return <Badge variant="destructive">{t("connect.status_error")}</Badge>;
+  return { tone: "error", label: t("connect.status_error") };
+}
+
+function StatusBadge(props: StatusProps) {
+  const { t } = useI18n();
+  const { tone, label } = badgeState(props, t);
+
+  return <ToneBadge tone={tone}>{label}</ToneBadge>;
 }
 
 function StatusError({ isSetUp, status }: StatusProps) {
@@ -73,7 +87,7 @@ function AppFields({ app, settings, form, onFieldChange, draft, onDraftChange, o
   const { port, externalUrlKey } = APP_DETAILS[app];
 
   return (
-    <div className="flex w-full flex-col gap-3">
+    <div className="flex w-full max-w-md flex-col gap-3">
       <TextField
         label={t("common.url")}
         hint={t("connect.url_hint")}
@@ -161,7 +175,7 @@ export function AppCard({ app, settings }: Props) {
             onDraftChange={setDraft}
             onClearKey={handleClear}
           />
-          <Button type="submit" size="sm" disabled={isSaving || status.isFetching}>
+          <Button type="submit" size="sm" className="h-11 sm:h-7" disabled={isSaving || status.isFetching}>
             {t("common.save_test")}
           </Button>
           {(outcome.kind !== "saved" || !isSetUp) && (

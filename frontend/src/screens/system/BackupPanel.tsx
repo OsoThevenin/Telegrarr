@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { DatabaseBackup, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { LoadError } from "@/components/LoadError";
@@ -20,7 +20,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useI18n } from "@/i18n/use-i18n";
 import { api } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
+import { BUTTON, SMALL_BUTTON } from "@/lib/touch";
 import { useFormat } from "@/lib/use-format";
+import { PHONE_QUERY, useMediaQuery } from "@/lib/use-media-query";
 import { backupPath, backupsQuery, type Backup } from "@/screens/system/system-api";
 
 function useRefreshBackups(): () => void {
@@ -43,7 +45,7 @@ function DeleteBackup({ name }: { name: string }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={t("backup.delete")} title={t("backup.delete")}>
+        <Button variant="ghost" size="icon-sm" className="size-11 sm:size-7" aria-label={t("backup.delete")} title={t("backup.delete")}>
           <Trash2 aria-hidden="true" />
         </Button>
       </AlertDialogTrigger>
@@ -62,11 +64,49 @@ function DeleteBackup({ name }: { name: string }) {
   );
 }
 
+function BackupActions({ name }: { name: string }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <Button asChild variant="ghost" size="sm" className={SMALL_BUTTON}>
+        <a href={`${backupPath(name)}/download`}>
+          <Download data-icon="inline-start" aria-hidden="true" />
+          {t("backup.download")}
+        </a>
+      </Button>
+      <DeleteBackup name={name} />
+    </>
+  );
+}
+
+/** A phone's take on the table: each backup stacked, its name free to wrap. */
+function BackupList({ backups }: { backups: Backup[] }) {
+  const { when } = useFormat();
+
+  return (
+    <ul>
+      {backups.map(({ name, size, created }) => (
+        <li key={name} className="flex flex-col gap-1 border-b py-3 text-sm last:border-b-0">
+          <span className="font-medium break-all">{name}</span>
+          <span className="text-muted-foreground tabular-nums">
+            {formatBytes(size)} · {when(created)}
+          </span>
+          <div className="-ml-2.5 flex items-center gap-1">
+            <BackupActions name={name} />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function BackupTable({ backups }: { backups: Backup[] }) {
   const { t } = useI18n();
   const { when } = useFormat();
+  const isPhone = useMediaQuery(PHONE_QUERY);
 
   if (backups.length === 0) return <p className="text-muted-foreground">{t("backup.none")}</p>;
+  if (isPhone) return <BackupList backups={backups} />;
 
   return (
     <Table>
@@ -82,13 +122,10 @@ function BackupTable({ backups }: { backups: Backup[] }) {
         {backups.map(({ name, size, created }) => (
           <TableRow key={name}>
             <TableCell className="whitespace-normal break-all">{name}</TableCell>
-            <TableCell>{formatBytes(size)}</TableCell>
+            <TableCell className="tabular-nums">{formatBytes(size)}</TableCell>
             <TableCell className="text-muted-foreground">{when(created)}</TableCell>
             <TableCell className="text-right">
-              <Button asChild variant="ghost" size="sm">
-                <a href={`${backupPath(name)}/download`}>{t("backup.download")}</a>
-              </Button>
-              <DeleteBackup name={name} />
+              <BackupActions name={name} />
             </TableCell>
           </TableRow>
         ))}
@@ -113,7 +150,8 @@ export function BackupPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button disabled={create.isPending} onClick={() => create.mutate()}>
+        <Button className={BUTTON} disabled={create.isPending} onClick={() => create.mutate()}>
+          <DatabaseBackup data-icon="inline-start" aria-hidden="true" />
           {t("backup.now")}
         </Button>
         <span className="text-sm text-muted-foreground">{t("backup.hint")}</span>
@@ -123,7 +161,7 @@ export function BackupPanel() {
       {backups.isSuccess && <BackupTable backups={backups.data} />}
       <Card>
         <CardHeader>
-          <CardTitle>{t("backup.restore")}</CardTitle>
+          <CardTitle as="h2">{t("backup.restore")}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">{t("backup.restore_body")}</p>

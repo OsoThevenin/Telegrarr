@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse, type JsonBodyType } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { renderApp } from "@/test/render";
 import { server } from "@/test/server";
@@ -43,6 +43,20 @@ const answerStatus = (body: JsonBodyType = SYSTEM_STATUS) =>
 const answerTasks = (rows: JsonBodyType) => server.use(http.get("/api/system/tasks", () => HttpResponse.json(rows)));
 const answerBackups = (rows: JsonBodyType) => server.use(http.get("/api/system/backups", () => HttpResponse.json(rows)));
 const answerUpdates = (body: JsonBodyType) => server.use(http.get("/api/system/updates", () => HttpResponse.json(body)));
+
+function onPhone() {
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query) =>
+      ({
+        matches: query === "(max-width: 639px)",
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+      }) as unknown as MediaQueryList,
+  );
+}
+
+afterEach(() => vi.restoreAllMocks());
 
 async function openTab(name: string) {
   answerStatus();
@@ -94,6 +108,18 @@ describe("System: status", () => {
     expect(within(database).getByText("Error")).toBeVisible();
   });
 
+  it("tones each verdict by how serious it is", async () => {
+    answerStatus();
+
+    await renderApp({ route: "/system" });
+
+    expect(await screen.findByText("Correcte", { selector: "li:first-child *" })).toHaveAttribute("data-tone", "success");
+    const queue = screen.getByText("Cua de baixades").closest("li") as HTMLElement;
+    expect(within(queue).getByText("Avís")).toHaveAttribute("data-tone", "warning");
+    const database = screen.getByText("Base de dades", { selector: "li *" }).closest("li") as HTMLElement;
+    expect(within(database).getByText("Error")).toHaveAttribute("data-tone", "error");
+  });
+
   it("falls back to the check's id when the UI has no name for it", async () => {
     answerStatus();
 
@@ -135,7 +161,19 @@ describe("System: tasks", () => {
     await openTab("Tasques");
 
     const row = (await screen.findByText(/Cinema Club/)).closest("tr") as HTMLElement;
-    expect(within(row).getByText("desactivat")).toBeVisible();
+    expect(within(row).getByText("desactivat")).toHaveAttribute("data-tone", "neutral");
+  });
+
+  it("stacks each scan on a phone instead of a wide table", async () => {
+    onPhone();
+    answerTasks([TASK]);
+
+    await openTab("Tasques");
+
+    const card = (await screen.findByText(/Cinema Club/)).closest("li") as HTMLElement;
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(within(card).getByText("cada dia")).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Executa" })).toBeVisible();
   });
 
   it("says so when there is nothing scheduled", async () => {
@@ -214,6 +252,21 @@ describe("System: backup", () => {
       "href",
       "/api/system/backups/telearr%201.zip/download",
     );
+  });
+
+  it("stacks backups on a phone, each with its download link", async () => {
+    onPhone();
+    answerBackups([BACKUP]);
+
+    await openTab("Còpia de seguretat");
+
+    const item = (await screen.findByText("telearr 1.zip")).closest("li") as HTMLElement;
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(within(item).getByRole("link", { name: "Baixa" })).toHaveAttribute(
+      "href",
+      "/api/system/backups/telearr%201.zip/download",
+    );
+    expect(within(item).getByRole("button", { name: "Suprimeix la còpia" })).toBeVisible();
   });
 
   it("says so when there are no backups, and how to restore one", async () => {
@@ -303,7 +356,7 @@ describe("System: updates", () => {
 
     await openTab("Actualitzacions");
 
-    expect(await screen.findByText("Tens la versió més recent")).toBeVisible();
+    expect(await screen.findByText("Tens la versió més recent")).toHaveAttribute("data-tone", "success");
     expect(screen.getAllByText("v1.2.0")).toHaveLength(2);
   });
 
@@ -312,8 +365,10 @@ describe("System: updates", () => {
 
     await openTab("Actualitzacions");
 
-    expect(await screen.findByText("Hi ha una actualització disponible: v1.3.0")).toBeVisible();
-    const notes = screen.getByRole("link", { name: "Notes de la versió" });
+    const chip = await screen.findByText("Hi ha una actualització disponible: v1.3.0");
+    expect(chip).toBeVisible();
+    expect(chip).not.toHaveAttribute("data-tone", "success");
+    const notes = screen.getByRole("link", { name: "Notes de la versió (s’obre en una pestanya nova)" });
     expect(notes).toHaveAttribute("href", URL_RELEASES);
     expect(notes).toHaveAttribute("target", "_blank");
     expect(notes).toHaveAttribute("rel", "noopener noreferrer");

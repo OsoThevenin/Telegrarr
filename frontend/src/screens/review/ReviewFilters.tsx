@@ -3,6 +3,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import { cn } from "@/lib/utils";
 
 import { applyFilters, channelFacets, reasonFacets, type Filters } from "./filters";
+import { reasonTone } from "./reason-tone";
 import type { PendingRelease } from "./review-api";
 
 type Props = {
@@ -15,10 +16,11 @@ type ReasonChipProps = {
   label: string;
   count: number;
   isPressed: boolean;
+  dot?: string;
   onClick: () => void;
 };
 
-function ReasonChip({ label, count, isPressed, onClick }: ReasonChipProps) {
+function ReasonChip({ label, count, isPressed, dot, onClick }: ReasonChipProps) {
   return (
     <button
       type="button"
@@ -26,9 +28,10 @@ function ReasonChip({ label, count, isPressed, onClick }: ReasonChipProps) {
       onClick={onClick}
       className={cn(
         "inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors outline-none sm:min-h-8 focus-visible:ring-3 focus-visible:ring-ring/50",
-        isPressed ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted",
+        isPressed ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-muted",
       )}
     >
+      {dot && <span aria-hidden className={cn("size-2 rounded-full", dot, isPressed && "ring-2 ring-primary-foreground/70")} />}
       {label} <span className="tabular-nums">{count}</span>
     </button>
   );
@@ -58,7 +61,7 @@ export function ReviewFilters({ releases, filters, onChange }: Props) {
           onChange={({ target }) =>
             onChange({ ...filters, channelId: target.value === "" ? null : Number(target.value) })
           }
-          className="h-11 min-w-0 rounded-lg border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:h-9 sm:max-w-64 dark:bg-input/30"
+          className="h-11 min-w-0 rounded-lg border border-input bg-card px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:h-9 sm:max-w-64 dark:bg-input/30"
         >
           <option value="">{`${t("review.all_channels")} (${countWithoutChannel})`}</option>
           {channels.map(({ channelId, title, count }) => (
@@ -79,6 +82,7 @@ export function ReviewFilters({ releases, filters, onChange }: Props) {
             label={t(reason)}
             count={count}
             isPressed={filters.reason === reason}
+            dot={reasonTone(reason).dot}
             onClick={() => onChange({ ...filters, reason })}
           />
         ))}

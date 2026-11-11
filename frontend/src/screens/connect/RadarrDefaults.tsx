@@ -53,7 +53,7 @@ function DefaultsForm({ choices }: { choices: RadarrDefaultChoices }) {
 
   return (
     <form className="flex flex-col items-start gap-3" onSubmit={handleSubmit}>
-      <div className="flex w-full flex-col gap-3">
+      <div className="flex w-full max-w-md flex-col gap-3">
         <SelectField
           label={t("connect.radarr_defaults.profile")}
           value={profile}
@@ -85,7 +85,7 @@ function DefaultsForm({ choices }: { choices: RadarrDefaultChoices }) {
           ))}
         </SelectField>
       </div>
-      <Button type="submit" size="sm" variant="outline" disabled={!profile || !folder || save.isPending}>
+      <Button type="submit" size="sm" variant="outline" className="h-11 sm:h-7" disabled={!profile || !folder || save.isPending}>
         {t("connect.radarr_defaults.save")}
       </Button>
       {save.isSuccess && <StatusLine tone="success">{t("connect.radarr_defaults.saved")}</StatusLine>}

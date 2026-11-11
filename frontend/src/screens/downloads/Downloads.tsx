@@ -49,9 +49,9 @@ export function Downloads() {
       <InProgressSection rows={filteredRows} query={query} isFiltered={isFiltered} isDense={isDense} />
       <Tabs className="mt-4" value={openTab} onValueChange={(tab) => void navigate({ search: { tab }, replace: true })}>
         {/* Three equal tabs across a phone, so none drops onto a line of its own. */}
-        <TabsList className="w-full group-data-horizontal/tabs:h-auto sm:w-fit">
+        <TabsList className="w-full group-data-horizontal/tabs:h-auto sm:w-fit sm:group-data-horizontal/tabs:h-auto">
           {HISTORY_TABS.map((tab) => (
-            <TabsTrigger key={tab.id} value={tab.id} className="min-h-9 flex-1 sm:flex-none sm:px-3">
+            <TabsTrigger key={tab.id} value={tab.id} className="min-h-[38px] flex-1 sm:min-h-9 sm:flex-none sm:px-3">
               {t(tab.labelKey)}{" "}
               {query.data && <span className="tabular-nums opacity-70">{rowsOfTab(filteredRows, tab).length}</span>}
             </TabsTrigger>

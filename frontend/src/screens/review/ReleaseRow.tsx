@@ -7,8 +7,16 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import { ReleasePanel } from "./ReleasePanel";
+import { reasonTone } from "./reason-tone";
 import { channelLabel, parsedLabel, releaseName } from "./release-text";
 import { releaseKey, type PendingRelease } from "./review-api";
+
+/** Hover is neutral; selected and open are tints of primary, so the three never look alike. */
+function rowTone(isOpen: boolean, isSelected: boolean): string {
+  if (isSelected) return "bg-primary/10 hover:bg-primary/15";
+  if (isOpen) return "bg-primary/5 hover:bg-primary/8";
+  return "hover:bg-muted/50";
+}
 
 type Props = {
   release: PendingRelease;
@@ -36,7 +44,7 @@ export function ReleaseRow({
 
   return (
     <li className="border-b last:border-b-0">
-      <div className={cn("flex hover:bg-muted/50", isSelected && "bg-muted/50")}>
+      <div className={cn("flex transition-colors", rowTone(isOpen, isSelected))}>
         <span className="flex pt-3.5 pl-3">
           <Checkbox
             aria-label={t("review.select", { name })}
@@ -62,7 +70,10 @@ export function ReleaseRow({
           <span className="flex shrink-0 items-center justify-between gap-3">
             <Badge
               variant="outline"
-              className="h-auto min-w-0 shrink whitespace-normal sm:shrink-0 sm:whitespace-nowrap"
+              className={cn(
+                "h-auto min-w-0 shrink whitespace-normal sm:shrink-0 sm:whitespace-nowrap",
+                reasonTone(release.reason).badge,
+              )}
             >
               {t(release.reason)}
             </Badge>
@@ -72,7 +83,7 @@ export function ReleaseRow({
               </span>
               <ChevronDownIcon
                 aria-hidden
-                className={cn("size-4 text-muted-foreground transition-transform", isOpen && "rotate-180")}
+                className={cn("size-4 text-muted-foreground transition-transform", isOpen && "rotate-180 text-primary")}
               />
             </span>
           </span>

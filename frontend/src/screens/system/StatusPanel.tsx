@@ -2,11 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 
 import { LoadError } from "@/components/LoadError";
 import { LoadingBlock } from "@/components/LoadingBlock";
-import { Badge } from "@/components/ui/badge";
+import { ToneBadge } from "@/components/ToneBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/i18n/use-i18n";
 import { formatBytes } from "@/lib/format";
+import { statusTone, type StatusTone } from "@/lib/status-tone";
 import { useFormat } from "@/lib/use-format";
+import { cn } from "@/lib/utils";
 import { InfoGrid } from "@/screens/system/InfoGrid";
 import { systemStatusQuery, type HealthCheck, type SystemStatus } from "@/screens/system/system-api";
 
@@ -20,22 +22,25 @@ const HEALTH_NAME_KEYS: Record<string, string> = {
   database: "health.database.name",
 };
 
+function healthTone(check: HealthCheck): StatusTone {
+  if (check.ok) return "success";
+  return check.level === "warn" ? "warning" : "error";
+}
+
 function HealthRow({ check }: { check: HealthCheck }) {
   const { t, msg } = useI18n();
   const nameKey = HEALTH_NAME_KEYS[check.id];
-  const isWarning = !check.ok && check.level === "warn";
-  const verdict = check.ok ? t("sys.ok") : isWarning ? t("sys.warning") : t("sys.error");
-  const variant = check.ok ? "secondary" : isWarning ? "outline" : "destructive";
+  const tone = healthTone(check);
+  const verdict = tone === "success" ? t("sys.ok") : tone === "warning" ? t("sys.warning") : t("sys.error");
 
   return (
-    <li className="flex items-baseline gap-3 border-b py-2 text-sm last:border-b-0">
+    <li className="flex items-center gap-3 border-b py-2 text-sm last:border-b-0">
+      <span aria-hidden="true" className={cn("size-2 shrink-0 rounded-full", statusTone(tone).dot)} />
       <div className="flex min-w-0 flex-1 flex-col sm:flex-row sm:gap-3">
         <span className="font-medium sm:w-40 sm:shrink-0">{nameKey ? t(nameKey) : check.id}</span>
         <span className="min-w-0 break-words text-muted-foreground">{msg(check.message)}</span>
       </div>
-      <Badge variant={variant} className="shrink-0">
-        {verdict}
-      </Badge>
+      <ToneBadge tone={tone}>{verdict}</ToneBadge>
     </li>
   );
 }
@@ -75,7 +80,7 @@ export function StatusPanel() {
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>{t("sys.health")}</CardTitle>
+          <CardTitle as="h2">{t("sys.health")}</CardTitle>
         </CardHeader>
         <CardContent>
           <ul>
@@ -87,7 +92,7 @@ export function StatusPanel() {
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>{t("sys.about")}</CardTitle>
+          <CardTitle as="h2">{t("sys.about")}</CardTitle>
         </CardHeader>
         <CardContent>
           <AboutGrid status={status.data} />

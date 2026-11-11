@@ -1,10 +1,10 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { goToLogin } from "@/lib/browser";
 import { renderApp } from "@/test/render";
-import { server } from "@/test/server";
+import { server, STATUS } from "@/test/server";
 import { settingsHandlers } from "@/test/settings";
 
 vi.mock("@/lib/browser", () => ({ goToLogin: vi.fn() }));
@@ -139,5 +139,42 @@ describe("expired session", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Idioma" }), "English");
 
     await waitFor(() => expect(goToLogin).toHaveBeenCalled());
+  });
+});
+
+describe("header", () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.theme;
+    localStorage.clear();
+  });
+
+  it("marks Telegram as connected beside the title", async () => {
+    await renderApp();
+
+    const banner = screen.getByRole("banner");
+    expect(await within(banner).findByRole("img", { name: "Telegram connectat" })).toHaveClass("bg-success");
+  });
+
+  it("marks Telegram as offline beside the title", async () => {
+    server.use(http.get("/api/status", () => HttpResponse.json({ ...STATUS, authorized: false })));
+
+    await renderApp();
+
+    const banner = screen.getByRole("banner");
+    expect(await within(banner).findByRole("img", { name: "Telegram desconnectat" })).toHaveClass("bg-destructive");
+  });
+
+  it("cycles the theme from auto to light to dark and back", async () => {
+    const { user } = await renderApp();
+    const toggle = screen.getByRole("button", { name: "Canvia el tema (automàtic/clar/fosc)" });
+
+    await user.click(toggle);
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    await user.click(toggle);
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    await user.click(toggle);
+
+    expect(document.documentElement).not.toHaveAttribute("data-theme");
+    expect(localStorage.getItem("theme")).toBe("auto");
   });
 });

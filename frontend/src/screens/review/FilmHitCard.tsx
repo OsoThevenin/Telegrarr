@@ -41,7 +41,7 @@ export function FilmHitCard({ film, isSelected, isAssigning, isDisabled, onSelec
       aria-busy={isAssigning}
       className={cn(
         "rounded-lg border transition-colors",
-        isSelected ? "border-primary/50 bg-background" : "border-transparent",
+        isSelected ? "border-primary bg-card ring-3 ring-primary/15" : "bg-card hover:border-foreground/20",
       )}
     >
       {/* Phones: Assigna spans a row of its own. Wider: it closes the links column, level with the poster's foot. */}
@@ -52,7 +52,7 @@ export function FilmHitCard({ film, isSelected, isAssigning, isDisabled, onSelec
           aria-label={label}
           disabled={isDisabled}
           onClick={onSelect}
-          className="flex min-h-11 min-w-0 items-start gap-3 rounded-md p-1 text-left outline-none hover:bg-muted/70 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 aria-pressed:hover:bg-transparent sm:row-span-2"
+          className="flex min-h-11 min-w-0 items-start gap-3 rounded-md p-1 text-left outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60 aria-pressed:hover:bg-transparent sm:row-span-2"
         >
           <FilmPoster url={film.poster} size={isSelected ? "preview" : "thumb"} />
           <FilmFacts film={film} isDetailed={isSelected} />

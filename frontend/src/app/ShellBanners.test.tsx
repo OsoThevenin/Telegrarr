@@ -37,7 +37,7 @@ describe("the Telegram banner", () => {
 
     const link = await screen.findByRole("link", { name: "Connecta Telegram" });
 
-    expect(link).toHaveAttribute("href", "/settings");
+    expect(link).toHaveAttribute("href", "/settings?tab=integrations");
   });
 
   it("goes away after a sign-in, and the dialog stays to say it worked", async () => {

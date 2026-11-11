@@ -7,6 +7,8 @@ import { CommandPalette } from "@/app/CommandPalette";
 import { MobileDrawer } from "@/app/MobileDrawer";
 import { ShellBanners } from "@/app/ShellBanners";
 import { ShellMenu } from "@/app/ShellMenu";
+import { TelegramDot } from "@/app/TelegramDot";
+import { ThemeToggle } from "@/app/ThemeToggle";
 import { useLiveUpdates } from "@/app/use-live-updates";
 import { useI18n } from "@/i18n/use-i18n";
 
@@ -35,8 +37,10 @@ export function Shell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background px-2 md:px-8">
           <MobileDrawer />
-          <h1 className="truncate text-lg font-semibold">{title ?? APP_NAME}</h1>
+          <h1 className="truncate font-display text-[22px] font-semibold tracking-[-0.02em]">{title ?? APP_NAME}</h1>
+          <TelegramDot />
           <CommandPalette />
+          <ThemeToggle />
           {HeaderAction && <HeaderAction />}
         </header>
         <ShellBanners />

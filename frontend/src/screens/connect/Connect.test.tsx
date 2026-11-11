@@ -51,6 +51,7 @@ describe("a fresh install", () => {
     const sonarr = await appCard("Sonarr");
 
     expect(within(sonarr).getByText("No configurat")).toBeVisible();
+    expect(within(sonarr).getByText("No configurat")).toHaveAttribute("data-tone", "neutral");
     expect(test).not.toHaveBeenCalled();
   });
 
@@ -83,6 +84,7 @@ describe("each app", () => {
     const sonarr = await appCard("Sonarr");
 
     expect(await within(sonarr).findByText("Connectat · v4.0.1")).toBeVisible();
+    expect(within(sonarr).getByText("Connectat · v4.0.1")).toHaveAttribute("data-tone", "success");
   });
 
   it("shows a failure that arrives inside a 200", async () => {
@@ -98,6 +100,7 @@ describe("each app", () => {
 
     expect(await within(sonarr).findByRole("alert")).toHaveTextContent("Unauthorized");
     expect(within(sonarr).getByText("Error")).toBeVisible();
+    expect(within(sonarr).getByText("Error")).toHaveAttribute("data-tone", "error");
   });
 
   it("shows the API key as saved after saving, then tests", async () => {
@@ -403,7 +406,12 @@ describe("registering", () => {
     );
     await openConnect();
 
-    expect(await screen.findByText(/no podrà arribar/)).toBeVisible();
+    const warning = (await screen.findByText(/no podrà arribar/)).closest("p");
+
+    expect(warning).toBeVisible();
+    expect(warning).toHaveAttribute("data-tone", "warning");
+    expect(warning).not.toHaveTextContent(/^!/);
+    expect(warning?.querySelector("svg[aria-hidden='true']")).not.toBeNull();
   });
 
   it("says when the address is only a suggestion", async () => {
@@ -510,5 +518,26 @@ describe("manual setup", () => {
     await user.click(within(dialog).getByRole("button", { name: "Regenera" }));
 
     expect(await screen.findByText("••••3333")).toBeVisible();
+  });
+});
+
+describe("on a phone", () => {
+  it("gives every action a full-size touch target", async () => {
+    server.use(
+      http.post("/api/connect/test", () => CONNECTED("radarr")),
+      radarrChoices(),
+      ...settingsHandlers(RADARR_SAVED),
+    );
+    await openConnect();
+    await screen.findByRole("button", { name: "Desa els valors" });
+
+    const actions = [
+      ...screen.getAllByRole("button", { name: "Desa i prova" }),
+      ...["Registra Telegrarr", "Desa els valors", "Copia l’URL", "Copia la clau", "Regenera la clau"].map((name) =>
+        screen.getByRole("button", { name }),
+      ),
+    ];
+
+    for (const action of actions) expect(action).toHaveClass("h-11", "sm:h-7");
   });
 });

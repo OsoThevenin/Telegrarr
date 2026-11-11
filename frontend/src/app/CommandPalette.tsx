@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList, CommandShortcut } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/use-i18n";
+import { BUTTON } from "@/lib/touch";
 
 const isPaletteShortcut = (event: KeyboardEvent) =>
   (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
@@ -83,7 +84,7 @@ export function CommandPalette() {
     <>
       <Button
         variant="outline"
-        className="ml-auto"
+        className={`ml-auto ${BUTTON}`}
         aria-label={t("shell.cmdk_aria")}
         title={t("shell.cmdk_title")}
         onClick={() => setIsOpen(true)}

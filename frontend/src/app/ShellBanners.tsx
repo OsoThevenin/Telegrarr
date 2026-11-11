@@ -36,7 +36,7 @@ function TelegramBanner({ onSignIn }: { onSignIn: () => void }) {
     </Button>
   ) : (
     <Button asChild variant="outline" size="sm">
-      <Link to="/settings">{label}</Link>
+      <Link to="/settings" search={{ tab: "integrations" }}>{label}</Link>
     </Button>
   );
 

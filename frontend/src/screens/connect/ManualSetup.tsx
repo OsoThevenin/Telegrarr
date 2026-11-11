@@ -39,7 +39,7 @@ function ValueRow({ label, value, copyLabel, copyValue }: ValueRowProps) {
       <div className="flex flex-wrap items-center gap-2">
         <code className="min-w-0 font-mono text-sm break-all">{value}</code>
         {copyLabel && (
-          <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
+          <Button type="button" variant="outline" size="sm" className="h-11 sm:h-7" onClick={() => void handleCopy()}>
             {copyLabel}
           </Button>
         )}
@@ -84,7 +84,7 @@ export function ManualSetup({ apikey }: { apikey: string }) {
           copyValue={apikey}
         />
         <div className="flex flex-col items-start gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setIsConfirming(true)}>
+          <Button type="button" variant="outline" size="sm" className="h-11 sm:h-7" onClick={() => setIsConfirming(true)}>
             {t("set.regenerate_key")}
           </Button>
           {wasRegenerated && <StatusLine tone="warning">{t("set.key_regenerated")}</StatusLine>}

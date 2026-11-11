@@ -63,7 +63,7 @@ export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Pro
   }
 
   return (
-    <div id={id} className="flex flex-col gap-4 border-t bg-muted/30 p-3 sm:pl-10">
+    <div id={id} className="flex flex-col gap-4 border-t bg-muted/60 p-3 sm:pl-10">
       {release.caption && <p className="text-sm whitespace-pre-line wrap-anywhere">{release.caption}</p>}
       <FilmSearch
         initialQuery={initialSearch(release)}
@@ -86,12 +86,12 @@ export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Pro
         />
         <Button
           type="button"
-          variant="destructive"
+          variant="ghost"
           size="lg"
           disabled={isBusy}
           onClick={() => discard.mutate()}
           // Level with the id field: below its text-xs label (1rem) and the gap-1.5 under it.
-          className="h-11 sm:mt-5.5 sm:h-9"
+          className="h-11 text-destructive hover:bg-destructive/10 hover:text-destructive sm:mt-5.5 sm:h-9"
         >
           {discard.isPending ? t("review.discarding") : t("review.discard")}
         </Button>

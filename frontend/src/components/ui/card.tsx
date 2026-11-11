@@ -32,9 +32,12 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+// Telegrarr: `as` makes the title a real heading where the card heads a section of the page.
+type CardTitleProps = React.ComponentProps<"div"> & { as?: "div" | "h2" | "h3" }
+
+function CardTitle({ className, as: Comp = "div", ...props }: CardTitleProps) {
   return (
-    <div
+    <Comp
       data-slot="card-title"
       className={cn(
         "text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",

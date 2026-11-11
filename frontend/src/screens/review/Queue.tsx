@@ -123,7 +123,7 @@ type ReleaseListProps = {
 function ReleaseList({ shown, selection, open, onSelect, onOpen, onResolved }: ReleaseListProps) {
   const { t } = useI18n();
   return (
-    <ul aria-label={t("review.list")} className="rounded-lg border">
+    <ul aria-label={t("review.list")} className="overflow-hidden rounded-lg border bg-card">
       {shown.map((release) => {
         const key = releaseKey(release);
         const isOpen = key === open?.key;

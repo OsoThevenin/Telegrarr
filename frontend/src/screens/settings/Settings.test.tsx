@@ -547,3 +547,97 @@ describe("Telegram", () => {
     expect(within(telegram).getByRole("alert")).toHaveTextContent("TELEARR_PROXY");
   });
 });
+
+describe("the tab in the URL", () => {
+  it("opens the tab the URL names", async () => {
+    server.use(...settingsHandlers());
+
+    await renderApp({ route: "/settings?tab=integrations" });
+
+    expect(await screen.findByRole("tab", { name: "Integracions" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { level: 2, name: "Compte de Telegram" })).toBeVisible();
+  });
+
+  it("falls back to the account tab for a tab it does not know", async () => {
+    server.use(...settingsHandlers());
+
+    await renderApp({ route: "/settings?tab=nonsense" });
+
+    expect(await screen.findByRole("tab", { name: "Compte" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("writes the chosen tab into the URL", async () => {
+    server.use(...settingsHandlers());
+    const { user, router } = await renderApp({ route: "/settings" });
+
+    await user.click(await screen.findByRole("tab", { name: "Baixades" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ tab: "downloads" }));
+  });
+});
+
+describe("structure and clarity", () => {
+  it("titles each card with a level-two heading", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Compte");
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Aparença" })).toBeInTheDocument();
+  });
+
+  it("labels the username", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Compte");
+
+    const account = await card("Compte");
+    expect(within(account).getByText("Nom d’usuari")).toBeVisible();
+    expect(within(account).getByText("admin")).toBeVisible();
+  });
+
+  it("names the Telegram messages switch the same whether it is on or off", async () => {
+    server.use(...settingsHandlers({ notify_telegram: true }));
+    await openTab("Integracions");
+
+    const toggle = await screen.findByRole("switch", { name: "Missatges de Telegram" });
+    expect(toggle).toBeChecked();
+  });
+
+  it("describes the autonomous switch with the current mode", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Baixades");
+
+    const toggle = await screen.findByRole("switch", { name: "Mode autònom" });
+    expect(toggle).toHaveAccessibleDescription(/Telegrarr només indexa/);
+  });
+
+  it("explains why Connect Telegram is disabled before the credentials are saved", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    const connect = await within(telegram).findByRole("button", { name: "Connecta Telegram" });
+    expect(connect).toBeDisabled();
+    expect(connect).toHaveAccessibleDescription(/Desa primer l’API ID i l’API hash/);
+  });
+
+  it("asks for the API ID before the API hash", async () => {
+    server.use(...settingsHandlers());
+    await openTab("Integracions");
+    const telegram = await card("Compte de Telegram");
+
+    const id = await within(telegram).findByLabelText("API ID");
+    const hash = within(telegram).getByLabelText("API hash");
+    expect(id.compareDocumentPosition(hash) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("tones the status badges", async () => {
+    server.use(...settingsHandlers({ tmdb_key_set: true }));
+    await openTab("Integracions");
+
+    const tmdb = await card("Imatges (TMDB)");
+    expect(within(tmdb).getByText("Configurat")).toHaveAttribute("data-tone", "success");
+    const plex = await card("Plex");
+    expect(within(plex).getByText("No configurat")).toHaveAttribute("data-tone", "neutral");
+    const telegram = await card("Compte de Telegram");
+    expect(within(telegram).getByText("No connectat")).toHaveAttribute("data-tone", "neutral");
+  });
+});

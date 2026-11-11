@@ -1,12 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import { useMutation } from "@tanstack/react-query";
+import { SendIcon } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LockedSecret, SecretField } from "@/components/SecretField";
 import { StatusLine } from "@/components/StatusLine";
 import { TextField } from "@/components/TextField";
-import { Badge } from "@/components/ui/badge";
+import { ToneBadge } from "@/components/ToneBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useI18n } from "@/i18n/use-i18n";
@@ -14,6 +15,7 @@ import { isEnvLocked, type Settings } from "@/lib/settings";
 import { ProxySection } from "@/screens/settings/ProxySection";
 import { telegramPost, useRefreshTelegram, useTelegramAuth } from "@/screens/settings/telegram-api";
 import { TelegramSignInDialog } from "@/screens/settings/TelegramSignInDialog";
+import { BUTTON, SMALL_BUTTON } from "@/lib/touch";
 
 export function TelegramCard({ settings }: { settings: Settings }) {
   const { t, errorText } = useI18n();
@@ -23,7 +25,12 @@ export function TelegramCard({ settings }: { settings: Settings }) {
   const [isConfirmingLogout, setIsConfirmingLogout] = useState(false);
   const [wasDisconnected, setWasDisconnected] = useState(false);
 
+  const connectHintId = useId();
+
   const isAuthorized = auth.data?.authorized ?? false;
+  const isApiReady = auth.data?.api_ready ?? false;
+  // Said only once the answer is in, so a slow read does not flash the reason.
+  const needsCredentials = auth.data !== undefined && !isApiReady;
 
   async function handleLogout() {
     await telegramPost("/api/telegram/auth/logout");
@@ -34,26 +41,46 @@ export function TelegramCard({ settings }: { settings: Settings }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.tg_account")}</CardTitle>
+        <CardTitle as="h2">{t("set.tg_account")}</CardTitle>
         <CardDescription>{isAuthorized ? t("set.tg_connected") : t("set.tg_not_connected")}</CardDescription>
         <CardAction>
-          <Badge variant={isAuthorized ? "secondary" : "outline"}>
+          <ToneBadge tone={isAuthorized ? "success" : "neutral"}>
             {isAuthorized ? t("set.status.connected") : t("set.status.not_connected")}
-          </Badge>
+          </ToneBadge>
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         {auth.isError && <StatusLine tone="error">{errorText(auth.error)}</StatusLine>}
-        <ApiCredentialsSection settings={settings} isReady={auth.data?.api_ready ?? false} />
+        <ApiCredentialsSection settings={settings} isReady={isApiReady} />
         <div className="flex flex-col items-start gap-2">
           {isAuthorized ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => setIsConfirmingLogout(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={SMALL_BUTTON}
+              onClick={() => setIsConfirmingLogout(true)}
+            >
               {t("set.tg_disconnect")}
             </Button>
           ) : (
-            <Button type="button" size="sm" disabled={!auth.data?.api_ready} onClick={() => setIsSigningIn(true)}>
+            // The card's one call to action, so it is the full size with the Telegram paper plane.
+            <Button
+              type="button"
+              size="lg"
+              className={`${BUTTON} px-4`}
+              disabled={!isApiReady}
+              aria-describedby={needsCredentials ? connectHintId : undefined}
+              onClick={() => setIsSigningIn(true)}
+            >
+              <SendIcon data-icon="inline-start" aria-hidden="true" />
               {t("banner.connect_telegram")}
             </Button>
+          )}
+          {!isAuthorized && needsCredentials && (
+            <p id={connectHintId} className="text-xs text-muted-foreground">
+              {t("set.tg_api_first")}
+            </p>
           )}
           {wasDisconnected && !isAuthorized && <StatusLine tone="success">{t("set.tg_disconnected")}</StatusLine>}
         </div>
@@ -87,7 +114,7 @@ function ApiCredentialsSection({ settings, isReady }: ApiCredentialsSectionProps
   if (!isIdLocked && !isHashLocked) return <ApiCredentials isReady={isReady} />;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex max-w-md flex-col gap-3">
       {isIdLocked && <LockedSecret label={t("set.tg_api_id")} />}
       {isHashLocked && <LockedSecret label={t("set.tg_api_hash")} />}
       {isIdLocked !== isHashLocked && !isReady && (
@@ -131,14 +158,7 @@ function ApiCredentials({ isReady }: { isReady: boolean }) {
   return (
     <form className="flex flex-col items-start gap-3" onSubmit={handleSubmit}>
       {!isReady && <p className="text-sm text-muted-foreground">{t("set.tg_api_intro")}</p>}
-      <div className="flex w-full flex-col gap-3">
-        <SecretField
-          label={t("set.tg_api_hash")}
-          state={{ kind: isReady ? "saved" : "empty" }}
-          draft={hash}
-          onDraftChange={setHash}
-          onClear={handleClear}
-        />
+      <div className="flex w-full max-w-md flex-col gap-3">
         {isEditing && (
           <TextField
             label={t("set.tg_api_id")}
@@ -148,9 +168,16 @@ function ApiCredentials({ isReady }: { isReady: boolean }) {
             onChange={(event) => setApiId(event.target.value)}
           />
         )}
+        <SecretField
+          label={t("set.tg_api_hash")}
+          state={{ kind: isReady ? "saved" : "empty" }}
+          draft={hash}
+          onDraftChange={setHash}
+          onClear={handleClear}
+        />
       </div>
       {isEditing && (
-        <Button type="submit" variant="outline" size="sm" disabled={!canSave || save.isPending}>
+        <Button type="submit" variant="outline" size="sm" className={SMALL_BUTTON} disabled={!canSave || save.isPending}>
           {save.isPending ? t("common.saving") : t("common.save")}
         </Button>
       )}

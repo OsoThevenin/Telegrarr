@@ -10,7 +10,7 @@ export function InfoGrid({ rows }: Props) {
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className="break-words">{value}</dd>
+          <dd className="font-mono break-all tabular-nums">{value}</dd>
         </div>
       ))}
     </dl>

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SaveOutcomeLine } from "@/components/SaveOutcomeLine";
@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/i18n/use-i18n";
 import { useSaveSettings, useSettingsForm, type LibraryPaths, type Settings } from "@/lib/settings";
+import { BUTTON } from "@/lib/touch";
 
 // The ranges the backend clamps to, so the browser can refuse them first.
 const MAX_WORKERS = 32;
@@ -35,22 +36,28 @@ function ModeCard({ mode }: { mode: Settings["operating_mode"] }) {
   const save = useSaveSettings();
   const [isConfirming, setIsConfirming] = useState(false);
   const isAutonomous = mode === "standalone";
+  const stateId = useId();
 
   const experimental = <Badge variant="outline">{t("set.experimental")}</Badge>;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex flex-wrap items-center gap-2">
+        <CardTitle as="h2" className="flex flex-wrap items-center gap-2">
           {t("set.mode")}
           {experimental}
         </CardTitle>
-        <CardDescription>{isAutonomous ? t("set.autonomous.state_on") : t("set.autonomous.state_off")}</CardDescription>
+        <CardDescription id={stateId}>{isAutonomous ? t("set.autonomous.state_on") : t("set.autonomous.state_off")}</CardDescription>
       </CardHeader>
       <CardContent className="flex items-center justify-between gap-3">
         <Label htmlFor="settings-autonomous">{t("set.standalone")}</Label>
         {/* Bound to the server's value: the dialog decides, the click alone changes nothing. */}
-        <Switch id="settings-autonomous" checked={isAutonomous} onCheckedChange={() => setIsConfirming(true)} />
+        <Switch
+          id="settings-autonomous"
+          aria-describedby={stateId}
+          checked={isAutonomous}
+          onCheckedChange={() => setIsConfirming(true)}
+        />
       </CardContent>
       <ConfirmDialog
         isOpen={isConfirming}
@@ -88,7 +95,7 @@ function PerformanceCard({ settings }: { settings: Settings }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.performance")}</CardTitle>
+        <CardTitle as="h2">{t("set.performance")}</CardTitle>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
@@ -144,7 +151,7 @@ function PerformanceCard({ settings }: { settings: Settings }) {
             />
           </div>
           <div className="flex flex-col items-start gap-2">
-            <Button type="submit" disabled={!isDirty || isSaving}>
+            <Button type="submit" className={BUTTON} disabled={!isDirty || isSaving}>
               {t("set.save_performance")}
             </Button>
             <SaveOutcomeLine outcome={outcome} savedText={t("set.performance_saved")} />
@@ -176,11 +183,11 @@ function FoldersCard({ settings, paths }: Props) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t("set.paths")}</CardTitle>
+        <CardTitle as="h2">{t("set.paths")}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <form className="flex flex-col items-start gap-2" onSubmit={handleSubmit}>
-          <div className="w-full">
+          <div className="w-full max-w-md">
             <TextField
               label={t("set.downloads_dir")}
               hint={t("set.downloads_dir_hint")}
@@ -189,19 +196,27 @@ function FoldersCard({ settings, paths }: Props) {
               onChange={(event) => setField("downloads_dir", event.target.value)}
             />
           </div>
-          <Button type="submit" disabled={!isDirty || isSaving}>
+          <Button type="submit" className={BUTTON} disabled={!isDirty || isSaving}>
             {t("set.save_folder")}
           </Button>
           <SaveOutcomeLine outcome={outcome} savedText={t("set.downloads_dir_saved")} />
         </form>
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-          {libraryPaths.map(({ labelKey, path }) => (
-            <div key={labelKey} className="contents">
-              <dt className="text-muted-foreground">{t(labelKey)}</dt>
-              <dd className="font-mono break-all">{path}</dd>
-            </div>
-          ))}
-        </dl>
+        {/* A path keeps to one line and scrolls on a phone, rather than breaking mid-name. */}
+        <div
+          role="region"
+          aria-label={t("set.paths")}
+          tabIndex={0}
+          className="overflow-x-auto rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          <dl className="grid w-max min-w-full grid-cols-[auto_auto] justify-start gap-x-4 gap-y-1 text-sm">
+            {libraryPaths.map(({ labelKey, path }) => (
+              <div key={labelKey} className="contents">
+                <dt className="text-muted-foreground">{t(labelKey)}</dt>
+                <dd className="font-mono whitespace-nowrap">{path}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
         <p className="text-xs text-muted-foreground">{t("set.paths_hint")}</p>
       </CardContent>
     </Card>

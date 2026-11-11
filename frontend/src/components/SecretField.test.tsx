@@ -44,6 +44,14 @@ describe("a saved secret", () => {
     expect(screen.queryByLabelText("Clau de l’API")).not.toBeInTheDocument();
   });
 
+  it("gives Replace and Clear a full-size touch target on a phone", () => {
+    render(<Harness state={SAVED} />);
+
+    for (const name of ["Substitueix Clau de l’API", "Esborra Clau de l’API"]) {
+      expect(screen.getByRole("button", { name })).toHaveClass("h-11", "sm:h-7");
+    }
+  });
+
   it("shows the masked preview it is given", () => {
     render(<Harness state={{ kind: "saved", preview: "socks5://host:1080" }} />);
 

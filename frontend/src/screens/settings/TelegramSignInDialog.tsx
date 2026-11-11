@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { useI18n } from "@/i18n/use-i18n";
 import { telegramPost, useRefreshTelegram } from "@/screens/settings/telegram-api";
+import { BUTTON } from "@/lib/touch";
 
 type Step = "phone" | "code" | "password" | "done";
 type InputStep = Exclude<Step, "done">;
@@ -107,7 +108,7 @@ function SignInSteps({ onClose }: { onClose: () => void }) {
           <DialogDescription>{t("tgw.done_body")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button type="button" onClick={onClose}>
+          <Button type="button" className={BUTTON} onClick={onClose}>
             {t("tgw.done")}
           </Button>
         </DialogFooter>
@@ -147,14 +148,14 @@ function SignInSteps({ onClose }: { onClose: () => void }) {
       {advance.isError && <StatusLine tone="error">{errorText(advance.error)}</StatusLine>}
       <DialogFooter>
         {step === "code" && (
-          <Button type="button" variant="ghost" onClick={handleOtherNumber} disabled={advance.isPending}>
+          <Button type="button" variant="ghost" className={BUTTON} onClick={handleOtherNumber} disabled={advance.isPending}>
             {t("tgw.other_number")}
           </Button>
         )}
-        <Button type="button" variant="outline" onClick={onClose} disabled={advance.isPending}>
+        <Button type="button" variant="outline" className={BUTTON} onClick={onClose} disabled={advance.isPending}>
           {t("common.cancel")}
         </Button>
-        <Button type="submit" disabled={advance.isPending}>
+        <Button type="submit" className={BUTTON} disabled={advance.isPending}>
           {advance.isPending ? copy.pending : copy.submit}
         </Button>
       </DialogFooter>

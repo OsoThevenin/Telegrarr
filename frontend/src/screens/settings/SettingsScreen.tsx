@@ -1,3 +1,5 @@
+import { getRouteApi } from "@tanstack/react-router";
+
 import { StatusLine } from "@/components/StatusLine";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,6 +8,10 @@ import { useSettings } from "@/lib/settings";
 import { AccountTab } from "@/screens/settings/AccountTab";
 import { DownloadsTab } from "@/screens/settings/DownloadsTab";
 import { IntegrationsTab } from "@/screens/settings/IntegrationsTab";
+import { DEFAULT_SETTINGS_TAB, settingsTabFromUrl } from "@/screens/settings/settings-tabs";
+import { SMALL_BUTTON } from "@/lib/touch";
+
+const route = getRouteApi("/settings");
 
 // Every tab stays mounted, so a half-typed form survives a look at another tab.
 const PANEL = "flex flex-col gap-4 data-[state=inactive]:hidden";
@@ -15,11 +21,18 @@ const TAB = "text-foreground/75";
 export function SettingsScreen() {
   const { t, errorText } = useI18n();
   const query = useSettings();
+  const { tab: openTab = DEFAULT_SETTINGS_TAB } = route.useSearch();
+  const navigate = route.useNavigate();
+
+  // A tab switch replaces the entry, so Back leaves Settings instead of walking the tabs.
+  function handleTabChange(value: string) {
+    void navigate({ search: { tab: settingsTabFromUrl(value) }, replace: true });
+  }
 
   if (query.data) {
     const { settings, paths, user } = query.data;
     return (
-      <Tabs defaultValue="account" className="mx-auto w-full max-w-3xl">
+      <Tabs value={openTab} onValueChange={handleTabChange} className="mx-auto w-full max-w-3xl">
         <TabsList>
           <TabsTrigger value="account" className={TAB}>{t("set.account")}</TabsTrigger>
           <TabsTrigger value="downloads" className={TAB}>{t("nav.downloads")}</TabsTrigger>
@@ -42,7 +55,13 @@ export function SettingsScreen() {
     return (
       <div className="flex flex-col items-start gap-2">
         <StatusLine tone="error">{errorText(query.error)}</StatusLine>
-        <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={SMALL_BUTTON}
+          onClick={() => void query.refetch()}
+        >
           {t("common.retry")}
         </Button>
       </div>

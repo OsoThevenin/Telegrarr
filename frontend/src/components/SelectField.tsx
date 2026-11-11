@@ -15,7 +15,7 @@ export function SelectField({ label, children, ...select }: Props) {
       <Label htmlFor={id}>{label}</Label>
       <select
         id={id}
-        className="h-9 w-full max-w-sm rounded-md border border-input bg-background px-2 text-sm"
+        className="h-9 w-full max-w-sm rounded-md border border-input bg-card px-2 text-sm"
         {...select}
       >
         {children}

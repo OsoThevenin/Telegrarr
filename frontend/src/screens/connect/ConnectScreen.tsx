@@ -41,21 +41,24 @@ export function ConnectScreen() {
     const isRadarrSetUp = Boolean(settings.radarr_url) && settings.radarr_key_set;
 
     return (
-      <div className="mx-auto flex w-full max-w-180 flex-col gap-8">
+      // Desktop: the apps on the left; registering, Radarr's defaults and manual setup on the right.
+      <div className="mx-auto grid w-full max-w-6xl items-start gap-8 lg:grid-cols-2">
         <Step number={1} title={t("connect.step_apps")}>
           {ARR_APPS.map((app) => (
             <AppCard key={app} app={app} settings={settings} />
           ))}
         </Step>
-        <Step number={2} title={t("connect.register_title")}>
-          <RegisterCard settings={settings} />
-        </Step>
-        {isRadarrSetUp && (
-          <Step number={3} title={t("connect.step_defaults")}>
-            <RadarrDefaults />
+        <div className="flex flex-col gap-8">
+          <Step number={2} title={t("connect.register_title")}>
+            <RegisterCard settings={settings} />
           </Step>
-        )}
-        <ManualSetup apikey={arr.apikey} />
+          {isRadarrSetUp && (
+            <Step number={3} title={t("connect.step_defaults")}>
+              <RadarrDefaults />
+            </Step>
+          )}
+          <ManualSetup apikey={arr.apikey} />
+        </div>
       </div>
     );
   }
@@ -64,7 +67,7 @@ export function ConnectScreen() {
     return (
       <div className="flex flex-col items-start gap-2">
         <StatusLine tone="error">{errorText(query.error)}</StatusLine>
-        <Button type="button" variant="outline" size="sm" onClick={() => void query.refetch()}>
+        <Button type="button" variant="outline" size="sm" className="h-11 sm:h-7" onClick={() => void query.refetch()}>
           {t("common.retry")}
         </Button>
       </div>

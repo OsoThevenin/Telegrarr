@@ -32,7 +32,7 @@ function useStateMessage(state: DashboardState, status: Status): { text: string;
         text: t("health.telegram.off"),
         action: (
           <Button asChild variant="outline" size="sm">
-            <Link to="/settings">{t("banner.connect_telegram")}</Link>
+            <Link to="/settings" search={{ tab: "integrations" }}>{t("banner.connect_telegram")}</Link>
           </Button>
         ),
       };

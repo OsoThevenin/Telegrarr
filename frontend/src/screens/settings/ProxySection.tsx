@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
 import { isEnvLocked, isEnvRefusal, type Settings } from "@/lib/settings";
 import { TelegramFailure, telegramPost, useRefreshTelegram, useTelegramProxy } from "@/screens/settings/telegram-api";
+import { SMALL_BUTTON } from "@/lib/touch";
 
 type ProxyResult = { proxy?: string };
 
@@ -49,7 +50,7 @@ export function ProxySection({ settings }: { settings: Settings }) {
         <h3 className="text-sm font-medium">{t("set.proxy")}</h3>
         <p className="text-sm text-muted-foreground">{t("set.proxy_intro")}</p>
       </div>
-      <div className="w-full">
+      <div className="w-full max-w-md">
         <SecretField
           label={t("set.proxy_url")}
           state={secretState(settings, "tg_proxy", settings.proxy_set, proxy.data?.proxy)}
@@ -60,7 +61,13 @@ export function ProxySection({ settings }: { settings: Settings }) {
         />
       </div>
       {!isEnvLocked(settings, "tg_proxy") && (
-        <Button type="submit" variant="outline" size="sm" disabled={!draft?.trim() || connect.isPending}>
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          className={SMALL_BUTTON}
+          disabled={!draft?.trim() || connect.isPending}
+        >
           {t("set.proxy_connect")}
         </Button>
       )}
