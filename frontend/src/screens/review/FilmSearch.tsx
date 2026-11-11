@@ -1,44 +1,51 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/use-i18n";
 
+import { FilmHitCard } from "./FilmHitCard";
 import { searchFilms, type FilmHit } from "./review-api";
+import { useDebounced } from "./use-debounced";
 
-const SEARCH_DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 2;
 
 type Props = {
   initialQuery: string;
+  /** The release's parsed year: narrows the search for its own title. */
+  year: number | null;
   shouldFocus: boolean;
   isDisabled: boolean;
-  onPick: (film: FilmHit) => void;
+  selected: FilmHit | null;
+  /** The hit being assigned, if one is. */
+  assigning: FilmHit | null;
+  onSelect: (film: FilmHit) => void;
+  onAssign: (film: FilmHit) => void;
 };
 
-function filmLabel({ title, year, original_title }: FilmHit): string {
-  const dated = year ? `${title} (${year})` : title;
-  return original_title && original_title !== title ? `${dated} · ${original_title}` : dated;
+type SearchState = { isFetching: boolean; data: FilmHit[] | undefined };
+
+/** One sentence for the live status: searching, nothing found, or how many hits. */
+function useSearchStatus({ isFetching, data }: SearchState): string {
+  const { t, tn } = useI18n();
+  if (isFetching) return t("review.searching");
+  if (!data) return "";
+  return data.length === 0 ? t("review.no_films") : tn("review.results", data.length);
 }
 
-function useDebounced(value: string): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), SEARCH_DEBOUNCE_MS);
-    return () => clearTimeout(timer);
-  }, [value]);
-  return debounced;
-}
-
-export function FilmSearch({ initialQuery, shouldFocus, isDisabled, onPick }: Props) {
+export function FilmSearch(props: Props) {
+  const { initialQuery, year, shouldFocus, isDisabled, selected, assigning, onSelect, onAssign } = props;
   const { t, errorText } = useI18n();
   const [query, setQuery] = useState(initialQuery);
   const term = useDebounced(query).trim();
+  // The year belongs to the release's own title; a title the user typed may be another film.
+  const searchYear = term === initialQuery.trim() ? year : null;
   const films = useQuery({
-    queryKey: ["tmdb", "movies", term],
-    queryFn: () => searchFilms(term),
+    queryKey: ["tmdb", "movies", term, searchYear],
+    queryFn: () => searchFilms(term, searchYear),
     enabled: term.length >= MIN_QUERY_LENGTH,
   });
+  const status = useSearchStatus(films);
 
   return (
     <div className="flex flex-col gap-2">
@@ -51,28 +58,28 @@ export function FilmSearch({ initialQuery, shouldFocus, isDisabled, onPick }: Pr
         onChange={(event) => setQuery(event.target.value)}
         className="h-11 sm:h-9"
       />
-      {films.isFetching && <p className="text-sm text-muted-foreground">{t("review.searching")}</p>}
+      <p role="status" aria-live="polite" className="text-sm text-muted-foreground empty:hidden">
+        {status}
+      </p>
       {films.isError && (
         <p role="alert" className="text-sm text-destructive">
           {errorText(films.error)}
         </p>
       )}
-      {films.data?.length === 0 && <p className="text-sm text-muted-foreground">{t("review.no_films")}</p>}
       {films.data && films.data.length > 0 && (
         <>
           <p className="text-xs text-muted-foreground">{t("review.hits_hint")}</p>
-          <ul className="flex flex-col">
+          <ul className="flex flex-col gap-0.5">
             {films.data.map((film) => (
-              <li key={film.tmdb_id}>
-                <button
-                  type="button"
-                  disabled={isDisabled}
-                  onClick={() => onPick(film)}
-                  className="min-h-11 w-full rounded-md px-2 py-1.5 text-left text-sm outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 sm:min-h-8"
-                >
-                  {filmLabel(film)}
-                </button>
-              </li>
+              <FilmHitCard
+                key={film.tmdb_id}
+                film={film}
+                isSelected={selected?.tmdb_id === film.tmdb_id}
+                isAssigning={assigning?.tmdb_id === film.tmdb_id}
+                isDisabled={isDisabled}
+                onSelect={() => onSelect(film)}
+                onAssign={() => onAssign(film)}
+              />
             ))}
           </ul>
         </>

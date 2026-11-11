@@ -28,6 +28,15 @@ async def api_tmdb_movies(q: str = "", year: int | None = None, user=Depends(aut
         raise tmdb_failed(e)
 
 
+@router.get("/api/tmdb/movie")
+async def api_tmdb_movie(id: str = "", user=Depends(auth.require_user)):
+    """Preview the film a typed TMDB id, TMDB link or IMDb id names; assigns nothing."""
+    try:
+        return await tmdb.film_preview(id)
+    except tmdb.TMDBError as e:
+        raise tmdb_failed(e)
+
+
 @router.post("/api/integrations/tmdb/test")
 async def api_tmdb_test(payload: KeyTest | None = None, user=Depends(auth.require_user)):
     return await tmdb.test((payload.key if payload else None) or None)

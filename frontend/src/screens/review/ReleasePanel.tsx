@@ -1,8 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useI18n } from "@/i18n/use-i18n";
 
 import { FilmSearch } from "./FilmSearch";
@@ -11,8 +10,10 @@ import {
   discardRelease,
   isNotPending,
   type FilmChoice,
+  type FilmHit,
   type PendingRelease,
 } from "./review-api";
+import { TypedFilmId } from "./TypedFilmId";
 
 type Props = {
   id: string;
@@ -28,8 +29,9 @@ function initialSearch({ parsed_title, caption }: PendingRelease): string {
 
 export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Props) {
   const { t, tn, errorText } = useI18n();
+  // One candidate at a time: picking a hit clears the typed id, typing clears the pick.
+  const [selected, setSelected] = useState<FilmHit | null>(null);
   const [typedId, setTypedId] = useState("");
-  const typed = typedId.trim();
 
   function handleError(error: Error) {
     if (isNotPending(error)) onResolved(tn("review.bulk_gone", 1));
@@ -47,10 +49,17 @@ export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Pro
   });
   const failure = assign.error ?? discard.error;
   const isBusy = assign.isPending || discard.isPending;
+  const inFlight = assign.isPending ? assign.variables : null;
+  const assigningHit = inFlight && "tmdb_id" in inFlight ? selected : null;
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (typed && !isBusy) assign.mutate({ typed_id: typed });
+  function selectHit(film: FilmHit) {
+    setSelected(film);
+    setTypedId("");
+  }
+
+  function changeTypedId(value: string) {
+    setTypedId(value);
+    setSelected(null);
   }
 
   return (
@@ -58,34 +67,31 @@ export function ReleasePanel({ id, release, shouldFocusSearch, onResolved }: Pro
       {release.caption && <p className="text-sm whitespace-pre-line wrap-anywhere">{release.caption}</p>}
       <FilmSearch
         initialQuery={initialSearch(release)}
+        year={release.year}
         shouldFocus={shouldFocusSearch}
         isDisabled={isBusy}
-        onPick={(film) => assign.mutate({ tmdb_id: film.tmdb_id })}
+        selected={selected}
+        assigning={assigningHit}
+        onSelect={selectHit}
+        onAssign={(film) => assign.mutate({ tmdb_id: film.tmdb_id })}
       />
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <form onSubmit={handleSubmit} className="flex min-w-0 flex-1 basis-72 flex-col gap-1.5">
-          <label htmlFor={`${id}-film-id`} className="text-xs text-muted-foreground">
-            {t("review.id_placeholder")}
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id={`${id}-film-id`}
-              value={typedId}
-              onChange={(event) => setTypedId(event.target.value)}
-              className="h-11 min-w-0 flex-1 sm:h-9"
-            />
-            <Button type="submit" size="lg" disabled={!typed || isBusy} className="h-11 sm:h-9">
-              {assign.isPending ? t("review.assigning") : t("review.assign")}
-            </Button>
-          </div>
-        </form>
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <TypedFilmId
+          id={`${id}-film-id`}
+          value={typedId}
+          isBusy={isBusy}
+          isAssigning={inFlight !== null && "typed_id" in inFlight}
+          onChange={changeTypedId}
+          onAssign={(typed) => assign.mutate({ typed_id: typed })}
+        />
         <Button
           type="button"
           variant="destructive"
           size="lg"
           disabled={isBusy}
           onClick={() => discard.mutate()}
-          className="h-11 sm:h-9"
+          // Level with the id field: below its text-xs label (1rem) and the gap-1.5 under it.
+          className="h-11 sm:mt-5.5 sm:h-9"
         >
           {discard.isPending ? t("review.discarding") : t("review.discard")}
         </Button>

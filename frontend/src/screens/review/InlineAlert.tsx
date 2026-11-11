@@ -15,7 +15,7 @@ export function InlineAlert({ children, actionLabel, onAction }: Props) {
       className="flex items-start justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
     >
       <div className="min-w-0">{children}</div>
-      <Button type="button" variant="outline" size="sm" onClick={onAction}>
+      <Button type="button" variant="outline" size="sm" onClick={onAction} className="h-11 sm:h-7">
         {actionLabel}
       </Button>
     </div>

@@ -52,7 +52,7 @@ function NoMatches({ onClear, clearRef }: NoMatchesProps) {
   return (
     <div className="flex flex-col items-start gap-2 py-6">
       <p className="text-sm">{t("review.no_matches")}</p>
-      <Button ref={clearRef} type="button" variant="outline" size="sm" onClick={onClear}>
+      <Button ref={clearRef} type="button" variant="outline" size="sm" onClick={onClear} className="h-11 sm:h-7">
         {t("review.clear_filters")}
       </Button>
     </div>

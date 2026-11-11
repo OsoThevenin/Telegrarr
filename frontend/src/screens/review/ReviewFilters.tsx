@@ -25,7 +25,7 @@ function ReasonChip({ label, count, isPressed, onClick }: ReasonChipProps) {
       aria-pressed={isPressed}
       onClick={onClick}
       className={cn(
-        "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+        "inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors outline-none sm:min-h-8 focus-visible:ring-3 focus-visible:ring-ring/50",
         isPressed ? "border-primary bg-primary text-primary-foreground" : "bg-background hover:bg-muted",
       )}
     >
@@ -50,7 +50,7 @@ export function ReviewFilters({ releases, filters, onChange }: Props) {
           placeholder={t("review.search_hint")}
           value={filters.query}
           onChange={(event) => onChange({ ...filters, query: event.target.value })}
-          className="h-9 sm:flex-1"
+          className="h-11 sm:h-9 sm:flex-1"
         />
         <select
           aria-label={t("review.filter_channel")}
@@ -58,7 +58,7 @@ export function ReviewFilters({ releases, filters, onChange }: Props) {
           onChange={({ target }) =>
             onChange({ ...filters, channelId: target.value === "" ? null : Number(target.value) })
           }
-          className="h-9 min-w-0 rounded-lg border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-64 dark:bg-input/30"
+          className="h-11 min-w-0 rounded-lg border border-input bg-background px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:h-9 sm:max-w-64 dark:bg-input/30"
         >
           <option value="">{`${t("review.all_channels")} (${countWithoutChannel})`}</option>
           {channels.map(({ channelId, title, count }) => (

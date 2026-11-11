@@ -60,14 +60,36 @@ const MOSCA = release({
   reason: "review.reason.lookup_failed",
 });
 
-const AVATAR_FILM = { tmdb_id: 19995, title: "Avatar", original_title: "Avatar", year: 2009 };
-const AVATAR_2_FILM = { tmdb_id: 76600, title: "Avatar: El sentit de l'aigua", original_title: "Avatar: The Way of Water", year: 2022 };
+const AVATAR_FILM = {
+  tmdb_id: 19995,
+  title: "Avatar",
+  original_title: "Avatar",
+  year: "2009",
+  poster: "https://image.tmdb.org/t/p/w154/avatar.jpg",
+  overview: "Un marine paraplègic arriba a Pandora.",
+};
+const AVATAR_2_FILM = {
+  tmdb_id: 76600,
+  title: "Avatar: El sentit de l'aigua",
+  original_title: "Avatar: The Way of Water",
+  year: "2022",
+  poster: "",
+  overview: "",
+};
+const AVATAR_IMDB = "tt0499549";
+const AVATAR_PREVIEW = { ...AVATAR_FILM, imdb_id: AVATAR_IMDB, poster: "https://image.tmdb.org/t/p/w342/avatar.jpg" };
+const BAD_ID = { detail: { key: "err.tmdb.bad_id" } };
 
-type Posts = { assigned: unknown[]; discarded: string[]; searched: (string | null)[] };
+type Posts = {
+  assigned: unknown[];
+  discarded: string[];
+  searched: (string | null)[];
+  searchedYears: (string | null)[];
+};
 
 function serveReleases(initial: Release[]): Posts {
   let pending = initial;
-  const posts: Posts = { assigned: [], discarded: [], searched: [] };
+  const posts: Posts = { assigned: [], discarded: [], searched: [], searchedYears: [] };
   const remove = (mid: unknown) => {
     pending = pending.filter((r) => String(r.message_id) !== mid);
   };
@@ -84,8 +106,16 @@ function serveReleases(initial: Release[]): Posts {
       return HttpResponse.json({ title: "Avatar" });
     }),
     http.get("/api/tmdb/movies", ({ request }) => {
-      posts.searched.push(new URL(request.url).searchParams.get("q"));
+      const params = new URL(request.url).searchParams;
+      posts.searched.push(params.get("q"));
+      posts.searchedYears.push(params.get("year"));
       return HttpResponse.json([AVATAR_FILM, AVATAR_2_FILM]);
+    }),
+    http.get("/api/tmdb/movie", ({ request }) => {
+      const typed = new URL(request.url).searchParams.get("id");
+      return [String(AVATAR_FILM.tmdb_id), AVATAR_IMDB].includes(typed ?? "")
+        ? HttpResponse.json(AVATAR_PREVIEW)
+        : HttpResponse.json(BAD_ID, { status: 400 });
     }),
   );
   return posts;
@@ -237,8 +267,37 @@ describe("an expanded row", () => {
 
     expect(await screen.findByText("Doblatge en català")).toBeVisible();
     expect(await filmSearch()).toHaveValue("Avatar");
-    expect(await screen.findByRole("button", { name: /Avatar \(2009\)/ })).toBeVisible();
+    expect(await screen.findByRole("button", { name: /^Avatar \(2009\)/ })).toBeVisible();
     expect(posts.searched).toEqual(["Avatar"]);
+  });
+
+  it("searches the release's year first, then any year when that finds nothing", async () => {
+    const posts = serveReleases([AVATAR]);
+    server.use(
+      http.get("/api/tmdb/movies", ({ request }) => {
+        const params = new URL(request.url).searchParams;
+        posts.searchedYears.push(params.get("year"));
+        return HttpResponse.json(params.get("year") ? [] : [AVATAR_FILM]);
+      }),
+    );
+    const { user } = await renderApp({ route: "/review" });
+
+    await openRow(user, /^Avatar\.2022/);
+
+    expect(await screen.findByRole("button", { name: /^Avatar \(2009\)/ })).toBeVisible();
+    expect(posts.searchedYears).toEqual(["2022", null]);
+  });
+
+  it("announces the search's progress and outcome in one polite status", async () => {
+    serveReleases([AVATAR]);
+    const { user } = await renderApp({ route: "/review" });
+
+    await openRow(user, /^Avatar\.2022/);
+
+    const row = await rowOf("Avatar.2022.1080p.mkv");
+    const status = within(row).getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    await waitFor(() => expect(status).toHaveTextContent("2 pel·lícules a TMDB"));
   });
 
   it("names a film's original title when it differs", async () => {
@@ -281,7 +340,7 @@ describe("an expanded row", () => {
 
     await openRow(user, /^Avatar\.2022/);
 
-    expect(await screen.findByText(/No s’ha trobat cap pel·lícula a TMDB/)).toBeVisible();
+    expect(await screen.findByRole("status")).toHaveTextContent(/No s’ha trobat cap pel·lícula a TMDB/);
   });
 
   it("reports a TMDB search that fails", async () => {
@@ -296,12 +355,42 @@ describe("an expanded row", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("TMDB down");
   });
 
-  it("assigns the film a click picks, then moves on to the next row", async () => {
+  it("shows each hit as a card with its poster and a TMDB link that does not pick it", async () => {
+    const posts = serveReleases([AVATAR]);
+    const { user } = await renderApp({ route: "/review" });
+
+    await openRow(user, /^Avatar\.2022/);
+    const hit = await screen.findByRole("button", { name: /^Avatar \(2009\)/ });
+    const card = hit.closest("li") as HTMLElement;
+    const link = within(card).getByRole("link", { name: /Avatar.*TMDB/ });
+    await user.click(link);
+
+    expect(card.querySelector("img")).toHaveAttribute("src", AVATAR_FILM.poster);
+    expect(card.querySelector("img")).toHaveAttribute("loading", "lazy");
+    expect(link).toHaveAttribute("href", "https://www.themoviedb.org/movie/19995");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    expect(hit).toHaveAttribute("aria-pressed", "false");
+    expect(posts.assigned).toEqual([]);
+  });
+
+  it("previews the film a click selects, and assigns it only on Assigna", async () => {
     const posts = serveReleases([AVATAR, MOSCA]);
     const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
-    await user.click(await screen.findByRole("button", { name: /Avatar \(2009\)/ }));
+    const hit = await screen.findByRole("button", { name: /^Avatar \(2009\)/ });
+    await user.click(hit);
+
+    expect(hit).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText(AVATAR_FILM.overview)).toBeVisible();
+    expect(await screen.findByRole("link", { name: /Avatar.*IMDb/ })).toHaveAttribute(
+      "href",
+      `https://www.imdb.com/title/${AVATAR_IMDB}/`,
+    );
+    expect(posts.assigned).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: /^Assigna Avatar \(2009\)/ }));
 
     expect(await toast("S’ha ofert a Radarr com a Avatar")).toBeVisible();
     expect(posts.assigned).toEqual([{ tmdb_id: 19995 }]);
@@ -310,16 +399,57 @@ describe("an expanded row", () => {
     expect(await filmSearch()).toHaveValue("La Mosca");
   });
 
-  it("assigns a typed id on Enter, and only once there is one", async () => {
+  it("marks the choice being assigned while it is in flight", async () => {
+    serveReleases([AVATAR]);
+    let finish = () => {};
+    server.use(
+      http.post("/api/review/:cid/:mid/assign", async () => {
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return HttpResponse.json({ title: "Avatar" });
+      }),
+    );
+    const { user } = await renderApp({ route: "/review" });
+
+    await openRow(user, /^Avatar\.2022/);
+    await user.click(await screen.findByRole("button", { name: /^Avatar \(2009\)/ }));
+    await user.click(screen.getByRole("button", { name: /^Assigna Avatar/ }));
+
+    const card = screen.getByRole("button", { name: /^Avatar \(2009\)/ }).closest("li") as HTMLElement;
+    expect(card).toHaveAttribute("aria-busy", "true");
+    expect(within(card).getByText("S’està assignant…")).toBeVisible();
+    act(() => finish());
+  });
+
+  it("previews a typed id before Assigna is enabled, then assigns it on Enter", async () => {
     const posts = serveReleases([AVATAR]);
     const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
-    expect(screen.getByRole("button", { name: "Assigna" })).toBeDisabled();
-    await user.type(screen.getByLabelText(/identificador o enllaç/), "tt0499549{Enter}");
+    const typedAssign = screen.getByRole("button", { name: "Assigna" });
+    expect(typedAssign).toBeDisabled();
+    await user.type(screen.getByLabelText(/identificador o enllaç/), AVATAR_IMDB);
+
+    expect(await screen.findByText(AVATAR_FILM.overview)).toBeVisible();
+    await waitFor(() => expect(typedAssign).toBeEnabled());
+    await user.type(screen.getByLabelText(/identificador o enllaç/), "{Enter}");
 
     expect(await screen.findByText("No hi ha res per revisar")).toBeVisible();
-    expect(posts.assigned).toEqual([{ typed_id: "tt0499549" }]);
+    expect(posts.assigned).toEqual([{ typed_id: AVATAR_IMDB }]);
+  });
+
+  it("says why a typed id names no film, and keeps Assigna off", async () => {
+    const posts = serveReleases([AVATAR]);
+    const { user } = await renderApp({ route: "/review" });
+
+    await openRow(user, /^Avatar\.2022/);
+    await user.type(screen.getByLabelText(/identificador o enllaç/), "nope{Enter}");
+
+    const row = await rowOf("Avatar.2022.1080p.mkv");
+    expect(await within(row).findByRole("alert")).toHaveTextContent(/Escriu un identificador de TMDB/);
+    expect(screen.getByRole("button", { name: "Assigna" })).toBeDisabled();
+    expect(posts.assigned).toEqual([]);
   });
 
   it("keeps the row and reports a failed Assign in it", async () => {
@@ -332,12 +462,12 @@ describe("an expanded row", () => {
     const { user } = await renderApp({ route: "/review" });
 
     await openRow(user, /^Avatar\.2022/);
-    await user.type(screen.getByLabelText(/identificador o enllaç/), "nope");
-    await user.click(screen.getByRole("button", { name: "Assigna" }));
+    await user.click(await screen.findByRole("button", { name: /^Avatar \(2009\)/ }));
+    await user.click(screen.getByRole("button", { name: /^Assigna Avatar/ }));
 
     const row = await rowOf("Avatar.2022.1080p.mkv");
     expect(await within(row).findByRole("alert")).toBeVisible();
-    expect(screen.getByLabelText(/identificador o enllaç/)).toHaveValue("nope");
+    expect(screen.getByRole("button", { name: /^Avatar \(2009\)/ })).toHaveAttribute("aria-pressed", "true");
     expect(shownNames()).toHaveLength(2);
   });
 

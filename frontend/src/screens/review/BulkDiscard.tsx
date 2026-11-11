@@ -41,7 +41,7 @@ export function BulkDiscard({ selected, hiddenCount, onClear, onStart, onSettled
           {tn("review.hidden_by_filters", hiddenCount)}
         </span>
       )}
-      <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+      <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-11 sm:h-7">
         {t("review.clear_selection")}
       </Button>
       <AlertDialog>
@@ -51,6 +51,7 @@ export function BulkDiscard({ selected, hiddenCount, onClear, onStart, onSettled
             variant="destructive"
             size="sm"
             disabled={discard.isPending}
+            className="h-11 sm:h-7"
           >
             {discard.isPending ? t("review.discarding") : t("review.bulk_discard")}
           </Button>

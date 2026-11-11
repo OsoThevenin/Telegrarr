@@ -98,7 +98,12 @@ def fake_tmdb() -> FakeTMDB:
     """What TMDB knows, for the key seed_review stores."""
     fake = FakeTMDB()
     fake.add_movie(19995, titles={"en-US": "Avatar", "ca-ES": "Avatar"}, release_date="2009-12-18",
-                   imdb_id="tt0499549")
+                   imdb_id="tt0499549", overviews={
+                       "ca-ES": "Un marine paraplègic és enviat a la lluna Pandora, on es debat entre "
+                                "complir les ordres i protegir el món que l’ha acollit."})
+    fake.add_movie(76600, titles={"en-US": "Avatar: The Way of Water", "ca-ES": "Avatar: El sentit de l'aigua"},
+                   release_date="2022-12-14", imdb_id="tt1630029")
+    fake.add_movie(183392, titles={"en-US": "Capturing Avatar"}, release_date="2010-11-16", has_poster=False)
     fake.add_series(1001, titles={"ca-ES": "Merlí", "en-US": "Merlí"}, first_air_date="2015-09-14",
                     tvdb_id=2001, imdb_id="tt4419684")
     return fake

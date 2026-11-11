@@ -13,12 +13,18 @@ export type PendingRelease = {
   topic_title: string | null;
 };
 
+/** A TMDB search hit. `year` and `poster` come as "" when TMDB has none. */
 export type FilmHit = {
   tmdb_id: number;
   title: string;
   original_title: string | null;
-  year: number | null;
+  year: string;
+  poster: string;
+  overview?: string;
 };
+
+/** What a TMDB id, TMDB link or IMDb id names, resolved before assigning it. */
+export type FilmPreview = FilmHit & { imdb_id: string | null };
 
 /** A search pick, or whatever the user typed: a TMDB id, a TMDB link or an IMDb id. */
 export type FilmChoice = { tmdb_id: number } | { typed_id: string };
@@ -45,8 +51,24 @@ export const releaseKey = (release: PendingRelease): string =>
 
 export const fetchPending = (): Promise<PendingRelease[]> => api.get<PendingRelease[]>("/api/review");
 
-export const searchFilms = (query: string): Promise<FilmHit[]> =>
-  api.get<FilmHit[]>(`/api/tmdb/movies?q=${encodeURIComponent(query)}`);
+const searchFilmsIn = (query: string, year: number | null): Promise<FilmHit[]> => {
+  const params = new URLSearchParams(year ? { q: query, year: String(year) } : { q: query });
+  return api.get<FilmHit[]>(`/api/tmdb/movies?${params}`);
+};
+
+/** Searches the release's year first, as it narrows TMDB best; then any year when that finds nothing. */
+export async function searchFilms(query: string, year: number | null = null): Promise<FilmHit[]> {
+  const hits = await searchFilmsIn(query, year);
+  return hits.length > 0 || !year ? hits : searchFilmsIn(query, null);
+}
+
+/** Read-only: names the film without assigning it. */
+export const previewFilm = (typed: string | number): Promise<FilmPreview> =>
+  api.get<FilmPreview>(`/api/tmdb/movie?id=${encodeURIComponent(String(typed))}`);
+
+export const tmdbFilmUrl = (tmdbId: number): string => `https://www.themoviedb.org/movie/${tmdbId}`;
+
+export const imdbFilmUrl = (imdbId: string): string => `https://www.imdb.com/title/${imdbId}/`;
 
 export const assignRelease = (release: PendingRelease, choice: FilmChoice): Promise<{ title: string }> =>
   api.post<{ title: string }>(`${releasePath(release)}/assign`, choice);

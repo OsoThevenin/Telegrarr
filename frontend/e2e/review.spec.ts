@@ -7,7 +7,16 @@ test("assigns one release, then bulk-discards the rest", async ({ signedInPage: 
   await expect(rows).toHaveCount(3);
 
   await page.getByRole("button", { name: /^Avatar\.2009/ }).click();
-  await page.getByRole("button", { name: /^Avatar \(2009\)/ }).click();
+  const hit = page.getByRole("button", { name: /^Avatar \(2009\)/ });
+  await expect(page.getByRole("link", { name: /Avatar \(2009\).*TMDB/ })).toHaveAttribute(
+    "href",
+    "https://www.themoviedb.org/movie/19995",
+  );
+  await hit.click();
+  await expect(hit).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("link", { name: /Avatar \(2009\).*IMDb/ })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await page.getByRole("button", { name: /^Assigna Avatar \(2009\)/ }).click();
 
   await expect(page.getByText("S’ha ofert a Radarr")).toBeVisible();
   await expect(rows).toHaveCount(2);
