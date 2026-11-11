@@ -8,7 +8,7 @@ import { useI18n } from "@/i18n/use-i18n";
 import { statusQuery, type Status } from "@/lib/status";
 import { Capacity } from "@/screens/dashboard/Capacity";
 import { dashboardState } from "@/screens/dashboard/dashboard-data";
-import { DownloadsSummary } from "@/screens/dashboard/DownloadsSummary";
+import { ActiveDownloads } from "@/screens/dashboard/ActiveDownloads";
 import { RecentlyGrabbed } from "@/screens/dashboard/RecentlyGrabbed";
 import { StatStrip } from "@/screens/dashboard/StatStrip";
 import { StatusLine } from "@/screens/dashboard/StatusLine";
@@ -31,7 +31,7 @@ function Overview({ status }: { status: Status }) {
   return (
     <>
       <StatusLine status={status} />
-      <DownloadsSummary status={status} />
+      <ActiveDownloads status={status} />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Capacity status={status} />
         <UpNext />

@@ -18,6 +18,12 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        // Telegrarr: a quiet full-width row for the sidebar, like its nav links.
+        sidebar:
+          "w-full justify-start gap-3 px-3 text-muted-foreground hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent",
+        // Telegrarr: the old UI's ghost button, muted until hovered, for row and list actions.
+        quiet:
+          "text-muted-foreground hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground dark:hover:bg-muted/50",
       },
       size: {
         default:

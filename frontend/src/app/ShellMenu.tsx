@@ -5,6 +5,7 @@ import { LogOut } from "lucide-react";
 import { LanguageSwitch } from "@/app/LanguageSwitch";
 import { NAV_ITEMS } from "@/app/navigation";
 import { PauseToggle } from "@/app/PauseToggle";
+import { buttonVariants } from "@/components/ui/button";
 import { useI18n } from "@/i18n/use-i18n";
 import { statusQuery } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -30,10 +31,10 @@ function TelegramState() {
 
   if (!status) return null;
   return (
-    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+    <p className="flex items-center gap-2 px-3 py-1 text-sm text-muted-foreground">
       <span
         aria-hidden="true"
-        className={cn("size-2 rounded-full", status.authorized ? "bg-primary" : "bg-destructive")}
+        className={cn("size-2 rounded-full", status.authorized ? "bg-success" : "bg-destructive")}
       />
       {status.authorized ? t("shell.tg_connected") : t("shell.tg_offline")}
     </p>
@@ -63,7 +64,7 @@ export function ShellMenu({ onNavigate }: Props) {
             key={to}
             to={to}
             activeOptions={{ exact: to === "/" }}
-            className={`${ROW} aria-[current=page]:bg-sidebar-accent aria-[current=page]:text-primary`}
+            className={`${ROW} aria-[current=page]:bg-primary/10 aria-[current=page]:text-primary`}
             onClick={onNavigate}
           >
             <Icon className="size-4" aria-hidden="true" />
@@ -71,11 +72,11 @@ export function ShellMenu({ onNavigate }: Props) {
           </Link>
         ))}
       </nav>
-      <div className="flex flex-col gap-2 px-3 md:px-0">
+      <div className="flex flex-col gap-1 border-t border-sidebar-border pt-3">
         <TelegramState />
         <PauseToggle />
         <LanguageSwitch />
-        <a href="/logout" className={`${ROW} -mx-3 text-muted-foreground md:mx-0 md:px-0`}>
+        <a href="/logout" className={buttonVariants({ variant: "sidebar", size: "lg" })}>
           <LogOut className="size-4" aria-hidden="true" />
           {t("shell.sign_out")}
         </a>

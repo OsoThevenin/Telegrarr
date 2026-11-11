@@ -50,8 +50,9 @@ function answer({ status = WORLD, active = [], completed = [], tasks = [] }: Wor
     http.get("/api/status", () => HttpResponse.json(status)),
     http.get("/api/system/tasks", () => HttpResponse.json(tasks)),
     http.get("/api/downloads", ({ request }) => {
+      // The active rows come from the unfiltered list; Recently grabbed asks for completed ones.
       const wanted = new URL(request.url).searchParams.get("status");
-      return HttpResponse.json(wanted === "downloading" ? active : completed);
+      return HttpResponse.json(wanted ? completed : [...active, ...completed]);
     }),
   );
 }
@@ -96,8 +97,8 @@ describe("Dashboard", () => {
     await renderApp({ route: "/" });
 
     expect(await statLink(/2\s*Canals/)).toHaveAttribute("href", "/channels");
-    expect(await statLink(/1\s*Baixant/)).toHaveAttribute("href", "/downloads?tab=active");
-    expect(await statLink(/5\s*A la cua/)).toHaveAttribute("href", "/downloads?tab=active");
+    expect(await statLink(/1\s*Baixant/)).toHaveAttribute("href", "/downloads#en-curs");
+    expect(await statLink(/5\s*A la cua/)).toHaveAttribute("href", "/downloads#en-curs");
     expect(await statLink(/12\s*Completades/)).toHaveAttribute("href", "/downloads?tab=completed");
     expect(await statLink(/0\s*Fallides/)).toHaveAttribute("href", "/downloads?tab=failed");
   });
@@ -194,36 +195,64 @@ describe("Dashboard", () => {
     });
   });
 
-  describe("Downloads summary", () => {
+  describe("Active downloads", () => {
     const ACTIVE = download(9, {
       status: "downloading",
       progress: 0.47,
+      speed_mbs: 3.5,
       save_path: "/media/movies/Pa Negre (2010).mkv",
       file_name: "pa.negre.mkv",
     });
+    const QUEUED = download(4, { status: "queued", progress: 0, file_name: "merli.s01e01.mkv" });
 
-    it("sums up the queue and links to Downloads", async () => {
-      answer({ active: [ACTIVE] });
+    it("lists transfers first, then the queue, each with its state and a way to stop it", async () => {
+      answer({ active: [QUEUED, ACTIVE] });
       await renderApp({ route: "/" });
-      await statLink(/12\s*Completades/);
 
-      emitSnapshot({ stats: STATS, speed: 12.4, disk: WORLD.disk, active: [ACTIVE] as never });
-
-      const summary = await screen.findByRole("link", { name: /1 en curs · 12\.4 MB\/s · 5 a la cua/ });
-      expect(summary).toHaveAttribute("href", "/downloads");
+      const list = await screen.findByRole("list", { name: "Actiu ara" });
+      const rows = await within(list).findAllByRole("listitem");
+      expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringMatching(/^Pa Negre \(2010\)\.mkv.*Baixant.*Atura.*Cinema Club · 1\.07 GB · 3\.5 MB\/s/),
+        expect.stringMatching(/^merli\.s01e01\.mkv.*A la cua.*Atura.*en espera · 0%/),
+      ]);
+      expect(within(rows[0]).getByRole("meter", { name: "Pa Negre (2010).mkv" })).toHaveAttribute("aria-valuenow", "47");
     });
 
-    it("names one transfer with its live progress, and no queue", async () => {
-      answer({ active: [ACTIVE, download(8, { status: "downloading" })] });
+    it("follows the live progress and speed", async () => {
+      answer({ active: [ACTIVE] });
       await renderApp({ route: "/" });
+      await screen.findByRole("meter", { name: "Pa Negre (2010).mkv" });
 
-      expect(await screen.findByText("Pa Negre (2010).mkv")).toBeVisible();
-      expect(screen.getByRole("meter", { name: "Pa Negre (2010).mkv" })).toHaveAttribute("aria-valuenow", "47");
-      expect(screen.queryByRole("button", { name: /Atura/ })).not.toBeInTheDocument();
-
-      emitSnapshot({ stats: STATS, disk: WORLD.disk, active: [{ ...ACTIVE, progress: 0.8 }] as never });
+      emitSnapshot({ stats: STATS, speed: 12.4, disk: WORLD.disk, active: [{ ...ACTIVE, progress: 0.8 }] as never });
 
       expect(await screen.findByRole("meter", { name: "Pa Negre (2010).mkv" })).toHaveAttribute("aria-valuenow", "80");
+      expect(screen.getByText("12.4 MB/s")).toBeVisible();
+    });
+
+    it("stops a download from its row", async () => {
+      const stopped: string[] = [];
+      answer({ active: [ACTIVE] });
+      server.use(
+        http.post("/api/downloads/:id/cancel", ({ params }) => {
+          stopped.push(String(params.id));
+          return HttpResponse.json({ ok: true });
+        }),
+      );
+      const { user } = await renderApp({ route: "/" });
+
+      await user.click(await screen.findByRole("button", { name: "Atura" }));
+
+      await expect.poll(() => stopped).toEqual(["9"]);
+    });
+
+    it("shows five rows and links to the rest", async () => {
+      const queue = [1, 2, 3, 4, 5, 6, 7].map((id) => download(id, { status: "queued", progress: 0 }));
+      answer({ active: queue });
+      await renderApp({ route: "/" });
+
+      const list = await screen.findByRole("list", { name: "Actiu ara" });
+      expect(await within(list).findAllByRole("listitem")).toHaveLength(5);
+      expect(screen.getByRole("link", { name: "2 més a Baixades" })).toHaveAttribute("href", "/downloads#en-curs");
     });
 
     it("is one quiet line when nothing is downloading", async () => {
@@ -237,13 +266,13 @@ describe("Dashboard", () => {
       );
     });
 
-    it("says so when the transfer cannot be loaded", async () => {
+    it("says so when the downloads cannot be loaded", async () => {
       answer();
       server.use(
         http.get("/api/downloads", ({ request }) =>
-          new URL(request.url).searchParams.get("status") === "downloading"
-            ? HttpResponse.json({ detail: "Sense baixades" }, { status: 500 })
-            : HttpResponse.json([]),
+          new URL(request.url).searchParams.get("status")
+            ? HttpResponse.json([])
+            : HttpResponse.json({ detail: "Sense baixades" }, { status: 500 }),
         ),
       );
 

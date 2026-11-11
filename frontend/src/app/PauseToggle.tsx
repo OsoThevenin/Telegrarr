@@ -10,7 +10,13 @@ export function PauseToggle() {
   const Icon = isPaused ? Play : Pause;
 
   return (
-    <Button variant="outline" disabled={isPaused === undefined || isPending} onClick={toggle}>
+    <Button
+      variant="sidebar"
+      size="lg"
+      className={isPaused ? "text-warning hover:text-warning" : undefined}
+      disabled={isPaused === undefined || isPending}
+      onClick={toggle}
+    >
       <Icon aria-hidden="true" />
       {isPaused ? t("shell.resume") : t("shell.pause")}
     </Button>

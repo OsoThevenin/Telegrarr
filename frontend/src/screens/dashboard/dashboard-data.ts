@@ -23,11 +23,6 @@ export type DashboardState =
   | { kind: "failed" }
   | { kind: "ok" };
 
-export const activeDownloadQuery = queryOptions({
-  queryKey: [...DOWNLOADS_KEY, { status: "downloading", limit: 1 }],
-  queryFn: () => api.get<Download[]>("/api/downloads?status=downloading&limit=1"),
-});
-
 export const recentDownloadsQuery = queryOptions({
   queryKey: [...DOWNLOADS_KEY, { status: "completed", limit: RECENT_SAMPLE }],
   queryFn: () => api.get<Download[]>(`/api/downloads?status=completed&limit=${RECENT_SAMPLE}`),

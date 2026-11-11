@@ -3,7 +3,7 @@ import type { MeterTone } from "@/screens/dashboard/dashboard-data";
 
 const FILL_BY_TONE: Record<MeterTone, string> = {
   normal: "bg-primary",
-  warning: "bg-amber-500",
+  warning: "bg-warning",
   critical: "bg-destructive",
 };
 
