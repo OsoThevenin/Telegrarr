@@ -75,7 +75,9 @@ jobs:
       - run: pnpm test
 
       - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
+        # Browser only: the runner image already has Chromium's libraries, and apt mirrors
+        # have been unreachable from runners, which failed the job for fonts the tests never use.
+        run: pnpm exec playwright install chromium
 
       - name: Run Playwright against the real backend
         run: pnpm exec playwright test
