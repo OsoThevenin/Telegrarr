@@ -16,7 +16,7 @@ import asyncio
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Callable, Iterable
+from typing import Any, AsyncIterator, Callable, Iterable
 
 import httpx
 from telethon import utils
@@ -357,6 +357,13 @@ class FakeTelegram:
         if channel is None:
             raise ValueError(f"Cannot find any entity corresponding to {query!r}")
         return self._entity(self.readable(channel.chat_id))
+
+    async def iter_dialogs(self, limit: int | None = None) -> AsyncIterator[SimpleNamespace]:
+        """The chats the account is in, as ``tg.list_dialogs`` reads them."""
+        joined = [c for c in self.channels.values() if c.chat_id not in self.inaccessible]
+        for channel in joined[:limit]:
+            yield SimpleNamespace(id=channel.chat_id, title=channel.title, is_user=False,
+                                  entity=self._entity(channel))
 
     async def __call__(self, request: Any) -> Any:
         self.requests.append(request)

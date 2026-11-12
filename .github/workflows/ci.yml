@@ -41,6 +41,53 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+  frontend:
+    name: Frontend (type check, build, Vitest, Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          pip install -r ../requirements.txt -r ../requirements-dev.txt
+
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test
+
+      - name: Install Chromium
+        # Browser only: the runner image already has Chromium's libraries, and apt mirrors
+        # have been unreachable from runners, which failed the job for fonts the tests never use.
+        run: pnpm exec playwright install chromium
+
+      - name: Run Playwright against the real backend
+        run: pnpm exec playwright test
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+
   container:
     name: Container (PUID/PGID)
     runs-on: ubuntu-latest

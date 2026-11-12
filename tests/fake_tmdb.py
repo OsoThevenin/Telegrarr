@@ -41,6 +41,7 @@ class FakeMovie:
     release_date: str = ""
     imdb_id: str | None = None
     poster_path: str | None = None
+    overviews: dict[str, str] = field(default_factory=dict)   # language -> synopsis; TMDB answers "" when untranslated
 
     def title_in(self, language: str) -> str:
         return self.titles.get(language) or self.original_title
@@ -64,9 +65,9 @@ class FakeTMDB:
 
     def add_movie(self, tmdb_id: int, *, titles: dict[str, str], release_date: str = "",
                   imdb_id: str | None = None, original_title: str | None = None,
-                  has_poster: bool = True) -> FakeMovie:
+                  has_poster: bool = True, overviews: dict[str, str] | None = None) -> FakeMovie:
         movie = FakeMovie(tmdb_id=tmdb_id, titles=titles, release_date=release_date, imdb_id=imdb_id,
-                          poster_path=f"/movie{tmdb_id}.jpg" if has_poster else None,
+                          poster_path=f"/movie{tmdb_id}.jpg" if has_poster else None, overviews=overviews or {},
                           original_title=original_title or titles.get("en-US") or next(iter(titles.values())))
         self.movies[tmdb_id] = movie
         return movie
@@ -143,7 +144,8 @@ class FakeTMDB:
                 if query and (query in m.titles.get(language, "").lower() or query in m.original_title.lower())
                 and (not year or m.year() == year)]
         results = [{"id": m.tmdb_id, "title": m.title_in(language), "original_title": m.original_title,
-                    "release_date": m.release_date, "poster_path": m.poster_path} for m in hits]
+                    "release_date": m.release_date, "poster_path": m.poster_path,
+                    "overview": m.overviews.get(language, "")} for m in hits]
         return httpx.Response(200, json={"page": 1, "results": results, "total_results": len(results)})
 
     def _movie(self, tmdb_id: int, language: str) -> httpx.Response:
@@ -153,7 +155,8 @@ class FakeTMDB:
         return httpx.Response(200, json={"id": tmdb_id, "title": movie.title_in(language),
                                          "original_title": movie.original_title,
                                          "release_date": movie.release_date, "imdb_id": movie.imdb_id,
-                                         "poster_path": movie.poster_path})
+                                         "poster_path": movie.poster_path,
+                                         "overview": movie.overviews.get(language, "")})
 
     def _external_ids(self, tmdb_id: int) -> httpx.Response:
         show = self.series.get(tmdb_id)

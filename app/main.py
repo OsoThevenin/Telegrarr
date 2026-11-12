@@ -5,7 +5,7 @@ import asyncio
 import logging
 import contextlib
 
-from fastapi import FastAPI, Request, Form, Depends, HTTPException
+from fastapi import FastAPI, Request, Form, Depends, HTTPException, Query
 from fastapi.responses import (RedirectResponse, HTMLResponse, JSONResponse,
                                Response, StreamingResponse, FileResponse)
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +22,7 @@ from .config import summary
 from .log_redaction import protect_logs
 from .routes import channel_series, connect as connect_routes, review, tmdb as tmdb_routes
 from .routes import catalog as catalog_routes, downloads as download_routes, photos as photo_routes
-from .routes import topics as topic_routes
+from .routes import spa as spa_routes, topics as topic_routes
 from .routes.common import CONFLICT, TOO_MANY, bad as _bad, keyed as _keyed, normalize_chat_id as _normalize_chat_id
 from .routes.common import normalize_topic_id as _normalize_topic_id
 
@@ -69,11 +69,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Telegrarr", version=__version__, lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=os.path.join(HERE, "static")), name="static")
 for _router in (catalog_routes, channel_series, connect_routes, download_routes,
-                photo_routes, review, tmdb_routes, topic_routes):
+                photo_routes, review, spa_routes, tmdb_routes, topic_routes):
     app.include_router(_router.router)
 
 
-# The UI is entirely first-party: templates, /static assets and inline handlers,
+# The UI is entirely first-party: the built app, the login template and /static assets,
 # with no CDN or remote XHR. A tight CSP therefore costs nothing and shuts down
 # injected-script and clickjacking attempts.
 _CSP = ("default-src 'self'; "
@@ -99,14 +99,10 @@ async def security_headers(request: Request, call_next):
     return resp
 
 
+app.add_exception_handler(404, spa_routes.fallback)
+
+
 # ── auth / pages ──────────────────────────────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    if not auth.cookie_user(request):
-        return RedirectResponse("/login", status_code=303)
-    return templates.TemplateResponse(request, "index.html", _page_ctx(i18n.ui_lang()))
-
-
 _LOGIN_ERRORS = {"invalid": "login.err.invalid", "throttled": "login.err.throttled"}
 
 
@@ -161,15 +157,6 @@ async def logout():
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
-
-
-@app.get("/sw.js")
-async def service_worker():
-    # Served from the root so its scope covers the whole app (a /static/ path
-    # would only control /static/). Service-Worker-Allowed lifts the scope cap.
-    return FileResponse(os.path.join(HERE, "static", "sw.js"),
-                        media_type="application/javascript",
-                        headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
 
 def _stats(c) -> dict:
@@ -408,7 +395,9 @@ async def api_backfill(cid: int, user=Depends(auth.require_user)):
 # ── downloads ─────────────────────────────────────────────────────────
 @app.get("/api/downloads")
 async def api_downloads(limit: int = 100, status: str = "",
+                        channel_id: list[int] = Query(default=[]),
                         user=Depends(auth.require_user)):
+    """``channel_id`` may repeat: a show reads from several channels."""
     limit = max(1, min(limit, 1000))
     # season/episode as published (a resolved two-part episode carries the
     # channel's own number in parsed_episode and where it came from in episode_source)
@@ -416,10 +405,15 @@ async def api_downloads(limit: int = 100, status: str = "",
          "r.season, r.episode, r.parsed_episode, r.episode_source "
          "FROM downloads d LEFT JOIN channels c ON c.id=d.channel_id "
          "LEFT JOIN releases r ON r.channel_id=d.channel_id AND r.message_id=d.message_id")
-    args = []
+    where, args = [], []
     if status:
-        q += " WHERE d.status=?"
+        where.append("d.status=?")
         args.append(status)
+    if channel_id:
+        where.append(f"d.channel_id IN ({','.join('?' * len(channel_id))})")
+        args.extend(channel_id)
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY d.id DESC LIMIT ?"
     args.append(limit)
     with db.conn() as c:

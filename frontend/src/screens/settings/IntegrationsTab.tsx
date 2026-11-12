@@ -1,0 +1,258 @@
+import { useId, useState, type FormEvent } from "react";
+
+import { useMutation } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+
+import { SaveOutcomeLine } from "@/components/SaveOutcomeLine";
+import { SecretField, secretPatch, secretState } from "@/components/SecretField";
+import { StatusLine } from "@/components/StatusLine";
+import { TestOutcome } from "@/components/TestOutcome";
+import { TextField } from "@/components/TextField";
+import { ToneBadge } from "@/components/ToneBadge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/i18n/use-i18n";
+import { api } from "@/lib/api";
+import { isEnvLocked, useSaveSettings, useSettingsForm, type Settings, type TestResult } from "@/lib/settings";
+import { TelegramCard } from "@/screens/settings/TelegramCard";
+import { BUTTON, SMALL_BUTTON } from "@/lib/touch";
+
+type Props = {
+  settings: Settings;
+};
+
+export function IntegrationsTab({ settings }: Props) {
+  const { t } = useI18n();
+
+  return (
+    <>
+      <TelegramCard settings={settings} />
+      <TmdbCard settings={settings} />
+      <PlexCard settings={settings} />
+      <NotificationsCard settings={settings} />
+      <Card>
+        <CardHeader>
+          <CardTitle as="h2">{t("set.arr")}</CardTitle>
+          <CardDescription>
+            <Link to="/connect" className="text-primary underline-offset-4 hover:underline">
+              {t("set.arr_open_connect")}
+            </Link>
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </>
+  );
+}
+
+function ConfiguredBadge({ isConfigured }: { isConfigured: boolean }) {
+  const { t } = useI18n();
+
+  return (
+    <ToneBadge tone={isConfigured ? "success" : "neutral"}>
+      {isConfigured ? t("set.status.configured") : t("set.status.not_configured")}
+    </ToneBadge>
+  );
+}
+
+function useTestEndpoint(path: string) {
+  return useMutation<TestResult, unknown, void>({
+    mutationFn: () => api.post<TestResult>(path, {}),
+  });
+}
+
+type SaveSecret = (secrets: Record<string, unknown>) => Promise<boolean>;
+
+/** A secret field whose save goes on to test the integration it unlocks. */
+function useTestedSecret(key: string, testPath: string, save: SaveSecret) {
+  const clear = useSaveSettings();
+  const test = useTestEndpoint(testPath);
+  const [draft, setDraft] = useState<string | null>(null);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!(await save(secretPatch(key, draft)))) return;
+    setDraft(null);
+    test.mutate();
+  }
+
+  async function handleClear() {
+    await clear.mutateAsync({ [key]: "" });
+    setDraft(null);
+    test.reset();
+  }
+
+  return { draft, setDraft, test, handleSubmit, handleClear };
+}
+
+const NO_FIELDS = [] as const;
+
+function TmdbCard({ settings }: Props) {
+  const { t } = useI18n();
+  const form = useSettingsForm(settings, NO_FIELDS);
+  const { draft, setDraft, test, handleSubmit, handleClear } = useTestedSecret(
+    "tmdb_key",
+    "/api/integrations/tmdb/test",
+    form.submit,
+  );
+  const canSubmit = settings.tmdb_key_set || Boolean(draft?.trim());
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle as="h2">{t("set.tmdb")}</CardTitle>
+        <CardDescription>{t("set.tmdb_intro")}</CardDescription>
+        <CardAction>
+          <ConfiguredBadge isConfigured={settings.tmdb_key_set} />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col items-start gap-3" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="w-full max-w-md">
+            <SecretField
+              label={t("common.api_key")}
+              state={secretState(settings, "tmdb_key", settings.tmdb_key_set)}
+              draft={draft}
+              onDraftChange={setDraft}
+              onClear={handleClear}
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="outline"
+            size="sm"
+            className={SMALL_BUTTON}
+            disabled={!canSubmit || form.isSaving || test.isPending}
+          >
+            {t("common.save_test")}
+          </Button>
+          <SaveOutcomeLine outcome={form.outcome} savedText={t("set.tmdb_saved")} />
+          <TestOutcome test={test} />
+          <p className="text-xs text-muted-foreground">{t("set.tmdb_attribution")}</p>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+const PLEX_KEYS = ["plex_url"] as const;
+
+function PlexCard({ settings }: Props) {
+  const { t } = useI18n();
+  const { form, setField, isSaving, outcome, submit } = useSettingsForm(settings, PLEX_KEYS);
+  const { draft, setDraft, test, handleSubmit, handleClear } = useTestedSecret(
+    "plex_token",
+    "/api/integrations/plex/test",
+    submit,
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle as="h2">Plex</CardTitle>
+        <CardDescription>{t("set.plex_intro")}</CardDescription>
+        <CardAction>
+          <ConfiguredBadge isConfigured={Boolean(settings.plex_url) && settings.plex_token_set} />
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col items-start gap-3" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="flex w-full max-w-md flex-col gap-3">
+            <TextField
+              label={t("set.plex_url")}
+              type="url"
+              placeholder="http://plex:32400"
+              className="font-mono"
+              isEnvLocked={isEnvLocked(settings, "plex_url")}
+              value={form.plex_url}
+              onChange={(event) => setField("plex_url", event.target.value)}
+            />
+            <SecretField
+              label={t("set.plex_token")}
+              state={secretState(settings, "plex_token", settings.plex_token_set)}
+              draft={draft}
+              onDraftChange={setDraft}
+              onClear={handleClear}
+            />
+          </div>
+          <Button type="submit" variant="outline" size="sm" className={SMALL_BUTTON} disabled={isSaving || test.isPending}>
+            {t("common.save_test")}
+          </Button>
+          <SaveOutcomeLine outcome={outcome} savedText={t("set.plex_saved")} />
+          <TestOutcome test={test} />
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+const WEBHOOK_KEYS = ["notify_webhook"] as const;
+
+function NotificationsCard({ settings }: Props) {
+  const { t, errorText } = useI18n();
+  const { form, setField, isDirty, isSaving, outcome, submit } = useSettingsForm(settings, WEBHOOK_KEYS);
+  const saveDm = useSaveSettings();
+  const test = useTestEndpoint("/api/integrations/notify/test");
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    void submit();
+  }
+
+  const dmHintId = useId();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle as="h2">{t("set.notifications")}</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="settings-notify-telegram">{t("set.tg_dm")}</Label>
+            <Switch
+              id="settings-notify-telegram"
+              aria-describedby={dmHintId}
+              checked={settings.notify_telegram}
+              disabled={saveDm.isPending}
+              onCheckedChange={(isOn) => saveDm.mutate({ notify_telegram: isOn })}
+            />
+          </div>
+          <p id={dmHintId} className="text-xs text-muted-foreground">
+            {t("set.tg_dm_hint")}
+          </p>
+          {saveDm.isError && <StatusLine tone="error">{errorText(saveDm.error)}</StatusLine>}
+        </div>
+        <form className="flex flex-col items-start gap-2" onSubmit={handleSubmit}>
+          <div className="w-full max-w-md">
+            <TextField
+              label={t("set.webhook_url")}
+              hint={t("set.webhook_hint")}
+              type="url"
+              className="font-mono"
+              value={form.notify_webhook}
+              onChange={(event) => setField("notify_webhook", event.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" className={BUTTON} disabled={!isDirty || isSaving}>
+              {t("set.save_webhook")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={BUTTON}
+              disabled={isDirty || test.isPending}
+              onClick={() => test.mutate()}
+            >
+              {test.isPending ? t("set.sending") : t("set.send_test")}
+            </Button>
+          </div>
+          <SaveOutcomeLine outcome={outcome} savedText={t("set.webhook_saved")} />
+          {!test.isPending && <TestOutcome test={test} />}
+        </form>
+      </CardContent>
+    </Card>
+  );
+}

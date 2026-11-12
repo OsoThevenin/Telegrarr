@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* The same choice as the old UI: data-theme overrides the system preference, and
+   both UIs read it from localStorage. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
+/* shadcn/ui's components name Radix's states with these variants, which the registry
+   defines in a stylesheet this project does not import. */
+@custom-variant data-open (&:where([data-state="open"]));
+@custom-variant data-closed (&:where([data-state="closed"]));
+@custom-variant data-active (&:where([data-state="active"]));
+@custom-variant data-horizontal (&:where([data-orientation="horizontal"]));
+@custom-variant data-checked (&:where([data-state="checked"]));
+@custom-variant data-unchecked (&:where([data-state="unchecked"]));
+@custom-variant data-vertical (&:where([data-orientation="vertical"]));
+
+/* Telegrarr's palette, also in app/static/login.css, under shadcn/ui's token names. */
+:root {
+  --radius: 0.75rem;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
+  --card: #ffffff;
+  --card-foreground: #1d1d1f;
+  --popover: #ffffff;
+  --popover-foreground: #1d1d1f;
+  --primary: #0066cc;
+  --primary-foreground: #ffffff;
+  --secondary: #e8e8ed;
+  --secondary-foreground: #1d1d1f;
+  --muted: #e8e8ed;
+  --muted-foreground: #68686d;
+  --accent: #e8e8ed;
+  --accent-foreground: #1d1d1f;
+  --destructive: #ad2424;
+  --border: #d2d2d7;
+  --input: #d2d2d7;
+  --ring: #0066cc;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1d1d1f;
+  --sidebar-accent: #e8e8ed;
+  --sidebar-accent-foreground: #1d1d1f;
+  --sidebar-border: #e8e8ed;
+  /* The old UI's status colours and soft card edge, darkened to 4.5:1 on white. */
+  --success: #15803d;
+  --warning: #9a6200;
+  --card-border: #e8e8ed;
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 0.04), 0 12px 32px rgb(0 0 0 / 0.06);
+  --raised-shadow: 0 8px 20px rgb(0 0 0 / 0.06), 0 24px 60px rgb(0 0 0 / 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: #000000;
+    --foreground: #f5f5f7;
+    --card: #1c1c1e;
+    --card-foreground: #f5f5f7;
+    --popover: #1c1c1e;
+    --popover-foreground: #f5f5f7;
+    --primary: #2997ff;
+    --primary-foreground: #000000;
+    --secondary: #2a2a2c;
+    --secondary-foreground: #f5f5f7;
+    --muted: #2a2a2c;
+    --muted-foreground: #a1a1a6;
+    --accent: #2a2a2c;
+    --accent-foreground: #f5f5f7;
+    --destructive: #ffa299;
+    --border: #38383a;
+    --input: #38383a;
+    --ring: #2997ff;
+    --sidebar: #1c1c1e;
+    --sidebar-foreground: #f5f5f7;
+    --sidebar-accent: #2a2a2c;
+    --sidebar-accent-foreground: #f5f5f7;
+    --sidebar-border: #2a2a2c;
+    --success: #30d158;
+    --warning: #ff9f0a;
+    --card-border: #2a2a2c;
+    --card-shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 14px 40px rgb(0 0 0 / 0.5);
+    --raised-shadow: 0 8px 20px rgb(0 0 0 / 0.5), 0 24px 60px rgb(0 0 0 / 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --background: #000000;
+  --foreground: #f5f5f7;
+  --card: #1c1c1e;
+  --card-foreground: #f5f5f7;
+  --popover: #1c1c1e;
+  --popover-foreground: #f5f5f7;
+  --primary: #2997ff;
+  --primary-foreground: #000000;
+  --secondary: #2a2a2c;
+  --secondary-foreground: #f5f5f7;
+  --muted: #2a2a2c;
+  --muted-foreground: #a1a1a6;
+  --accent: #2a2a2c;
+  --accent-foreground: #f5f5f7;
+  --destructive: #ffa299;
+  --border: #38383a;
+  --input: #38383a;
+  --ring: #2997ff;
+  --sidebar: #1c1c1e;
+  --sidebar-foreground: #f5f5f7;
+  --sidebar-accent: #2a2a2c;
+  --sidebar-accent-foreground: #f5f5f7;
+  --sidebar-border: #2a2a2c;
+  --success: #30d158;
+  --warning: #ff9f0a;
+  --card-border: #2a2a2c;
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 14px 40px rgb(0 0 0 / 0.5);
+  --raised-shadow: 0 8px 20px rgb(0 0 0 / 0.5), 0 24px 60px rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --font-sans: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Inter, sans-serif;
+  --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Inter Tight", Inter, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 6px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-card-border: var(--card-border);
+  --shadow-card: var(--card-shadow);
+  --shadow-raised: var(--raised-shadow);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}

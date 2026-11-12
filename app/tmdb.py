@@ -180,8 +180,13 @@ def _series_hit(item: dict) -> dict:
         "title": item.get("name") or item.get("original_name") or "",
         "original_title": item.get("original_name") or "",
         "year": (item.get("first_air_date") or "")[:4],
-        "poster": (IMG + "w154" + item["poster_path"]) if item.get("poster_path") else "",
+        "poster": _poster(item, HIT_POSTER_SIZE),
+        "overview": item.get("overview") or "",
     }
+
+
+def _poster(item: dict, size: str) -> str:
+    return (IMG + size + item["poster_path"]) if item.get("poster_path") else ""
 
 
 HTTP_NOT_FOUND = 404
@@ -314,6 +319,8 @@ async def series_ids(tmdb_id=None, tvdb_id=None) -> SeriesIds:
 MIN_TITLE_SIMILARITY = 0.9        # parsed vs TMDB title, accent/punctuation-insensitive
 YEAR_TOLERANCE = 1                # TMDB's year filter matches any release date, not just the premiere
 RELEASE_TITLE_LANGUAGE = "en-US"  # Radarr's primary metadata title, so its parser accepts the release
+HIT_POSTER_SIZE = "w154"          # search-result thumbnails
+PREVIEW_POSTER_SIZE = "w342"      # the larger poster of a film about to be assigned
 
 
 @dataclass(frozen=True)
@@ -346,8 +353,13 @@ def _movie_hit(item: dict) -> dict:
         "title": item.get("title") or item.get("original_title") or "",
         "original_title": item.get("original_title") or "",
         "year": (item.get("release_date") or "")[:4],
-        "poster": (IMG + "w154" + item["poster_path"]) if item.get("poster_path") else "",
+        "poster": _poster(item, HIT_POSTER_SIZE),
+        "overview": item.get("overview") or "",
     }
+
+
+def _poster(item: dict, size: str) -> str:
+    return (IMG + size + item["poster_path"]) if item.get("poster_path") else ""
 
 
 async def search_movies(query: str, year: int | None = None) -> list[dict]:
@@ -385,19 +397,38 @@ async def film(tmdb_id) -> Film:
                 title=j.get("title") or j.get("original_title") or "", year=_year_of(j.get("release_date")))
 
 
-async def _film_for_imdb(imdb: str) -> Film:
-    hit = await _find_first(TMDBError("err.tmdb.no_film_imdb", imdb=imdb), imdb, "imdb_id", "movie_results")
-    return await film(hit["id"])
-
-
-async def film_for_typed(text) -> Film:
-    """The film a TMDB id, TMDB link or IMDb id names (see typed_id)."""
+async def _typed_film_id(text) -> int:
+    """The TMDB id of the film a TMDB id, TMDB link or IMDb id names (see typed_id)."""
     typed = typed_id(text)
     if typed is None:
         raise TMDBError("err.tmdb.bad_id")
     if typed.media == TV:
         raise TMDBError("err.tmdb.link_not_film")
-    return await (_film_for_imdb(typed.imdb_id) if typed.imdb_id else film(typed.tmdb_id))
+    if not typed.imdb_id:
+        return typed.tmdb_id
+    imdb = typed.imdb_id
+    hit = await _find_first(TMDBError("err.tmdb.no_film_imdb", imdb=imdb), imdb, "imdb_id", "movie_results")
+    return hit["id"]
+
+
+async def film_for_typed(text) -> Film:
+    """The film a TMDB id, TMDB link or IMDb id names (see typed_id)."""
+    return await film(await _typed_film_id(text))
+
+
+async def film_preview(text) -> dict:
+    """What a typed TMDB id, TMDB link or IMDb id names, to show before assigning it:
+    a search hit's fields in Catalan, plus the IMDb id and a larger poster. The
+    synopsis falls back to English when TMDB has no Catalan one."""
+    tmdb_n = await _typed_film_id(text)
+    not_found = TMDBError("err.tmdb.no_film_id", tmdb_id=tmdb_n)
+    j = await _get_found(not_found, f"/movie/{tmdb_n}", language=SEARCH_LANGUAGES[0])
+    overview = j.get("overview") or ""
+    if not overview:
+        english = await _get_found(not_found, f"/movie/{tmdb_n}", language=SEARCH_LANGUAGES[-1])
+        overview = english.get("overview") or ""
+    return {**_movie_hit(j), "imdb_id": j.get("imdb_id") or None,
+            "poster": _poster(j, PREVIEW_POSTER_SIZE), "overview": overview}
 
 
 async def match_film(title: str, year: int | None) -> Film | None:

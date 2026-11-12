@@ -222,14 +222,6 @@ async def test_the_status_of_an_unknown_channel_is_a_keyed_error(arr_app, arrs):
 
 
 @pytest.mark.asyncio
-async def test_the_catalog_module_fills_rows_from_the_status_endpoint_and_links_to_connect(arr_app):
-    module = (await arr_app.http.get("/static/js/catalog.js")).raise_for_status().text
-
-    assert "/catalog/status`" in module
-    assert '"#/connect"' in module          # the Radarr no connectat notice's Obre Connecta
-
-
-@pytest.mark.asyncio
 async def test_the_status_needs_a_signed_in_user(arr_app, arrs):
     arr_app.http.cookies.clear()
 
